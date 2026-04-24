@@ -12,7 +12,7 @@
     "publish:packages": "pnpm --filter better-matrix-js publish --access public --no-git-checks && pnpm --filter @better-matrix-js/chat-adapter publish --access public --no-git-checks",
     "smoke:cloudflare": "node scripts/smoke-cloudflare-worker.mjs",
     "smoke:consumer": "node scripts/smoke-consumer.mjs",
-    "test:go": "cd packages/core/native && go test ./...",
+    "test:go": "cd packages/core/native && go test -tags goolm ./...",
     "test:live": "node scripts/live-e2e.mjs",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
