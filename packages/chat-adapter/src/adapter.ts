@@ -73,6 +73,18 @@ interface SlashCommandParts {
   text: string;
 }
 
+interface MatrixAttachmentFetchMetadata {
+  matrixContentUri?: string;
+  matrixEncryptedFile?: string;
+  matrixEventId: string;
+  matrixRoomId: string;
+}
+
+type MatrixAttachment = Attachment & {
+  fetchMetadata?: MatrixAttachmentFetchMetadata;
+  matrix?: MatrixAttachmentFetchMetadata;
+};
+
 const CHAT_DELIVERY_METHOD_PREFIX = "handle";
 const CHAT_DELIVERY_METHOD_MIDDLE = "Web";
 const CHAT_DELIVERY_METHOD_SUFFIX = "hook";
@@ -495,7 +507,8 @@ export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> 
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
-    const metadata = attachment.fetchMetadata;
+    const matrixAttachment = attachment as MatrixAttachment;
+    const metadata = matrixAttachment.matrix ?? matrixAttachment.fetchMetadata;
     if (!metadata?.matrixContentUri && !metadata?.matrixEncryptedFile) {
       return attachment;
     }
@@ -688,18 +701,18 @@ export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> 
   }
 
   #attachmentFromMatrix(raw: MatrixRawMessage, attachment: MatrixMediaAttachment): Attachment {
-    const fetchMetadata: Record<string, string> = {
+    const metadata: MatrixAttachmentFetchMetadata = {
       matrixEventId: raw.eventId,
       matrixRoomId: raw.roomId,
     };
     if (attachment.contentUri) {
-      fetchMetadata.matrixContentUri = attachment.contentUri;
+      metadata.matrixContentUri = attachment.contentUri;
     }
     if (attachment.encryptedFile) {
-      fetchMetadata.matrixEncryptedFile = JSON.stringify(attachment.encryptedFile);
+      metadata.matrixEncryptedFile = JSON.stringify(attachment.encryptedFile);
     }
-    const chatAttachment: Attachment = {
-      fetchMetadata,
+    const chatAttachment: MatrixAttachment = {
+      matrix: metadata,
       type: attachmentTypeFromMsgtype(attachment.msgtype),
     };
     if (attachment.info?.height !== undefined) {
@@ -721,7 +734,7 @@ export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> 
     if (attachment.info?.width !== undefined) {
       chatAttachment.width = attachment.info.width;
     }
-    chatAttachment.fetchData = async () => bytesToBufferLike(await this.#downloadAttachment(fetchMetadata));
+    chatAttachment.fetchData = async () => bytesToBufferLike(await this.#downloadAttachment(metadata));
     return chatAttachment;
   }
 
@@ -753,7 +766,7 @@ export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> 
     return [attachment];
   }
 
-  async #downloadAttachment(metadata: Record<string, string>): Promise<Uint8Array> {
+  async #downloadAttachment(metadata: MatrixAttachmentFetchMetadata): Promise<Uint8Array> {
     const core = this.#requireCore();
     if (metadata.matrixEncryptedFile) {
       const file = parseEncryptedFileMetadata(metadata.matrixEncryptedFile);
