@@ -30,6 +30,7 @@ import type {
   ListThreadsResult,
   RawMessage,
   ThreadInfo,
+  WebhookOptions,
 } from "chat";
 import {
   ConsoleLogger,
@@ -110,10 +111,13 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
   #core: MatrixCore | null = null;
   #formatConverter = new MatrixFormatConverter();
   #logger: Logger;
+  #messageThreadIds = new Map<string, string>();
   #polling: MatrixPollingHandle | null = null;
   #roomCache = new Map<string, RoomCacheEntry>();
   #roomAllowlist: Set<string> | null;
+  #unsubscribeCore: (() => void) | null = null;
   #userId: string | null = null;
+  #webhookOptions: WebhookOptions | undefined;
 
   constructor(config: MatrixAdapterConfig) {
     this.#config = config;
@@ -126,7 +130,8 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     this.#chat = chat;
     this.#logger = chat.getLogger("matrix");
     this.#core = await this.#resolveCore();
-    this.#core.onEvent((event) => this.#handleCoreEvent(event));
+    this.#unsubscribeCore?.();
+    this.#unsubscribeCore = this.#core.onEvent((event) => this.#handleCoreEvent(event));
     const initOptions: MatrixCoreInitOptions = {
       accessToken: this.#config.accessToken,
       homeserverUrl: this.#config.homeserverUrl,
@@ -159,8 +164,12 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
   async disconnect(): Promise<void> {
     await this.#polling?.stop();
     this.#polling = null;
+    this.#unsubscribeCore?.();
+    this.#unsubscribeCore = null;
     await this.#core?.close();
     this.#core = null;
+    this.#chat = null;
+    this.#messageThreadIds.clear();
     this.#userId = null;
     delete this.botUserId;
   }
@@ -177,18 +186,23 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     return encodeMatrixChatThreadRef(platformData);
   }
 
-  async handleWebhook(request: Request, _options?: unknown): Promise<Response> {
+  async handleWebhook(request: Request, options?: WebhookOptions): Promise<Response> {
     if (request.method !== "POST") {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
     const body = (await request.json()) as MatrixSyncWebhookPayload;
     const response = body.response ?? body.sync ?? body;
-    const options = { response };
+    const applyOptions = { response };
     if (typeof body.since === "string") {
-      Object.assign(options, { since: body.since });
+      Object.assign(applyOptions, { since: body.since });
     }
-    await this.#requireCore().applySyncResponse(options);
+    this.#webhookOptions = options;
+    try {
+      await this.#requireCore().applySyncResponse(applyOptions);
+    } finally {
+      this.#webhookOptions = undefined;
+    }
     return Response.json({ ok: true });
   }
 
@@ -220,7 +234,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
         isBot: "unknown",
         isMe: raw.isMe ?? raw.sender === this.#userId,
         userId: raw.sender ?? "unknown",
-        userName: raw.sender ?? "unknown",
+        userName: raw.sender ? matrixLocalpart(raw.sender) : "unknown",
       },
       formatted,
       id: raw.eventId,
@@ -245,6 +259,8 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     const uploads = await this.#collectUploads(message);
     const linkLines = this.#collectLinkOnlyAttachmentLines(message);
     const body = mergeTextAndLinks(rendered.body, linkLines);
+    const formattedBody = appendFormattedLinkLines(rendered.formattedBody, linkLines);
+    const replyToEventId = extractMatrixReplyToEventId(message);
     let first: RawMessage<MatrixRawMessage> | null = null;
 
     if (body.length > 0) {
@@ -252,11 +268,14 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
         body,
         roomId: parsed.roomId,
       };
-      if (rendered.formattedBody !== undefined) {
-        postOptions.formattedBody = rendered.formattedBody;
+      if (formattedBody !== undefined) {
+        postOptions.formattedBody = formattedBody;
       }
       if (rendered.mentions !== undefined) {
         postOptions.mentions = rendered.mentions;
+      }
+      if (replyToEventId !== undefined) {
+        postOptions.replyToEventId = replyToEventId;
       }
       if (parsed.eventId !== undefined) {
         postOptions.threadRootEventId = parsed.eventId;
@@ -292,13 +311,18 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     const core = this.#requireCore();
     const parsed = this.decodeThreadId(threadId);
     const rendered = this.#formatConverter.renderPostableMessage(message);
+    const linkLines = this.#collectLinkOnlyAttachmentLines(message);
     const editOptions = {
-      body: rendered.body,
+      body: mergeTextAndLinks(rendered.body, linkLines),
       messageId,
       roomId: parsed.roomId,
     };
-    if (rendered.formattedBody !== undefined) {
-      Object.assign(editOptions, { formattedBody: rendered.formattedBody });
+    const formattedBody = appendFormattedLinkLines(rendered.formattedBody, linkLines);
+    if (formattedBody !== undefined) {
+      Object.assign(editOptions, { formattedBody });
+    }
+    if (rendered.mentions !== undefined) {
+      Object.assign(editOptions, { mentions: rendered.mentions });
     }
     const raw = await core.editMessage(editOptions);
     return this.#rawMessage(messageId, parsed.roomId, threadId, {
@@ -558,7 +582,8 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
         return;
       }
       const message = this.#messageEventToMessage(event.event);
-      this.#chat.processMessage(this, message.threadId, message);
+      this.#messageThreadIds.set(message.id, message.threadId);
+      this.#chat.processMessage(this, message.threadId, message, this.#webhookOptions);
       const slash = this.#parseSlashCommand(message.text);
       if (slash) {
         this.#chat.processSlashCommand(
@@ -571,7 +596,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
             triggerId: event.event.eventId,
             user: message.author,
           },
-          undefined
+          this.#webhookOptions
         );
       }
     } else if (event.type === "reaction") {
@@ -585,15 +610,17 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
         messageId: event.event.relatesToEventId,
         raw: event.event,
         rawEmoji: event.event.key,
-        threadId: this.encodeThreadId({ roomId: event.event.roomId }),
+        threadId:
+          this.#messageThreadIds.get(event.event.relatesToEventId) ??
+          this.encodeThreadId({ roomId: event.event.roomId }),
         user: {
           fullName: event.event.sender,
           isBot: "unknown",
           isMe: event.event.isMe ?? event.event.sender === this.#userId,
           userId: event.event.sender,
-          userName: event.event.sender,
+          userName: matrixLocalpart(event.event.sender),
         },
-      });
+      }, this.#webhookOptions);
     } else if (event.type === "invite") {
       void this.#maybeAutoJoinInvite(event.event.roomId, event.event.inviter);
     } else if (event.type === "crypto_status") {
@@ -743,6 +770,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       metadata.matrixEncryptedFile = JSON.stringify(attachment.encryptedFile);
     }
     const chatAttachment: MatrixAttachment = {
+      fetchMetadata: metadata,
       matrix: metadata,
       type: attachmentTypeFromMsgtype(attachment.msgtype),
     };
@@ -1071,6 +1099,41 @@ function mergeTextAndLinks(text: string, linkLines: string[]): string {
     return linkLines.join("\n");
   }
   return `${normalized}\n\n${linkLines.join("\n")}`;
+}
+
+function appendFormattedLinkLines(formattedBody: string | undefined, linkLines: string[]): string | undefined {
+  if (linkLines.length === 0) {
+    return formattedBody;
+  }
+  const suffix = linkLines
+    .map((line) => {
+      const [label, ...rest] = line.split(": ");
+      const url = rest.length > 0 ? rest.join(": ") : line;
+      const text = rest.length > 0 ? `${label}: ${url}` : url;
+      return `<a href="${escapeHTMLAttribute(url)}">${escapeHTML(text)}</a>`;
+    })
+    .join("<br>");
+  return formattedBody ? `${formattedBody}<br><br>${suffix}` : suffix;
+}
+
+function extractMatrixReplyToEventId(message: AdapterPostableMessage): string | undefined {
+  if (!isRecord(message)) {
+    return undefined;
+  }
+  const value = message.matrixReplyToEventId;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function escapeHTML(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function escapeHTMLAttribute(value: string): string {
+  return escapeHTML(value).replaceAll("'", "&#39;");
 }
 
 async function bytesFromBinary(data: Buffer | Blob | ArrayBuffer | ArrayBufferView): Promise<Uint8Array> {

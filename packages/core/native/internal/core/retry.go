@@ -24,6 +24,9 @@ func retryMatrix[T any](ctx context.Context, run func() (T, error)) (T, error) {
 		if !isTransientMatrixError(err) || attempt == 2 {
 			return zero, err
 		}
+		if retryAfter := matrixRetryAfter(err); retryAfter > delay {
+			delay = retryAfter
+		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -34,6 +37,24 @@ func retryMatrix[T any](ctx context.Context, run func() (T, error)) (T, error) {
 		delay *= 2
 	}
 	return zero, last
+}
+
+func matrixRetryAfter(err error) time.Duration {
+	var httpErr mautrix.HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Response == nil {
+		return 0
+	}
+	header := httpErr.Response.Header.Get("Retry-After")
+	if header == "" {
+		return 0
+	}
+	if seconds, parseErr := time.ParseDuration(header + "s"); parseErr == nil {
+		return seconds
+	}
+	if when, parseErr := http.ParseTime(header); parseErr == nil {
+		return time.Until(when)
+	}
+	return 0
 }
 
 func retryMatrixVoid(ctx context.Context, run func() error) error {

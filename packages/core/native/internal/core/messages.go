@@ -58,11 +58,12 @@ func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, e
 }
 
 type editReq struct {
-	RoomID        string `json:"roomId"`
-	MessageID     string `json:"messageId"`
-	Body          string `json:"body"`
-	FormattedBody string `json:"formattedBody,omitempty"`
-	MsgType       string `json:"msgtype,omitempty"`
+	RoomID        string       `json:"roomId"`
+	MessageID     string       `json:"messageId"`
+	Body          string       `json:"body"`
+	FormattedBody string       `json:"formattedBody,omitempty"`
+	Mentions      *mentionsReq `json:"mentions,omitempty"`
+	MsgType       string       `json:"msgtype,omitempty"`
 }
 
 func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, error) {
@@ -74,7 +75,7 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	newContent := messageContent(req.Body, req.FormattedBody, req.MsgType, nil)
+	newContent := messageContent(req.Body, req.FormattedBody, req.MsgType, req.Mentions)
 	content := &event.MessageEventContent{
 		Body:       "",
 		MsgType:    newContent.MsgType,
@@ -249,6 +250,7 @@ func (c *Core) handleFetchThreadMessages(ctx context.Context, cli *mautrix.Clien
 			Dir:          dir,
 			From:         req.Cursor,
 			Limit:        limit,
+			Recurse:      true,
 		})
 	})
 	if err != nil {

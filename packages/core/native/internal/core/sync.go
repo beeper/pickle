@@ -36,14 +36,14 @@ func (c *Core) handleSyncOnce(ctx context.Context, payload []byte) ([]byte, erro
 		return nil, err
 	}
 	since := c.nextBatch
+	if err := c.processSyncResponse(ctx, resp, since); err != nil {
+		return nil, err
+	}
 	c.nextBatch = resp.NextBatch
 	if c.stores != nil {
 		if err := c.stores.SaveNextBatch(ctx, c.nextBatch); err != nil {
 			return nil, err
 		}
-	}
-	if err := c.processSyncResponse(ctx, resp, since); err != nil {
-		return nil, err
 	}
 	return c.empty()
 }
@@ -62,14 +62,14 @@ func (c *Core) handleApplySyncResponse(ctx context.Context, payload []byte) ([]b
 	if err := json.Unmarshal(req.Response, &resp); err != nil {
 		return nil, err
 	}
+	if err := c.processSyncResponse(ctx, &resp, req.Since); err != nil {
+		return nil, err
+	}
 	c.nextBatch = resp.NextBatch
 	if c.stores != nil {
 		if err := c.stores.SaveNextBatch(ctx, c.nextBatch); err != nil {
 			return nil, err
 		}
-	}
-	if err := c.processSyncResponse(ctx, &resp, req.Since); err != nil {
-		return nil, err
 	}
 	return c.empty()
 }

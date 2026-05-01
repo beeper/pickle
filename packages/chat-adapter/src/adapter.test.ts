@@ -260,7 +260,8 @@ describe("MatrixAdapter", () => {
         added: false,
         messageId: "$message",
         rawEmoji: "👍",
-      })
+      }),
+      undefined
     );
   });
 

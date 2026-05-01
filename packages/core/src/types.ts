@@ -116,6 +116,7 @@ export interface MatrixSendMessageOptions {
 export interface MatrixEditMessageOptions {
   body: string;
   formattedBody?: string;
+  mentions?: MatrixMentions;
   messageId: string;
   msgtype?: "m.text" | "m.notice" | "m.emote";
   roomId: string;
