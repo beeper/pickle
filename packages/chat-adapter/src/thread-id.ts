@@ -1,8 +1,8 @@
-import type { MatrixThreadId } from "./types";
+import type { MatrixChatThreadRef } from "./types";
 
 const PREFIX = "matrix";
 
-export function encodeMatrixThreadId(data: MatrixThreadId): string {
+export function encodeMatrixChatThreadRef(data: MatrixChatThreadRef): string {
   const parts = [PREFIX, encodeSegment(data.roomId)];
   if (data.eventId) {
     parts.push(encodeSegment(data.eventId));
@@ -10,21 +10,21 @@ export function encodeMatrixThreadId(data: MatrixThreadId): string {
   return parts.join(":");
 }
 
-export function decodeMatrixThreadId(threadId: string): MatrixThreadId {
+export function decodeMatrixChatThreadRef(threadId: string): MatrixChatThreadRef {
   const [prefix, roomId, eventId, ...rest] = threadId.split(":");
   if (prefix !== PREFIX || !roomId || rest.length > 0) {
-    throw new Error(`Invalid Matrix thread ID: ${threadId}`);
+    throw new Error(`Invalid Matrix Chat SDK thread ref: ${threadId}`);
   }
-  const decoded: MatrixThreadId = { roomId: decodeSegment(roomId) };
+  const decoded: MatrixChatThreadRef = { roomId: decodeSegment(roomId) };
   if (eventId) {
     decoded.eventId = decodeSegment(eventId);
   }
   return decoded;
 }
 
-export function matrixChannelIdFromThreadId(threadId: string): string {
-  const { roomId } = decodeMatrixThreadId(threadId);
-  return encodeMatrixThreadId({ roomId });
+export function matrixChannelIdFromChatThreadId(threadId: string): string {
+  const { roomId } = decodeMatrixChatThreadRef(threadId);
+  return encodeMatrixChatThreadRef({ roomId });
 }
 
 function encodeSegment(input: string): string {

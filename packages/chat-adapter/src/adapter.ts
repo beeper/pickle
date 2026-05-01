@@ -41,13 +41,13 @@ import {
   type Logger,
 } from "chat";
 import type { Buffer } from "node:buffer";
-import { MatrixFormatConverter } from "./format";
+import { MatrixFormatConverter, matrixLocalpart } from "./format";
 import {
-  decodeMatrixThreadId,
-  encodeMatrixThreadId,
-  matrixChannelIdFromThreadId,
+  decodeMatrixChatThreadRef,
+  encodeMatrixChatThreadRef,
+  matrixChannelIdFromChatThreadId,
 } from "./thread-id";
-import type { MatrixAdapterConfig, MatrixRawMessage, MatrixThreadId } from "./types";
+import type { MatrixAdapterConfig, MatrixRawMessage, MatrixChatThreadRef } from "./types";
 
 interface RoomCacheEntry {
   isDM?: boolean;
@@ -85,13 +85,21 @@ type MatrixAttachment = Attachment & {
   matrix?: MatrixAttachmentFetchMetadata;
 };
 
-const CHAT_DELIVERY_METHOD_PREFIX = "handle";
-const CHAT_DELIVERY_METHOD_MIDDLE = "Web";
-const CHAT_DELIVERY_METHOD_SUFFIX = "hook";
-const CHAT_DELIVERY_METHOD =
-  `${CHAT_DELIVERY_METHOD_PREFIX}${CHAT_DELIVERY_METHOD_MIDDLE}${CHAT_DELIVERY_METHOD_SUFFIX}` as const;
+interface MatrixChatUserInfo {
+  avatarUrl?: string;
+  fullName: string;
+  isBot: boolean;
+  userId: string;
+  userName: string;
+}
 
-export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> {
+interface MatrixSyncWebhookPayload {
+  response?: unknown;
+  since?: string;
+  sync?: unknown;
+}
+
+export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMessage> {
   readonly name = "matrix";
   readonly userName: string;
 
@@ -158,22 +166,30 @@ export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> 
   }
 
   channelIdFromThreadId(threadId: string): string {
-    return matrixChannelIdFromThreadId(threadId);
+    return matrixChannelIdFromChatThreadId(threadId);
   }
 
-  decodeThreadId(threadId: string): MatrixThreadId {
-    return decodeMatrixThreadId(threadId);
+  decodeThreadId(threadId: string): MatrixChatThreadRef {
+    return decodeMatrixChatThreadRef(threadId);
   }
 
-  encodeThreadId(platformData: MatrixThreadId): string {
-    return encodeMatrixThreadId(platformData);
+  encodeThreadId(platformData: MatrixChatThreadRef): string {
+    return encodeMatrixChatThreadRef(platformData);
   }
 
-  async [CHAT_DELIVERY_METHOD](_request: Request, _options?: unknown): Promise<Response> {
-    return Response.json({
-      ok: true,
-      transport: "sync",
-    });
+  async handleWebhook(request: Request, _options?: unknown): Promise<Response> {
+    if (request.method !== "POST") {
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
+    }
+
+    const body = (await request.json()) as MatrixSyncWebhookPayload;
+    const response = body.response ?? body.sync ?? body;
+    const options = { response };
+    if (typeof body.since === "string") {
+      Object.assign(options, { since: body.since });
+    }
+    await this.#requireCore().applySyncResponse(options);
+    return Response.json({ ok: true });
   }
 
   parseMessage(raw: MatrixRawMessage, overrideThreadId?: string): Message<MatrixRawMessage> {
@@ -186,11 +202,11 @@ export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> 
       readString(relatesTo, "event_id") ??
       readString(relatesTo, "relates_to_event_id");
 
-    const matrixThreadId: MatrixThreadId = { roomId: raw.roomId };
+    const chatThreadRef: MatrixChatThreadRef = { roomId: raw.roomId };
     if (threadRoot) {
-      matrixThreadId.eventId = threadRoot;
+      chatThreadRef.eventId = threadRoot;
     }
-    const threadId = overrideThreadId ?? this.encodeThreadId(matrixThreadId);
+    const threadId = overrideThreadId ?? this.encodeThreadId(chatThreadRef);
     const formatted = formattedBody
       ? this.#formatConverter.fromMatrixHTML(formattedBody)
       : parseMarkdown(body);
@@ -482,6 +498,21 @@ export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> 
     return this.#roomCache.get(this.decodeThreadId(threadId).roomId)?.visibility ?? "unknown";
   }
 
+  async getUser(userId: string) {
+    const profile = await this.#requireCore().getUser({ userId });
+    const fullName = profile.displayName ?? userId;
+    const user: MatrixChatUserInfo = {
+      fullName,
+      isBot: false,
+      userId,
+      userName: matrixLocalpart(userId),
+    };
+    if (profile.avatarUrl !== undefined) {
+      user.avatarUrl = profile.avatarUrl;
+    }
+    return user;
+  }
+
   isDM(threadId: string): boolean {
     return this.#roomCache.get(this.decodeThreadId(threadId).roomId)?.isDM ?? false;
   }
@@ -568,7 +599,7 @@ export class MatrixAdapter implements Adapter<MatrixThreadId, MatrixRawMessage> 
     } else if (event.type === "crypto_status") {
       this.#logger.debug("Matrix crypto status", event);
     } else if (event.type === "decryption_error") {
-      this.#logger.warn("Matrix decryption error", { error: event.error, event: event.event });
+      this.#logger.debug("Matrix decryption error", { error: event.error, event: event.event });
     } else if (event.type === "error") {
       this.#logger.warn("Matrix core error", { error: event.error });
     }

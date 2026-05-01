@@ -73,12 +73,18 @@ func (c *Core) requestThreadList(ctx context.Context, cli *mautrix.Client, req l
 	}
 	var response threadListResp
 	stableURL := cli.BuildURLWithQuery(mautrix.ClientURLPath{"v1", "rooms", id.RoomID(req.RoomID), "threads"}, query)
-	if _, err := cli.MakeRequest(ctx, http.MethodGet, stableURL, nil, &response); err == nil {
+	if err := retryMatrixVoid(ctx, func() error {
+		_, err := cli.MakeRequest(ctx, http.MethodGet, stableURL, nil, &response)
+		return err
+	}); err == nil {
 		return &response, nil
 	}
 	response = threadListResp{}
 	unstableURL := cli.BuildURLWithQuery(mautrix.BaseURLPath{"_matrix", "client", "unstable", "org.matrix.msc3856", "rooms", id.RoomID(req.RoomID), "threads"}, query)
-	if _, err := cli.MakeRequest(ctx, http.MethodGet, unstableURL, nil, &response); err != nil {
+	if err := retryMatrixVoid(ctx, func() error {
+		_, err := cli.MakeRequest(ctx, http.MethodGet, unstableURL, nil, &response)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	return &response, nil

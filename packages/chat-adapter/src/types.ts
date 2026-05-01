@@ -6,7 +6,7 @@ import type {
   MatrixCoreInitOptions,
 } from "better-matrix-js";
 
-export interface MatrixThreadId {
+export interface MatrixChatThreadRef {
   eventId?: string;
   roomId: string;
 }

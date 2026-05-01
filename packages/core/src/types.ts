@@ -236,6 +236,17 @@ export interface MatrixOpenDMResult {
   roomId: string;
 }
 
+export interface MatrixGetUserOptions {
+  userId: string;
+}
+
+export interface MatrixUserInfo {
+  avatarUrl?: string;
+  displayName?: string;
+  raw: unknown;
+  userId: string;
+}
+
 export interface MatrixJoinRoomOptions {
   roomIdOrAlias: string;
 }
@@ -325,6 +336,7 @@ export interface MatrixCore {
   fetchMessages(options: MatrixFetchMessagesOptions): Promise<MatrixFetchMessagesResult>;
   fetchRoom(options: MatrixFetchRoomOptions): Promise<MatrixRoomInfo>;
   fetchJoinedRooms(): Promise<MatrixJoinedRoomsResult>;
+  getUser(options: MatrixGetUserOptions): Promise<MatrixUserInfo>;
   init(options: MatrixCoreInitOptions): Promise<MatrixWhoami>;
   inviteUser(options: MatrixInviteUserOptions): Promise<void>;
   joinRoom(options: MatrixJoinRoomOptions): Promise<MatrixJoinRoomResult>;

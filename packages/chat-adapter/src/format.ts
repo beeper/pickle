@@ -239,7 +239,7 @@ function escapeMarkdownLinkText(text: string): string {
   return text.replace(/[[\]\\]/gu, "\\$&");
 }
 
-function matrixLocalpart(userId: string): string {
+export function matrixLocalpart(userId: string): string {
   const withoutSigil = userId.startsWith("@") ? userId.slice(1) : userId;
   return withoutSigil.split(":")[0] || withoutSigil;
 }

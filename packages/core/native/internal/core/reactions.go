@@ -36,7 +36,9 @@ func (c *Core) handleAddReaction(ctx context.Context, payload []byte) ([]byte, e
 	content := &event.ReactionEventContent{
 		RelatesTo: *(&event.RelatesTo{}).SetAnnotation(id.EventID(req.MessageID), req.Emoji),
 	}
-	resp, err := cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventReaction, content)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventReaction, content)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -52,11 +54,13 @@ func (c *Core) handleRemoveReaction(ctx context.Context, payload []byte) ([]byte
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	relations, err := cli.GetRelations(ctx, id.RoomID(req.RoomID), id.EventID(req.MessageID), &mautrix.ReqGetRelations{
-		RelationType: event.RelAnnotation,
-		EventType:    event.EventReaction,
-		Dir:          mautrix.DirectionBackward,
-		Limit:        100,
+	relations, err := retryMatrix(ctx, func() (*mautrix.RespGetRelations, error) {
+		return cli.GetRelations(ctx, id.RoomID(req.RoomID), id.EventID(req.MessageID), &mautrix.ReqGetRelations{
+			RelationType: event.RelAnnotation,
+			EventType:    event.EventReaction,
+			Dir:          mautrix.DirectionBackward,
+			Limit:        100,
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -68,7 +72,10 @@ func (c *Core) handleRemoveReaction(ctx context.Context, payload []byte) ([]byte
 		_ = relEvt.Content.ParseRaw(relEvt.Type)
 		content := relEvt.Content.AsReaction()
 		if content.RelatesTo.EventID == id.EventID(req.MessageID) && content.RelatesTo.Key == req.Emoji {
-			_, err = cli.RedactEvent(ctx, id.RoomID(req.RoomID), relEvt.ID)
+			err = retryMatrixVoid(ctx, func() error {
+				_, err := cli.RedactEvent(ctx, id.RoomID(req.RoomID), relEvt.ID)
+				return err
+			})
 			return c.emptyIfNil(err)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/crypto/attachment"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -52,7 +53,9 @@ func (c *Core) handleUploadMedia(ctx context.Context, payload []byte) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	resp, err := cli.UploadBytesWithName(ctx, data, req.ContentType, req.Filename)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespMediaUpload, error) {
+		return cli.UploadBytesWithName(ctx, data, req.ContentType, req.Filename)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -113,14 +116,18 @@ func (c *Core) handlePostMediaMessage(ctx context.Context, payload []byte) ([]by
 		if err != nil {
 			return nil, err
 		}
-		resp, err := cli.UploadBytesWithName(ctx, ciphertext, "application/octet-stream", req.Filename)
+		resp, err := retryMatrix(ctx, func() (*mautrix.RespMediaUpload, error) {
+			return cli.UploadBytesWithName(ctx, ciphertext, "application/octet-stream", req.Filename)
+		})
 		if err != nil {
 			return nil, err
 		}
 		file.URL = resp.ContentURI.String()
 		content.File = encryptedFileToEvent(file)
 	} else {
-		resp, err := cli.UploadBytesWithName(ctx, plaintext, req.ContentType, req.Filename)
+		resp, err := retryMatrix(ctx, func() (*mautrix.RespMediaUpload, error) {
+			return cli.UploadBytesWithName(ctx, plaintext, req.ContentType, req.Filename)
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -129,7 +136,9 @@ func (c *Core) handlePostMediaMessage(ctx context.Context, payload []byte) ([]by
 	if req.ThreadRootEventID != "" {
 		content.RelatesTo = (&event.RelatesTo{}).SetThread(id.EventID(req.ThreadRootEventID), "")
 	}
-	resp, err := cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +162,9 @@ func (c *Core) handleDownloadMedia(ctx context.Context, payload []byte) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	data, err := cli.DownloadBytes(ctx, parsed)
+	data, err := retryMatrix(ctx, func() ([]byte, error) {
+		return cli.DownloadBytes(ctx, parsed)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +204,9 @@ func (c *Core) handleUploadEncryptedMedia(ctx context.Context, payload []byte) (
 	if err != nil {
 		return nil, err
 	}
-	resp, err := cli.UploadBytesWithName(ctx, ciphertext, "application/octet-stream", req.Filename)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespMediaUpload, error) {
+		return cli.UploadBytesWithName(ctx, ciphertext, "application/octet-stream", req.Filename)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +235,9 @@ func (c *Core) handleDownloadEncryptedMedia(ctx context.Context, payload []byte)
 	if err != nil {
 		return nil, err
 	}
-	ciphertext, err := cli.DownloadBytes(ctx, parsed)
+	ciphertext, err := retryMatrix(ctx, func() ([]byte, error) {
+		return cli.DownloadBytes(ctx, parsed)
+	})
 	if err != nil {
 		return nil, err
 	}

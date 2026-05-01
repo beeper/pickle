@@ -1,6 +1,10 @@
-export * from "./adapter";
-export * from "./format";
-export * from "./login";
-export * from "./thread-id";
-export * from "./types";
-
+export { createMatrixAdapter, MatrixAdapter } from "./adapter";
+export { MatrixFormatConverter } from "./format";
+export type { RenderedMatrixMessage } from "./format";
+export { loginMatrix, loginMatrixWithToken } from "./login";
+export {
+  decodeMatrixChatThreadRef,
+  encodeMatrixChatThreadRef,
+  matrixChannelIdFromChatThreadId,
+} from "./thread-id";
+export type { MatrixAdapterConfig, MatrixRawMessage, MatrixChatThreadRef } from "./types";

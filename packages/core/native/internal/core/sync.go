@@ -24,11 +24,13 @@ func (c *Core) handleSyncOnce(ctx context.Context, payload []byte) ([]byte, erro
 		req.TimeoutMS = 30000
 	}
 	c.emit(OutboundEvent{"type": "sync_status", "status": "syncing"})
-	resp, err := cli.FullSyncRequest(ctx, mautrix.ReqSync{
-		Timeout:     req.TimeoutMS,
-		Since:       c.nextBatch,
-		FullState:   false,
-		SetPresence: event.PresenceOffline,
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespSync, error) {
+		return cli.FullSyncRequest(ctx, mautrix.ReqSync{
+			Timeout:     req.TimeoutMS,
+			Since:       c.nextBatch,
+			FullState:   false,
+			SetPresence: event.PresenceOffline,
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -187,7 +189,9 @@ func (c *Core) decryptIfNeeded(ctx context.Context, evt *event.Event) (*event.Ev
 		return nil, errors.New("matrix E2EE is not initialized")
 	}
 	_ = evt.Content.ParseRaw(evt.Type)
-	decrypted, err := c.crypto.Decrypt(ctx, evt)
+	decrypted, err := retryMatrix(ctx, func() (*event.Event, error) {
+		return c.crypto.Decrypt(ctx, evt)
+	})
 	if err != nil {
 		return nil, err
 	}

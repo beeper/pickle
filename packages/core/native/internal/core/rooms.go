@@ -45,7 +45,9 @@ func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, err
 		}
 	}
 	var name map[string]any
-	if err := cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StateRoomName, "", &name); err == nil {
+	if err := retryMatrixVoid(ctx, func() error {
+		return cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StateRoomName, "", &name)
+	}); err == nil {
 		info.Raw["name"] = name
 		if rawName, ok := name["name"].(string); ok {
 			info.Name = rawName
@@ -54,7 +56,9 @@ func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, err
 		return nil, err
 	}
 	var topic map[string]any
-	if err := cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StateTopic, "", &topic); err == nil {
+	if err := retryMatrixVoid(ctx, func() error {
+		return cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StateTopic, "", &topic)
+	}); err == nil {
 		info.Raw["topic"] = topic
 		if rawTopic, ok := topic["topic"].(string); ok {
 			info.Topic = rawTopic
@@ -63,7 +67,9 @@ func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, err
 		return nil, err
 	}
 	var joinRules map[string]any
-	if err := cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StateJoinRules, "", &joinRules); err == nil {
+	if err := retryMatrixVoid(ctx, func() error {
+		return cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StateJoinRules, "", &joinRules)
+	}); err == nil {
 		info.Raw["joinRules"] = joinRules
 		if joinRule, ok := joinRules["join_rule"].(string); ok {
 			info.JoinRule = joinRule
@@ -76,7 +82,9 @@ func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, err
 	} else if !errors.Is(err, mautrix.MNotFound) {
 		return nil, err
 	}
-	members, err := cli.JoinedMembers(ctx, id.RoomID(req.RoomID))
+	members, err := retryMatrix(ctx, func() (*mautrix.RespJoinedMembers, error) {
+		return cli.JoinedMembers(ctx, id.RoomID(req.RoomID))
+	})
 	if err == nil {
 		info.MemberCount = len(members.Joined)
 		info.IsDM = info.MemberCount == 2
@@ -101,23 +109,28 @@ func (c *Core) handleOpenDM(ctx context.Context, payload []byte) ([]byte, error)
 		return nil, err
 	}
 	stateKey := ""
-	resp, err := cli.CreateRoom(ctx, &mautrix.ReqCreateRoom{
-		IsDirect: true,
-		Preset:   "private_chat",
-		InitialState: []*event.Event{{
-			Type:     event.StateEncryption,
-			StateKey: &stateKey,
-			Content: event.Content{Parsed: &event.EncryptionEventContent{
-				Algorithm:              id.AlgorithmMegolmV1,
-				RotationPeriodMillis:   int64((7 * 24 * time.Hour).Milliseconds()),
-				RotationPeriodMessages: 100,
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespCreateRoom, error) {
+		return cli.CreateRoom(ctx, &mautrix.ReqCreateRoom{
+			IsDirect: true,
+			Preset:   "private_chat",
+			InitialState: []*event.Event{{
+				Type:     event.StateEncryption,
+				StateKey: &stateKey,
+				Content: event.Content{Parsed: &event.EncryptionEventContent{
+					Algorithm:              id.AlgorithmMegolmV1,
+					RotationPeriodMillis:   int64((7 * 24 * time.Hour).Milliseconds()),
+					RotationPeriodMessages: 100,
+				}},
 			}},
-		}},
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
-	_, err = cli.InviteUser(ctx, resp.RoomID, &mautrix.ReqInviteUser{UserID: id.UserID(req.UserID)})
+	err = retryMatrixVoid(ctx, func() error {
+		_, err := cli.InviteUser(ctx, resp.RoomID, &mautrix.ReqInviteUser{UserID: id.UserID(req.UserID)})
+		return err
+	})
 	if err != nil && !strings.Contains(err.Error(), "already in the room") {
 		return nil, err
 	}
@@ -138,7 +151,9 @@ func (c *Core) handleJoinRoom(ctx context.Context, payload []byte) ([]byte, erro
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	resp, err := cli.JoinRoom(ctx, req.RoomIDOrAlias, nil)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespJoinRoom, error) {
+		return cli.JoinRoom(ctx, req.RoomIDOrAlias, nil)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +178,9 @@ func (c *Core) handleLeaveRoom(ctx context.Context, payload []byte) ([]byte, err
 	if req.Reason != "" {
 		leaveReq = &mautrix.ReqLeave{Reason: req.Reason}
 	}
-	resp, err := cli.LeaveRoom(ctx, id.RoomID(req.RoomID), leaveReq)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespLeaveRoom, error) {
+		return cli.LeaveRoom(ctx, id.RoomID(req.RoomID), leaveReq)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -185,9 +202,11 @@ func (c *Core) handleInviteUser(ctx context.Context, payload []byte) ([]byte, er
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	resp, err := cli.InviteUser(ctx, id.RoomID(req.RoomID), &mautrix.ReqInviteUser{
-		Reason: req.Reason,
-		UserID: id.UserID(req.UserID),
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespInviteUser, error) {
+		return cli.InviteUser(ctx, id.RoomID(req.RoomID), &mautrix.ReqInviteUser{
+			Reason: req.Reason,
+			UserID: id.UserID(req.UserID),
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -200,7 +219,9 @@ func (c *Core) handleFetchJoinedRooms(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := cli.JoinedRooms(ctx)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespJoinedRooms, error) {
+		return cli.JoinedRooms(ctx)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +234,9 @@ func (c *Core) handleFetchJoinedRooms(ctx context.Context) ([]byte, error) {
 
 func (c *Core) updateDirectChats(ctx context.Context, cli *mautrix.Client, userID id.UserID, roomID id.RoomID) {
 	directChats := event.DirectChatsEventContent{}
-	if err := cli.GetAccountData(ctx, event.AccountDataDirectChats.Type, &directChats); err != nil && !errors.Is(err, mautrix.MNotFound) {
+	if err := retryMatrixVoid(ctx, func() error {
+		return cli.GetAccountData(ctx, event.AccountDataDirectChats.Type, &directChats)
+	}); err != nil && !errors.Is(err, mautrix.MNotFound) {
 		c.emit(OutboundEvent{"type": "error", "error": fmt.Sprintf("failed to fetch m.direct account data: %v", err)})
 		return
 	}
@@ -223,7 +246,9 @@ func (c *Core) updateDirectChats(ctx context.Context, cli *mautrix.Client, userI
 		}
 	}
 	directChats[userID] = append(directChats[userID], roomID)
-	if err := cli.SetAccountData(ctx, event.AccountDataDirectChats.Type, directChats); err != nil {
+	if err := retryMatrixVoid(ctx, func() error {
+		return cli.SetAccountData(ctx, event.AccountDataDirectChats.Type, directChats)
+	}); err != nil {
 		c.emit(OutboundEvent{"type": "error", "error": fmt.Sprintf("failed to update m.direct account data: %v", err)})
 	}
 }

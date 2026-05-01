@@ -2,7 +2,7 @@ import type { MatrixCore, MatrixCoreEvent } from "better-matrix-js";
 import type { ChatInstance, Logger } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { MatrixAdapter } from "./adapter";
-import { encodeMatrixThreadId } from "./thread-id";
+import { encodeMatrixChatThreadRef } from "./thread-id";
 
 function makeLogger(): Logger {
   return {
@@ -49,6 +49,12 @@ function makeCore(overrides: Partial<MatrixCore> = {}) {
       name: "General",
       topic: "Room topic",
       visibility: "workspace",
+    })),
+    getUser: vi.fn(async () => ({
+      avatarUrl: "mxc://example.com/avatar",
+      displayName: "Alice",
+      raw: {},
+      userId: "@alice:example.com",
     })),
     init: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@bot:example.com" })),
     inviteUser: vi.fn(async () => undefined),
@@ -128,7 +134,7 @@ describe("MatrixAdapter", () => {
 
     expect(message.text).toBe("Hello Alice");
     expect(message.isMention).toBe(true);
-    expect(message.threadId).toBe(encodeMatrixThreadId({ roomId: "!room:example.com" }));
+    expect(message.threadId).toBe(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }));
   });
 
   it("posts formatted text with Matrix mentions and media attachments", async () => {
@@ -141,7 +147,7 @@ describe("MatrixAdapter", () => {
     });
     await adapter.initialize(makeChat());
 
-    const threadId = encodeMatrixThreadId({ roomId: "!room:example.com" });
+    const threadId = encodeMatrixChatThreadRef({ roomId: "!room:example.com" });
     const result = await adapter.postMessage(threadId, {
       attachments: [
         {
@@ -206,7 +212,7 @@ describe("MatrixAdapter", () => {
     });
     await adapter.initialize(makeChat());
 
-    const result = await adapter.listThreads(encodeMatrixThreadId({ roomId: "!room:example.com" }), {
+    const result = await adapter.listThreads(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }), {
       cursor: "cursor",
       limit: 10,
     });
@@ -218,7 +224,7 @@ describe("MatrixAdapter", () => {
     });
     expect(result.nextCursor).toBe("next");
     expect(result.threads[0]?.id).toBe(
-      encodeMatrixThreadId({ eventId: "$root", roomId: "!room:example.com" })
+      encodeMatrixChatThreadRef({ eventId: "$root", roomId: "!room:example.com" })
     );
     expect(result.threads[0]?.replyCount).toBe(2);
   });
@@ -311,13 +317,83 @@ describe("MatrixAdapter", () => {
     expect(chat.processMessage).toHaveBeenCalledOnce();
     expect(chat.processSlashCommand).toHaveBeenCalledWith(
       expect.objectContaining({
-        channelId: encodeMatrixThreadId({ roomId: "!room:example.com" }),
+        channelId: encodeMatrixChatThreadRef({ roomId: "!room:example.com" }),
         command: "/status",
         text: "verbose",
         triggerId: "$cmd",
       }),
       undefined
     );
+  });
+
+  it("applies webhook sync payloads through the Matrix core", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.example.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    const response = await adapter.handleWebhook(
+      new Request("https://bot.example.com/matrix", {
+        body: JSON.stringify({
+          response: {
+            next_batch: "next",
+            rooms: { join: {} },
+          },
+          since: "prev",
+        }),
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(core.applySyncResponse).toHaveBeenCalledWith({
+      response: {
+        next_batch: "next",
+        rooms: { join: {} },
+      },
+      since: "prev",
+    });
+  });
+
+  it("maps Matrix profiles to Chat SDK user info", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.example.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    await expect(adapter.getUser("@alice:example.com")).resolves.toEqual({
+      avatarUrl: "mxc://example.com/avatar",
+      fullName: "Alice",
+      isBot: false,
+      userId: "@alice:example.com",
+      userName: "alice",
+    });
+    expect(core.getUser).toHaveBeenCalledWith({ userId: "@alice:example.com" });
+  });
+
+  it("rejects non-POST webhook requests", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.example.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    const response = await adapter.handleWebhook(new Request("https://bot.example.com/matrix"));
+
+    expect(response.status).toBe(405);
+    expect(core.applySyncResponse).not.toHaveBeenCalled();
   });
 
   it("rehydrates Matrix attachments with authenticated media downloads", async () => {

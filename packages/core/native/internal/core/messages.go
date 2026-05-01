@@ -48,7 +48,9 @@ func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, e
 	} else if req.ReplyToEventID != "" {
 		content.RelatesTo = (&event.RelatesTo{}).SetReplyTo(id.EventID(req.ReplyToEventID))
 	}
-	resp, err := cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -79,10 +81,25 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 		NewContent: newContent,
 		RelatesTo:  (&event.RelatesTo{}).SetReplace(id.EventID(req.MessageID)),
 	}
-	resp, err := cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
+	})
 	if err != nil {
 		return nil, err
 	}
+	c.rememberEdit(OutboundEvent{
+		"body":               newContent.Body,
+		"eventId":            req.MessageID,
+		"formattedBody":      newContent.FormattedBody,
+		"isEdited":           true,
+		"isMe":               true,
+		"msgtype":            string(newContent.MsgType),
+		"originServerTs":     time.Now().UnixMilli(),
+		"replacementEventId": resp.EventID.String(),
+		"roomId":             req.RoomID,
+		"sender":             c.userID.String(),
+		"type":               event.EventMessage.Type,
+	})
 	return json.Marshal(rawMessageResp{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
 }
 
@@ -101,7 +118,10 @@ func (c *Core) handleDeleteMessage(ctx context.Context, payload []byte) ([]byte,
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	_, err = cli.RedactEvent(ctx, id.RoomID(req.RoomID), id.EventID(req.MessageID), mautrix.ReqRedact{Reason: req.Reason})
+	err = retryMatrixVoid(ctx, func() error {
+		_, err := cli.RedactEvent(ctx, id.RoomID(req.RoomID), id.EventID(req.MessageID), mautrix.ReqRedact{Reason: req.Reason})
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +143,10 @@ func (c *Core) handleSetTyping(ctx context.Context, payload []byte) ([]byte, err
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	_, err = cli.UserTyping(ctx, id.RoomID(req.RoomID), req.Typing, time.Duration(req.TimeoutMS)*time.Millisecond)
+	err = retryMatrixVoid(ctx, func() error {
+		_, err := cli.UserTyping(ctx, id.RoomID(req.RoomID), req.Typing, time.Duration(req.TimeoutMS)*time.Millisecond)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +167,9 @@ func (c *Core) handleFetchMessage(ctx context.Context, payload []byte) ([]byte, 
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	evt, err := cli.GetEvent(ctx, id.RoomID(req.RoomID), id.EventID(req.MessageID))
+	evt, err := retryMatrix(ctx, func() (*event.Event, error) {
+		return cli.GetEvent(ctx, id.RoomID(req.RoomID), id.EventID(req.MessageID))
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +177,7 @@ func (c *Core) handleFetchMessage(ctx context.Context, payload []byte) ([]byte, 
 		evt.RoomID = id.RoomID(req.RoomID)
 	}
 	converted := c.convertMaybeEncryptedMessageEvent(ctx, evt)
+	converted = c.applyLatestReplacement(ctx, cli, id.RoomID(req.RoomID), converted)
 	if converted == nil {
 		return json.Marshal(OutboundEvent{"message": nil})
 	}
@@ -185,7 +211,9 @@ func (c *Core) handleFetchMessages(ctx context.Context, payload []byte) ([]byte,
 	if req.ThreadRootEventID != "" {
 		return c.handleFetchThreadMessages(ctx, cli, req, dir)
 	}
-	resp, err := cli.Messages(ctx, id.RoomID(req.RoomID), req.Cursor, "", dir, nil, req.Limit)
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespMessages, error) {
+		return cli.Messages(ctx, id.RoomID(req.RoomID), req.Cursor, "", dir, nil, req.Limit)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +226,7 @@ func (c *Core) handleFetchMessages(ctx context.Context, payload []byte) ([]byte,
 			if converted["threadRootEventId"] != "" {
 				continue
 			}
-			messages = append(messages, converted)
+			messages = upsertMessage(messages, c.applyLatestReplacement(ctx, cli, id.RoomID(req.RoomID), converted))
 		}
 	}
 	sort.SliceStable(messages, func(i, j int) bool {
@@ -215,24 +243,28 @@ func (c *Core) handleFetchThreadMessages(ctx context.Context, cli *mautrix.Clien
 	if includeRoot && limit > 1 {
 		limit--
 	}
-	resp, err := cli.GetRelations(ctx, id.RoomID(req.RoomID), id.EventID(req.ThreadRootEventID), &mautrix.ReqGetRelations{
-		RelationType: event.RelThread,
-		Dir:          dir,
-		From:         req.Cursor,
-		Limit:        limit,
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespGetRelations, error) {
+		return cli.GetRelations(ctx, id.RoomID(req.RoomID), id.EventID(req.ThreadRootEventID), &mautrix.ReqGetRelations{
+			RelationType: event.RelThread,
+			Dir:          dir,
+			From:         req.Cursor,
+			Limit:        limit,
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
 	messages := make([]OutboundEvent, 0, len(resp.Chunk)+1)
 	if includeRoot {
-		root, err := cli.GetEvent(ctx, id.RoomID(req.RoomID), id.EventID(req.ThreadRootEventID))
+		root, err := retryMatrix(ctx, func() (*event.Event, error) {
+			return cli.GetEvent(ctx, id.RoomID(req.RoomID), id.EventID(req.ThreadRootEventID))
+		})
 		if err == nil {
 			if root.RoomID == "" {
 				root.RoomID = id.RoomID(req.RoomID)
 			}
 			if converted := c.convertMaybeEncryptedMessageEvent(ctx, root); converted != nil {
-				messages = append(messages, converted)
+				messages = upsertMessage(messages, c.applyLatestReplacement(ctx, cli, id.RoomID(req.RoomID), converted))
 			}
 		} else if !errors.Is(err, mautrix.MNotFound) {
 			return nil, err
@@ -244,7 +276,7 @@ func (c *Core) handleFetchThreadMessages(ctx context.Context, cli *mautrix.Clien
 		}
 		if converted := c.convertMaybeEncryptedMessageEvent(ctx, evt); converted != nil {
 			if converted["threadRootEventId"] == req.ThreadRootEventID {
-				messages = append(messages, converted)
+				messages = upsertMessage(messages, c.applyLatestReplacement(ctx, cli, id.RoomID(req.RoomID), converted))
 			}
 		}
 	}
@@ -258,6 +290,101 @@ func (c *Core) handleFetchThreadMessages(ctx context.Context, cli *mautrix.Clien
 		nextCursor = resp.PrevBatch
 	}
 	return json.Marshal(OutboundEvent{"messages": messages, "nextCursor": nextCursor})
+}
+
+func (c *Core) applyLatestReplacement(ctx context.Context, cli *mautrix.Client, roomID id.RoomID, msg OutboundEvent) OutboundEvent {
+	if msg == nil || msg["isEdited"] == true {
+		return msg
+	}
+	eventID, _ := msg["eventId"].(string)
+	if eventID == "" {
+		return msg
+	}
+	if cached := c.messageEdits[id.EventID(eventID)]; cached != nil {
+		if cached["threadRootEventId"] == "" && msg["threadRootEventId"] != "" {
+			cached["threadRootEventId"] = msg["threadRootEventId"]
+		}
+		return cached
+	}
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespGetRelations, error) {
+		return cli.GetRelations(ctx, roomID, id.EventID(eventID), &mautrix.ReqGetRelations{
+			RelationType: event.RelReplace,
+			EventType:    event.EventMessage,
+			Dir:          mautrix.DirectionBackward,
+			Limit:        20,
+		})
+	})
+	if err != nil {
+		return msg
+	}
+	var latest OutboundEvent
+	for _, evt := range resp.Chunk {
+		if evt != nil && evt.RoomID == "" {
+			evt.RoomID = roomID
+		}
+		converted := c.convertMaybeEncryptedMessageEvent(ctx, evt)
+		if converted == nil || converted["eventId"] != eventID {
+			continue
+		}
+		if latest == nil {
+			latest = converted
+			continue
+		}
+		left, _ := latest["originServerTs"].(int64)
+		right, _ := converted["originServerTs"].(int64)
+		if right > left {
+			latest = converted
+		}
+	}
+	if latest == nil {
+		return msg
+	}
+	if latest["threadRootEventId"] == "" && msg["threadRootEventId"] != "" {
+		latest["threadRootEventId"] = msg["threadRootEventId"]
+	}
+	return latest
+}
+
+func upsertMessage(messages []OutboundEvent, next OutboundEvent) []OutboundEvent {
+	if next == nil {
+		return messages
+	}
+	eventID, _ := next["eventId"].(string)
+	if eventID == "" {
+		return append(messages, next)
+	}
+	for i, existing := range messages {
+		if existing["eventId"] != eventID {
+			continue
+		}
+		existingTs, _ := existing["originServerTs"].(int64)
+		nextTs, _ := next["originServerTs"].(int64)
+		if next["isEdited"] == true || nextTs >= existingTs {
+			messages[i] = next
+		}
+		return messages
+	}
+	return append(messages, next)
+}
+
+func (c *Core) rememberEdit(msg OutboundEvent) {
+	if msg == nil {
+		return
+	}
+	eventID, _ := msg["eventId"].(string)
+	if eventID == "" {
+		return
+	}
+	existing := c.messageEdits[id.EventID(eventID)]
+	if existing == nil {
+		c.messageEdits[id.EventID(eventID)] = msg
+		return
+	}
+	existingTs, _ := existing["originServerTs"].(int64)
+	nextTs, _ := msg["originServerTs"].(int64)
+	if nextTs >= existingTs {
+		c.messageEdits[id.EventID(eventID)] = msg
+	}
 }
 
 type markReadReq struct {
@@ -274,7 +401,9 @@ func (c *Core) handleMarkRead(ctx context.Context, payload []byte) ([]byte, erro
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	err = cli.MarkRead(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID))
+	err = retryMatrixVoid(ctx, func() error {
+		return cli.MarkRead(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID))
+	})
 	return c.emptyIfNil(err)
 }
 
@@ -285,7 +414,7 @@ func (c *Core) convertMessageEvent(evt *event.Event) OutboundEvent {
 	_ = evt.Content.ParseRaw(evt.Type)
 	content := evt.Content.AsMessage()
 	if content.RelatesTo.GetReplaceID() != "" {
-		return nil
+		return c.convertEditEvent(evt, content)
 	}
 	content.RemoveReplyFallback()
 	threadRoot := ""
@@ -313,6 +442,38 @@ func (c *Core) convertMessageEvent(evt *event.Event) OutboundEvent {
 		"threadRootEventId": threadRoot,
 		"type":              evt.Type.Type,
 	}
+}
+
+func (c *Core) convertEditEvent(evt *event.Event, content *event.MessageEventContent) OutboundEvent {
+	if evt == nil || content == nil || content.NewContent == nil {
+		return nil
+	}
+	newContent := content.NewContent
+	newContent.RemoveReplyFallback()
+	threadRoot := ""
+	if newContent.RelatesTo != nil {
+		threadRoot = newContent.RelatesTo.GetThreadParent().String()
+	}
+	converted := OutboundEvent{
+		"attachments":        messageAttachments(newContent),
+		"body":               newContent.Body,
+		"content":            evt.Content.Raw,
+		"eventId":            content.RelatesTo.GetReplaceID().String(),
+		"formattedBody":      newContent.FormattedBody,
+		"isEncrypted":        evt.Mautrix.EventSource&event.SourceDecrypted != 0 || evt.Mautrix.WasEncrypted,
+		"isEdited":           true,
+		"isMe":               evt.Sender == c.userID,
+		"msgtype":            string(newContent.MsgType),
+		"originServerTs":     evt.Timestamp,
+		"raw":                evt,
+		"replacementEventId": evt.ID.String(),
+		"roomId":             evt.RoomID.String(),
+		"sender":             evt.Sender.String(),
+		"threadRootEventId":  threadRoot,
+		"type":               evt.Type.Type,
+	}
+	c.rememberEdit(converted)
+	return converted
 }
 
 func messageContent(body, formattedBody, msgType string, mentions *mentionsReq) *event.MessageEventContent {

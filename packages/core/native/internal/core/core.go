@@ -20,6 +20,7 @@ type Core struct {
 	host         RuntimeHost
 	nextBatch    string
 	pickleKey    []byte
+	messageEdits map[id.EventID]OutboundEvent
 	reactions    map[id.EventID]reactionSnapshot
 	stores       *storeBundle
 	userID       id.UserID
@@ -35,7 +36,12 @@ func New(emit func(OutboundEvent), host ...RuntimeHost) *Core {
 	if len(host) > 0 {
 		runtimeHost = host[0]
 	}
-	return &Core{emit: emit, host: runtimeHost, reactions: make(map[id.EventID]reactionSnapshot)}
+	return &Core{
+		emit:         emit,
+		host:         runtimeHost,
+		messageEdits: make(map[id.EventID]OutboundEvent),
+		reactions:    make(map[id.EventID]reactionSnapshot),
+	}
 }
 
 func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, error) {
@@ -91,6 +97,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleInviteUser(ctx, payload)
 	case "fetch_joined_rooms":
 		return c.handleFetchJoinedRooms(ctx)
+	case "get_user":
+		return c.handleGetUser(ctx, payload)
 	case "list_room_threads":
 		return c.handleListRoomThreads(ctx, payload)
 	case "close":
@@ -116,6 +124,7 @@ func (c *Core) handleClose() ([]byte, error) {
 	c.crypto = nil
 	c.cryptoStore = nil
 	c.nextBatch = ""
+	c.messageEdits = make(map[id.EventID]OutboundEvent)
 	c.reactions = make(map[id.EventID]reactionSnapshot)
 	c.stores = nil
 	c.userID = ""

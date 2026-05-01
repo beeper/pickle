@@ -1,5 +1,71 @@
-export * from "./cloudflare";
-export * from "./memory-store";
-export * from "./polling";
-export * from "./types";
-export * from "./wasm";
+export {
+  createCloudflareKVMatrixStore,
+  createDurableObjectMatrixStore,
+} from "./cloudflare";
+export type {
+  CloudflareKVNamespaceLike,
+  CloudflareStoreOptions,
+  DurableObjectStorageLike,
+} from "./cloudflare";
+export { MemoryMatrixStore } from "./memory-store";
+export { startMatrixPolling } from "./polling";
+export type { MatrixPollingHandle, MatrixPollingOptions } from "./polling";
+export type {
+  MatrixApplySyncResponseOptions,
+  MatrixCore,
+  MatrixCoreEvent,
+  MatrixCoreHost,
+  MatrixCoreInitOptions,
+  MatrixDeleteMessageOptions,
+  MatrixDownloadEncryptedMediaOptions,
+  MatrixDownloadMediaOptions,
+  MatrixDownloadMediaResult,
+  MatrixEditMessageOptions,
+  MatrixEncryptedFile,
+  MatrixFetchMessageOptions,
+  MatrixFetchMessageResult,
+  MatrixFetchMessagesOptions,
+  MatrixFetchMessagesResult,
+  MatrixFetchRoomOptions,
+  MatrixGetUserOptions,
+  MatrixInviteEvent,
+  MatrixInviteUserOptions,
+  MatrixJoinRoomOptions,
+  MatrixJoinRoomResult,
+  MatrixJoinedRoomsResult,
+  MatrixKeyValueStore,
+  MatrixLeaveRoomOptions,
+  MatrixListRoomThreadsOptions,
+  MatrixListRoomThreadsResult,
+  MatrixLoginOptions,
+  MatrixLoginSession,
+  MatrixMarkReadOptions,
+  MatrixMediaAttachment,
+  MatrixMediaInfo,
+  MatrixMentions,
+  MatrixMessageEvent,
+  MatrixOpenDMOptions,
+  MatrixOpenDMResult,
+  MatrixRawEvent,
+  MatrixRawMessage,
+  MatrixReactionEvent,
+  MatrixReactionOptions,
+  MatrixRoomInfo,
+  MatrixRoomThreadSummary,
+  MatrixSendMediaMessageOptions,
+  MatrixSendMessageOptions,
+  MatrixSyncOnceOptions,
+  MatrixTokenLoginOptions,
+  MatrixTypingOptions,
+  MatrixUploadEncryptedMediaResult,
+  MatrixUploadMediaOptions,
+  MatrixUploadMediaResult,
+  MatrixUserInfo,
+  MatrixWhoami,
+} from "./types";
+export { loadMatrixCore, MatrixWasmCore } from "./wasm";
+export type {
+  GoRuntime,
+  GoRuntimeConstructor,
+  LoadMatrixCoreOptions,
+} from "./wasm";

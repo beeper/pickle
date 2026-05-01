@@ -1,30 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { decodeMatrixThreadId, encodeMatrixThreadId, matrixChannelIdFromThreadId } from "./thread-id";
+import { decodeMatrixChatThreadRef, encodeMatrixChatThreadRef, matrixChannelIdFromChatThreadId } from "./thread-id";
 
 describe("Matrix thread IDs", () => {
   it("round-trips room IDs", () => {
-    const threadId = encodeMatrixThreadId({ roomId: "!abc:example.com" });
-    expect(decodeMatrixThreadId(threadId)).toEqual({ roomId: "!abc:example.com" });
+    const threadId = encodeMatrixChatThreadRef({ roomId: "!abc:example.com" });
+    expect(decodeMatrixChatThreadRef(threadId)).toEqual({ roomId: "!abc:example.com" });
   });
 
   it("round-trips thread root event IDs", () => {
-    const threadId = encodeMatrixThreadId({
+    const threadId = encodeMatrixChatThreadRef({
       eventId: "$event:example.com",
       roomId: "!abc:example.com",
     });
-    expect(decodeMatrixThreadId(threadId)).toEqual({
+    expect(decodeMatrixChatThreadRef(threadId)).toEqual({
       eventId: "$event:example.com",
       roomId: "!abc:example.com",
     });
   });
 
   it("derives channel IDs", () => {
-    const threadId = encodeMatrixThreadId({
+    const threadId = encodeMatrixChatThreadRef({
       eventId: "$event:example.com",
       roomId: "!abc:example.com",
     });
-    expect(matrixChannelIdFromThreadId(threadId)).toBe(
-      encodeMatrixThreadId({ roomId: "!abc:example.com" })
+    expect(matrixChannelIdFromChatThreadId(threadId)).toBe(
+      encodeMatrixChatThreadRef({ roomId: "!abc:example.com" })
     );
   });
 });

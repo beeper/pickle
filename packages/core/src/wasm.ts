@@ -14,6 +14,7 @@ import type {
   MatrixFetchMessagesOptions,
   MatrixFetchMessagesResult,
   MatrixFetchRoomOptions,
+  MatrixGetUserOptions,
   MatrixInviteUserOptions,
   MatrixJoinRoomOptions,
   MatrixJoinRoomResult,
@@ -34,6 +35,7 @@ import type {
   MatrixUploadMediaOptions,
   MatrixUploadEncryptedMediaResult,
   MatrixUploadMediaResult,
+  MatrixUserInfo,
   MatrixWhoami,
 } from "./types";
 
@@ -134,6 +136,10 @@ export class MatrixWasmCore implements MatrixCore {
 
   fetchJoinedRooms(): Promise<MatrixJoinedRoomsResult> {
     return this.#call("fetch_joined_rooms");
+  }
+
+  getUser(options: MatrixGetUserOptions): Promise<MatrixUserInfo> {
+    return this.#call("get_user", options);
   }
 
   init(options: MatrixCoreInitOptions): Promise<MatrixWhoami> {
