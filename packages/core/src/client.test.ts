@@ -309,7 +309,7 @@ describe("createMatrixClient", () => {
       register_beeper_stream: {},
     });
     const client = createMatrixClient({
-      beeperStreaming: true,
+      beeper: true,
       homeserver: "https://matrix.example.com",
       token: "token",
       wasmModule: {} as WebAssembly.Module,

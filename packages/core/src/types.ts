@@ -10,7 +10,7 @@ export interface MatrixLogger {
 }
 
 export interface MatrixClientOptions {
-  beeperStreaming?: boolean;
+  beeper?: boolean;
   deviceId?: string;
   fetch?: typeof fetch;
   homeserver: string;
@@ -583,14 +583,14 @@ export interface ListThreadsResult {
 }
 
 export interface SyncStartOptions {
-  beeperStreaming?: boolean;
+  beeper?: boolean;
   retryDelayMs?: number;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
 
 export interface SyncOnceOptions {
-  beeperStreaming?: boolean;
+  beeper?: boolean;
   timeoutMs?: number;
 }
 

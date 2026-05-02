@@ -225,14 +225,14 @@ class DefaultMatrixClient implements MatrixClient {
     this.sync = {
       applyResponse: (opts) => this.#coreRequired().applySyncResponse(opts),
       once: (opts = {}) => this.#coreRequired().syncOnce(stripUndefined({
-        beeperStreaming: opts.beeperStreaming ?? this.#options.beeperStreaming,
+        beeperStreaming: opts.beeper ?? this.#options.beeper,
         timeoutMs: opts.timeoutMs,
       })),
       start: async (opts = {}) => {
         if (this.#syncAbort) return;
         if (opts.signal?.aborted) return;
         await this.#coreRequired().startSync(stripUndefined({
-          beeperStreaming: opts.beeperStreaming ?? this.#options.beeperStreaming,
+          beeperStreaming: opts.beeper ?? this.#options.beeper,
           retryDelayMs: opts.retryDelayMs,
           timeoutMs: opts.timeoutMs,
         }));

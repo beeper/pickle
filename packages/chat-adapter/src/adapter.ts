@@ -804,7 +804,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixMessage
       store: this.#config.store ?? this.#chatStateStore(),
       token: this.#config.token,
     };
-    if (this.#config.beeper !== undefined) Object.assign(options, { beeperStreaming: this.#config.beeper });
+    if (this.#config.beeper !== undefined) Object.assign(options, { beeper: this.#config.beeper });
     if (this.#config.deviceId !== undefined) Object.assign(options, { deviceId: this.#config.deviceId });
     if (this.#config.initialSync !== undefined) Object.assign(options, { initialSync: this.#config.initialSync });
     if (this.#config.pickleKey !== undefined) Object.assign(options, { pickleKey: this.#config.pickleKey });

@@ -9,8 +9,8 @@
 - [x] Make `MatrixAdapter` explicitly satisfy Chat SDK adapter requirements.
 - [x] Delete duplicated `MatrixRawMessage` in the Chat adapter; use the core `MatrixMessageEvent` as raw data.
 - [ ] Collapse duplicated public/runtime/generated Matrix event types where possible.
-- [ ] Keep package public entrypoints, but stop internal imports from convenience barrels.
-- [ ] Normalize option naming to one public spelling for each concern.
+- [x] Keep package public entrypoints, but stop internal imports from convenience barrels.
+- [x] Normalize option naming to one public spelling for each concern.
 - [x] Make Beeper-specific features explicit under `client.beeper`.
 
 ## Main Library Capabilities
