@@ -1,0 +1,59 @@
+{
+  "name": "better-matrix-js-sdk",
+  "version": "0.1.0",
+  "description": "matrix-js-sdk compatible facade backed by better-matrix-js",
+  "type": "module",
+  "homepage": "https://github.com/batuhan/better-matrix-js#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/batuhan/better-matrix-js.git",
+    "directory": "packages/matrix-js-sdk-compat"
+  },
+  "bugs": {
+    "url": "https://github.com/batuhan/better-matrix-js/issues"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "node ../../scripts/guard-pnpm-publish.mjs",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-matrix-js": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "keywords": [
+    "matrix",
+    "matrix-js-sdk",
+    "compatibility",
+    "mautrix",
+    "wasm"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
