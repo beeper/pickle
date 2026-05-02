@@ -361,7 +361,7 @@ describe("MatrixAdapter", () => {
     );
   });
 
-  it("applies webhook sync payloads through the Matrix core", async () => {
+  it("applies sync responses directly through the Matrix core", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
       accessToken: "token",
@@ -371,21 +371,14 @@ describe("MatrixAdapter", () => {
     });
     await adapter.initialize(makeChat());
 
-    const response = await adapter.handleWebhook(
-      new Request("https://bot.example.com/matrix", {
-        body: JSON.stringify({
-          response: {
-            next_batch: "next",
-            rooms: { join: {} },
-          },
-          since: "prev",
-        }),
-        method: "POST",
-      })
-    );
+    await adapter.handleSyncResponse({
+      response: {
+        next_batch: "next",
+        rooms: { join: {} },
+      },
+      since: "prev",
+    });
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
     expect(core.applySyncResponse).toHaveBeenCalledWith({
       response: {
         next_batch: "next",
@@ -413,22 +406,6 @@ describe("MatrixAdapter", () => {
       userName: "alice",
     });
     expect(core.getUser).toHaveBeenCalledWith({ userId: "@alice:example.com" });
-  });
-
-  it("rejects non-POST webhook requests", async () => {
-    const { core } = makeCore();
-    const adapter = new MatrixAdapter({
-      accessToken: "token",
-      core,
-      homeserverUrl: "https://matrix.example.com",
-      polling: { enabled: false },
-    });
-    await adapter.initialize(makeChat());
-
-    const response = await adapter.handleWebhook(new Request("https://bot.example.com/matrix"));
-
-    expect(response.status).toBe(405);
-    expect(core.applySyncResponse).not.toHaveBeenCalled();
   });
 
   it("rehydrates Matrix attachments with authenticated media downloads", async () => {
