@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -55,6 +56,40 @@ func TestConvertMessageEventNormalizesRelationsAndMentions(t *testing.T) {
 	}
 	if converted.Mentions == nil || !converted.Mentions.Room || len(converted.Mentions.UserIDs) != 1 || converted.Mentions.UserIDs[0] != "@bot:example" {
 		t.Fatalf("unexpected mentions: %#v", converted.Mentions)
+	}
+}
+
+func TestProcessEventSkipsDuplicateTimelineEvents(t *testing.T) {
+	ctx := context.Background()
+	var emitted []OutboundEvent
+	core := New(func(event OutboundEvent) {
+		emitted = append(emitted, event)
+	})
+	content := map[string]any{
+		"body":    "hello",
+		"msgtype": "m.text",
+	}
+	raw, _ := json.Marshal(content)
+	evt := &event.Event{
+		Content: event.Content{Raw: content, VeryRaw: raw},
+		ID:      id.EventID("$event"),
+		RoomID:  id.RoomID("!room:example"),
+		Sender:  id.UserID("@alice:example"),
+		Type:    event.EventMessage,
+	}
+
+	core.processEvent(ctx, evt)
+	core.processEvent(ctx, evt)
+
+	if len(emitted) != 1 {
+		t.Fatalf("expected one emitted event, got %d", len(emitted))
+	}
+	message, ok := emitted[0]["event"].(*MatrixMessageEvent)
+	if !ok {
+		t.Fatalf("expected message event, got %#v", emitted[0]["event"])
+	}
+	if message.EventID != "$event" {
+		t.Fatalf("unexpected event id %q", message.EventID)
 	}
 }
 

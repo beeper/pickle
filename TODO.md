@@ -51,7 +51,7 @@
 - [ ] Add Beeper capability detection beyond hostname fallback.
 - [x] Keep encrypted media behavior in Go; remove duplicate TS parsing paths.
 - [x] Ensure fetch-message pagination always returns chronological page order.
-- [ ] Ensure sync response replay is idempotent at the emitted event level.
+- [x] Ensure sync response replay is idempotent at the emitted event level.
 
 ## Serverless
 
@@ -103,7 +103,7 @@
 - [x] Add reaction removal after cold start test.
 - [x] Add `openDM` reuse test.
 - [ ] Add serverless encrypted-room `applyResponse` test.
-- [ ] Add serverless replay/idempotency test.
+- [x] Add serverless replay/idempotency test.
 - [x] Add core streaming tests for Beeper-native and edit-fallback modes.
 - [ ] Add Cloudflare Worker smoke with Durable Object store and WASM.
 - [ ] Add browser smoke with IndexedDB and WASM.

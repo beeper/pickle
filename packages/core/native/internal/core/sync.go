@@ -8,6 +8,7 @@ import (
 
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 )
 
 const (
@@ -314,12 +315,18 @@ func (c *Core) processEvent(ctx context.Context, evt *event.Event) {
 	switch evt.Type {
 	case event.EventMessage:
 		if converted := c.convertMessageEvent(evt); converted != nil {
+			if !c.markTimelineEventEmitted(evt.ID) {
+				return
+			}
 			c.emit(OutboundEvent{"type": "message", "event": converted})
 		}
 	case event.EventReaction:
 		_ = evt.Content.ParseRaw(evt.Type)
 		content := evt.Content.AsReaction()
 		if content.RelatesTo.EventID == "" {
+			return
+		}
+		if !c.markTimelineEventEmitted(evt.ID) {
 			return
 		}
 		snapshot := reactionSnapshot{
@@ -333,6 +340,9 @@ func (c *Core) processEvent(ctx context.Context, evt *event.Event) {
 		c.rememberReaction(ctx, snapshot)
 		c.emitReaction(snapshot, true)
 	case event.EventRedaction:
+		if !c.markTimelineEventEmitted(evt.ID) {
+			return
+		}
 		c.processRedaction(ctx, evt)
 	case event.EventEncrypted:
 		// CryptoHelper owns encrypted timeline events. It waits for missing room
@@ -343,6 +353,20 @@ func (c *Core) processEvent(ctx context.Context, evt *event.Event) {
 	default:
 		_ = ctx
 	}
+}
+
+func (c *Core) markTimelineEventEmitted(eventID id.EventID) bool {
+	if eventID == "" {
+		return true
+	}
+	if c.emittedTimelineIDs == nil {
+		c.emittedTimelineIDs = make(map[id.EventID]struct{})
+	}
+	if _, ok := c.emittedTimelineIDs[eventID]; ok {
+		return false
+	}
+	c.emittedTimelineIDs[eventID] = struct{}{}
+	return true
 }
 
 func (c *Core) convertMaybeEncryptedMessageEvent(ctx context.Context, evt *event.Event) *MatrixMessageEvent {

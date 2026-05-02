@@ -107,6 +107,9 @@ func (c *Core) retryPendingDecryptions(ctx context.Context) {
 		}
 		if decrypted.Type == event.EventMessage {
 			if converted := c.convertMessageEvent(decrypted); converted != nil {
+				if !c.markTimelineEventEmitted(evt.ID) {
+					continue
+				}
 				c.emit(OutboundEvent{"type": "message", "event": converted})
 			}
 		}
@@ -141,6 +144,9 @@ func (c *Core) retryPendingDecryptionEvent(ctx context.Context, evt *event.Event
 		c.removePendingDecryption(ctx, evt.ID)
 		if decrypted.Type == event.EventMessage {
 			if converted := c.convertMessageEvent(decrypted); converted != nil {
+				if !c.markTimelineEventEmitted(evt.ID) {
+					return true
+				}
 				c.emit(OutboundEvent{"type": "message", "event": converted})
 			}
 		}

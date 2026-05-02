@@ -83,6 +83,8 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 	c.beeperStream = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
+	c.emittedTimelineIDs = make(map[id.EventID]struct{})
+	c.messageEdits = make(map[id.EventID]*MatrixMessageEvent)
 	c.reactions = make(map[id.EventID]reactionSnapshot)
 	c.stores = stores
 	c.userID = cli.UserID

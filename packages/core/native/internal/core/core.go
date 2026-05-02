@@ -27,6 +27,7 @@ type Core struct {
 	pickleKey          []byte
 	pendingDecryptions []pendingDecryption
 	skipNextSync       bool
+	emittedTimelineIDs map[id.EventID]struct{}
 	messageEdits       map[id.EventID]*MatrixMessageEvent
 	reactions          map[id.EventID]reactionSnapshot
 	stores             *storeBundle
@@ -48,10 +49,11 @@ func New(emit func(OutboundEvent), host ...RuntimeHost) *Core {
 		runtimeHost = host[0]
 	}
 	return &Core{
-		emit:         emit,
-		host:         runtimeHost,
-		messageEdits: make(map[id.EventID]*MatrixMessageEvent),
-		reactions:    make(map[id.EventID]reactionSnapshot),
+		emit:               emit,
+		host:               runtimeHost,
+		emittedTimelineIDs: make(map[id.EventID]struct{}),
+		messageEdits:       make(map[id.EventID]*MatrixMessageEvent),
+		reactions:          make(map[id.EventID]reactionSnapshot),
 	}
 }
 
@@ -221,6 +223,7 @@ func (c *Core) handleClose() ([]byte, error) {
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
 	c.skipNextSync = false
+	c.emittedTimelineIDs = make(map[id.EventID]struct{})
 	c.messageEdits = make(map[id.EventID]*MatrixMessageEvent)
 	c.reactions = make(map[id.EventID]reactionSnapshot)
 	c.stores = nil
