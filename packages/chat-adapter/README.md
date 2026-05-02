@@ -124,6 +124,7 @@ createMatrixAdapter({
 | Messages, replies, reactions, threads | Supported. |
 | Streaming responses | Beeper native streaming on Beeper homeservers; Matrix edit fallback elsewhere. |
 | Ephemeral messages | Beeper-only. Non-Beeper homeservers reject this operation. |
+| Cards and actions | Fallback text only; interactive Matrix/Beeper UI is not exposed. |
 | Native modals | Unsupported because Matrix has no equivalent native surface. |
 | Scheduled messages | Unsupported; schedule work in your app and send later. |
 | URL previews | Unsupported by design; send explicit text or rendered content instead. |

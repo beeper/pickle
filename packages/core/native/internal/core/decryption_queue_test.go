@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -39,5 +40,39 @@ func TestRequestMissingSessionIgnoresIncompletePending(t *testing.T) {
 	c := New(nil)
 	if c.requestMissingSession(context.Background(), &pendingDecryption{RoomID: "!room:example"}, true) {
 		t.Fatal("incomplete pending decryption should not restore from backup")
+	}
+}
+
+func TestPendingDecryptionsPersistAcrossColdStart(t *testing.T) {
+	ctx := context.Background()
+	store := memoryByteStore{values: map[string][]byte{}}
+	first := New(nil)
+	first.stores = &storeBundle{kv: store}
+	first.pendingDecryptions = []pendingDecryption{
+		{
+			AddedAt:   time.Now().UnixMilli(),
+			Attempts:  2,
+			Event:     json.RawMessage(`{"event_id":"$encrypted"}`),
+			EventID:   "$encrypted",
+			RoomID:    "!room:example",
+			SessionID: "session",
+		},
+	}
+	if err := first.savePendingDecryptions(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	second := New(nil)
+	second.stores = &storeBundle{kv: store}
+	if err := second.loadPendingDecryptions(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(second.pendingDecryptions) != 1 {
+		t.Fatalf("expected one pending decryption, got %d", len(second.pendingDecryptions))
+	}
+	loaded := second.pendingDecryptions[0]
+	if loaded.EventID != "$encrypted" || loaded.Attempts != 2 || loaded.SessionID != "session" {
+		t.Fatalf("unexpected pending decryption: %#v", loaded)
 	}
 }

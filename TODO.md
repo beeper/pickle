@@ -41,7 +41,7 @@
 - [x] Move relation parsing fully into Go/core event normalization.
 - [x] Normalize replies, threads, edits, annotations/reactions, and references in core.
 - [x] Normalize inbound redactions in core.
-- [ ] Normalize inbound edits in core without Chat adapter raw-content inference.
+- [x] Normalize inbound edits in core without Chat adapter raw-content inference.
 - [x] Move reaction target/thread lookup into core state.
 - [x] Make reaction removal work across cold starts.
 - [x] Make `openDM(userId)` reuse existing `m.direct` rooms by default.
@@ -82,7 +82,7 @@
 - [x] Split `packages/core/src/client.ts` event normalization into `events.ts`.
 - [x] Split `packages/core/src/client.ts` streaming orchestration into `streams.ts`.
 - [x] Continue shrinking `packages/core/src/client.ts` by moving media byte helpers if it keeps growing.
-- [ ] Keep card/action support fallback-only unless Beeper interactive product scope is explicitly added.
+- [x] Keep card/action support fallback-only unless Beeper interactive product scope is explicitly added.
 - [x] Document unsupported Chat SDK features: native modals and native scheduled messages.
 
 ## E2EE
@@ -93,7 +93,7 @@
 - [ ] Test fresh-device historical decryption via recovery key.
 - [ ] Test missing backup/recovery status behavior.
 - [ ] Test encrypted media upload/download roundtrip.
-- [ ] Test decryption retry and pending queue persistence.
+- [x] Test decryption retry and pending queue persistence.
 
 ## Tests And Verification
 

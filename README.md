@@ -97,6 +97,7 @@ Browser apps should load `matrix-core.wasm` with `wasmUrl`, `wasmBytes`, or a bu
 | E2EE | Supported when the crypto store, `pickleKey`, and optional `recoveryKey` are durable. |
 | Beeper ephemeral events | Supported only on Beeper homeservers. |
 | Native streaming | Uses Beeper native stream events on Beeper; falls back to Matrix edits elsewhere. |
+| Chat SDK cards/actions | Fallback text only; no native interactive Matrix surface is exposed. |
 | Chat SDK native modals | Not supported by Matrix. |
 | Chat SDK scheduled messages | Not supported by Matrix. |
 | URL previews | Intentionally unsupported; bots should render links explicitly. |
