@@ -50,7 +50,7 @@
 - [x] Make Beeper sync options conditional instead of setting `BeeperStreaming: true` for every homeserver.
 - [ ] Add Beeper capability detection beyond hostname fallback.
 - [ ] Keep encrypted media behavior in Go; remove duplicate TS parsing paths.
-- [ ] Ensure fetch-message pagination always returns chronological page order.
+- [x] Ensure fetch-message pagination always returns chronological page order.
 - [ ] Ensure sync response replay is idempotent at the emitted event level.
 
 ## Serverless
@@ -98,8 +98,8 @@
 ## Tests And Verification
 
 - [x] Add compile-time Chat SDK adapter conformance test.
-- [ ] Add Go relation parsing tests.
-- [ ] Add Go redaction/edit normalization tests.
+- [x] Add Go relation parsing tests.
+- [x] Add Go redaction/edit normalization tests.
 - [x] Add reaction removal after cold start test.
 - [x] Add `openDM` reuse test.
 - [ ] Add serverless encrypted-room `applyResponse` test.
