@@ -1,9 +1,14 @@
-import type { MatrixClient, MatrixClientEvent } from "better-matrix-js";
+import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent } from "better-matrix-js";
 import type { MatrixCore, MatrixCoreEvent } from "../../core/src/runtime-types";
-import type { ChatInstance, Logger, StateAdapter } from "chat";
+import type { Adapter, ChatInstance, Logger, StateAdapter } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { MatrixAdapter } from "./adapter";
 import { encodeMatrixChatThreadRef } from "./thread-id";
+import type { MatrixChatThreadRef } from "./types";
+
+const adapterConformance: Adapter<MatrixChatThreadRef, MatrixMessageEvent> =
+  null as unknown as MatrixAdapter;
+void adapterConformance;
 
 function makeLogger(): Logger {
   return {

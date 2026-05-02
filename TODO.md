@@ -97,7 +97,7 @@
 
 ## Tests And Verification
 
-- [ ] Add compile-time Chat SDK adapter conformance test.
+- [x] Add compile-time Chat SDK adapter conformance test.
 - [ ] Add Go relation parsing tests.
 - [ ] Add Go redaction/edit normalization tests.
 - [ ] Add reaction removal after cold start test.
