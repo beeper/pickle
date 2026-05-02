@@ -88,8 +88,8 @@
 ## E2EE
 
 - [x] Require or strongly recommend explicit `pickleKey` for durable E2EE bot deployments.
-- [ ] Reconsider access-token fallback as pickle key before release.
-- [ ] Provide a clear bot onboarding flow: login, device ID, store persistence, recovery key restore.
+- [x] Reconsider access-token fallback as pickle key before release.
+- [x] Provide a clear bot onboarding flow: login, device ID, store persistence, recovery key restore.
 - [ ] Test fresh-device historical decryption via recovery key.
 - [ ] Test missing backup/recovery status behavior.
 - [ ] Test encrypted media upload/download roundtrip.

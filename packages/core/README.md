@@ -116,6 +116,16 @@ Use `client.sync.start()` when the same process can keep a long-lived `/sync` re
 
 Encrypted accounts need durable Matrix storage. The store contains Olm/Megolm session state and the sync cursor, while `pickleKey` protects local pickles and `recoveryKey` unlocks Matrix key backup. Keep `pickleKey` stable for a device; rotate it only with a planned device reset or store migration.
 
+Recommended bot onboarding:
+
+1. Log in once and persist the returned `userId`, `deviceId`, and access token.
+2. Pick a stable high-entropy `pickleKey` and store it with the bot secret material.
+3. Pass a durable `store`, `userId`, `deviceId`, access token, and `pickleKey` on every boot.
+4. Pass `recoveryKey` when the bot must decrypt historical encrypted messages from key backup.
+5. Check `await client.crypto.status()` after `connect()` and alert on `keyBackupUnavailable`, `recoveryUnverified`, or a nonzero `pendingDecryptionCount`.
+
+If `pickleKey` is omitted, the runtime currently falls back to the access token for compatibility with one-off bots. Treat that as development-only. Production encrypted bots should always set `pickleKey` explicitly so token rotation does not make local crypto state unreadable.
+
 ## What it does
 
 Login (password, token, JWT), `/sync` long polling, send/edit/delete messages, formatted HTML, mentions, replies, reactions, read receipts, threads, typing, media (encrypted upload/download), DMs, joined-room listing, invites, and the full mautrix E2EE pipeline (Olm/Megolm, cross-signing, key backup, recovery key).
