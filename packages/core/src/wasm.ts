@@ -21,6 +21,14 @@ declare global {
   var __matrixCoreCall:
     | ((coreId: string, operation: string, payload: string) => Promise<string>)
     | undefined;
+  var __matrixCoreCallBytes:
+    | ((
+        coreId: string,
+        operation: string,
+        payload: string,
+        bytes?: Uint8Array
+      ) => Promise<string | Uint8Array>)
+    | undefined;
   var __matrixCoreEmit: ((coreId: string, payload: string) => void) | undefined;
 }
 
@@ -59,6 +67,34 @@ export class MatrixWasmCore extends MatrixCoreOperationCaller implements MatrixC
     }
     const response = await call(this.#coreId, operation, JSON.stringify(payload));
     return JSON.parse(response) as T;
+  }
+
+  async callBytesJson<T>(operation: string, payload: unknown, bytes: Uint8Array): Promise<T> {
+    const call = globalThis.__matrixCoreCallBytes;
+    if (!call) {
+      throw new Error("Matrix WASM byte calls are not ready");
+    }
+    const response = await call(this.#coreId, operation, JSON.stringify(payload), bytes);
+    if (typeof response !== "string") {
+      throw new Error(`Matrix WASM byte operation ${operation} returned bytes`);
+    }
+    return JSON.parse(response) as T;
+  }
+
+  async callBytesResult(operation: string, payload: unknown = {}): Promise<Uint8Array> {
+    const call = globalThis.__matrixCoreCallBytes;
+    if (!call) {
+      throw new Error("Matrix WASM byte calls are not ready");
+    }
+    const response = await call(this.#coreId, operation, JSON.stringify(payload));
+    if (!(response instanceof Uint8Array)) {
+      throw new Error(`Matrix WASM byte operation ${operation} returned JSON`);
+    }
+    return response;
+  }
+
+  supportsByteCalls(): boolean {
+    return typeof globalThis.__matrixCoreCallBytes === "function";
   }
 
   async close(): Promise<void> {
@@ -129,6 +165,13 @@ async function resolveWasmModule(options: LoadMatrixCoreOptions): Promise<WebAss
     const response = await fetchImpl(options.wasmUrl);
     if (!response.ok) {
       throw new Error(`Failed to load Matrix WASM core: ${response.status}`);
+    }
+    if (typeof WebAssembly.compileStreaming === "function") {
+      try {
+        return await WebAssembly.compileStreaming(Promise.resolve(response.clone()));
+      } catch {
+        // Some static servers do not serve WASM with application/wasm.
+      }
     }
     return WebAssembly.compile(await response.arrayBuffer());
   }

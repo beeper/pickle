@@ -107,7 +107,10 @@ export type MatrixCoreEvent =
 export type { MatrixCoreOperations } from "./generated-runtime-operations";
 
 export interface MatrixCore extends MatrixCoreOperations {
+  callBytesJson?<T>(operation: string, payload: unknown, bytes: Uint8Array): Promise<T>;
+  callBytesResult?(operation: string, payload?: unknown): Promise<Uint8Array>;
   onEvent(listener: (event: MatrixCoreEvent) => void): () => void;
+  supportsByteCalls?(): boolean;
 }
 
 export interface MatrixCoreHost {

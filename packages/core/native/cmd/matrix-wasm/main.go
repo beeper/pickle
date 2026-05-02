@@ -73,6 +73,53 @@ func main() {
 		})
 	}))
 
+	js.Global().Set("__matrixCoreCallBytes", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		if len(args) < 3 || len(args) > 4 {
+			return promise(func(_ js.Value, reject js.Value) {
+				reject.Invoke("expected core ID, operation, payload and optional bytes")
+			})
+		}
+		coreID := args[0].String()
+		op := args[1].String()
+		payload := []byte(args[2].String())
+		var data []byte
+		if len(args) == 4 && !args[3].IsUndefined() && !args[3].IsNull() {
+			data = make([]byte, args[3].Get("byteLength").Int())
+			js.CopyBytesToGo(data, args[3])
+		}
+		return promise(func(resolve js.Value, reject js.Value) {
+			go func() {
+				lock.Lock()
+				matrixCore := cores[coreID]
+				lock.Unlock()
+				if matrixCore == nil {
+					reject.Invoke("unknown matrix core ID")
+					return
+				}
+				resp, err := matrixCore.HandleBytes(context.Background(), op, payload, data)
+				if err != nil {
+					reject.Invoke(err.Error())
+					return
+				}
+				switch value := resp.(type) {
+				case []byte:
+					array := js.Global().Get("Uint8Array").New(len(value))
+					js.CopyBytesToJS(array, value)
+					resolve.Invoke(array)
+				case string:
+					resolve.Invoke(value)
+				default:
+					jsonResp, err := json.Marshal(value)
+					if err != nil {
+						reject.Invoke(err.Error())
+						return
+					}
+					resolve.Invoke(string(jsonResp))
+				}
+			}()
+		})
+	}))
+
 	select {}
 }
 

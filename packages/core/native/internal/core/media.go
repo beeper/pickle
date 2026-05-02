@@ -35,20 +35,32 @@ type postMediaReq struct {
 }
 
 func (c *Core) handleUploadMedia(ctx context.Context, payload []byte) ([]byte, error) {
-	cli, err := c.requireClient()
-	if err != nil {
-		return nil, err
-	}
 	var req uploadMediaReq
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	if req.ContentType == "" {
-		req.ContentType = "application/octet-stream"
-	}
 	data, err := base64.StdEncoding.DecodeString(req.BytesBase64)
 	if err != nil {
 		return nil, err
+	}
+	return c.uploadMedia(ctx, req, data)
+}
+
+func (c *Core) handleUploadMediaBytes(ctx context.Context, payload []byte, data []byte) ([]byte, error) {
+	var req uploadMediaReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	return c.uploadMedia(ctx, req, data)
+}
+
+func (c *Core) uploadMedia(ctx context.Context, req uploadMediaReq, data []byte) ([]byte, error) {
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	if req.ContentType == "" {
+		req.ContentType = "application/octet-stream"
 	}
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespMediaUpload, error) {
 		return cli.UploadBytesWithName(ctx, data, req.ContentType, req.Filename)
@@ -60,20 +72,32 @@ func (c *Core) handleUploadMedia(ctx context.Context, payload []byte) ([]byte, e
 }
 
 func (c *Core) handlePostMediaMessage(ctx context.Context, payload []byte) ([]byte, error) {
-	cli, err := c.requireClient()
-	if err != nil {
-		return nil, err
-	}
 	var req postMediaReq
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	if req.ContentType == "" {
-		req.ContentType = "application/octet-stream"
-	}
 	plaintext, err := base64.StdEncoding.DecodeString(req.BytesBase64)
 	if err != nil {
 		return nil, err
+	}
+	return c.postMediaMessage(ctx, req, plaintext)
+}
+
+func (c *Core) handlePostMediaMessageBytes(ctx context.Context, payload []byte, plaintext []byte) ([]byte, error) {
+	var req postMediaReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	return c.postMediaMessage(ctx, req, plaintext)
+}
+
+func (c *Core) postMediaMessage(ctx context.Context, req postMediaReq, plaintext []byte) ([]byte, error) {
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	if req.ContentType == "" {
+		req.ContentType = "application/octet-stream"
 	}
 	if req.Size == 0 {
 		req.Size = len(plaintext)
@@ -148,6 +172,18 @@ type downloadMediaReq struct {
 }
 
 func (c *Core) handleDownloadMedia(ctx context.Context, payload []byte) ([]byte, error) {
+	data, err := c.downloadMedia(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(OutboundEvent{"bytesBase64": base64.StdEncoding.EncodeToString(data)})
+}
+
+func (c *Core) handleDownloadMediaBytes(ctx context.Context, payload []byte) ([]byte, error) {
+	return c.downloadMedia(ctx, payload)
+}
+
+func (c *Core) downloadMedia(ctx context.Context, payload []byte) ([]byte, error) {
 	cli, err := c.requireClient()
 	if err != nil {
 		return nil, err
@@ -166,19 +202,31 @@ func (c *Core) handleDownloadMedia(ctx context.Context, payload []byte) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(OutboundEvent{"bytesBase64": base64.StdEncoding.EncodeToString(data)})
+	return data, nil
 }
 
 func (c *Core) handleUploadEncryptedMedia(ctx context.Context, payload []byte) ([]byte, error) {
-	cli, err := c.requireClient()
-	if err != nil {
-		return nil, err
-	}
 	var req uploadMediaReq
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
 	plaintext, err := base64.StdEncoding.DecodeString(req.BytesBase64)
+	if err != nil {
+		return nil, err
+	}
+	return c.uploadEncryptedMedia(ctx, req, plaintext)
+}
+
+func (c *Core) handleUploadEncryptedMediaBytes(ctx context.Context, payload []byte, plaintext []byte) ([]byte, error) {
+	var req uploadMediaReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	return c.uploadEncryptedMedia(ctx, req, plaintext)
+}
+
+func (c *Core) uploadEncryptedMedia(ctx context.Context, req uploadMediaReq, plaintext []byte) ([]byte, error) {
+	cli, err := c.requireClient()
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +254,18 @@ type downloadEncryptedMediaReq struct {
 }
 
 func (c *Core) handleDownloadEncryptedMedia(ctx context.Context, payload []byte) ([]byte, error) {
+	plaintext, err := c.downloadEncryptedMedia(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(OutboundEvent{"bytesBase64": base64.StdEncoding.EncodeToString(plaintext)})
+}
+
+func (c *Core) handleDownloadEncryptedMediaBytes(ctx context.Context, payload []byte) ([]byte, error) {
+	return c.downloadEncryptedMedia(ctx, payload)
+}
+
+func (c *Core) downloadEncryptedMedia(ctx context.Context, payload []byte) ([]byte, error) {
 	cli, err := c.requireClient()
 	if err != nil {
 		return nil, err
@@ -228,7 +288,7 @@ func (c *Core) handleDownloadEncryptedMedia(ctx context.Context, payload []byte)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(OutboundEvent{"bytesBase64": base64.StdEncoding.EncodeToString(plaintext)})
+	return plaintext, nil
 }
 
 func encryptMedia(plaintext []byte) ([]byte, event.EncryptedFileInfo, error) {

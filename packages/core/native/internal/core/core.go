@@ -137,6 +137,29 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 	}
 }
 
+func (c *Core) HandleBytes(ctx context.Context, op string, payload []byte, data []byte) (any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch op {
+	case "post_media_message_bytes":
+		resp, err := c.handlePostMediaMessageBytes(ctx, payload, data)
+		return string(resp), err
+	case "upload_media_bytes":
+		resp, err := c.handleUploadMediaBytes(ctx, payload, data)
+		return string(resp), err
+	case "download_media_bytes":
+		return c.handleDownloadMediaBytes(ctx, payload)
+	case "upload_encrypted_media_bytes":
+		resp, err := c.handleUploadEncryptedMediaBytes(ctx, payload, data)
+		return string(resp), err
+	case "download_encrypted_media_bytes":
+		return c.handleDownloadEncryptedMediaBytes(ctx, payload)
+	default:
+		return nil, fmt.Errorf("unknown matrix core byte operation %q", op)
+	}
+}
+
 func (c *Core) requireClient() (*mautrix.Client, error) {
 	if c.client == nil {
 		return nil, errors.New("matrix core is not initialized")
