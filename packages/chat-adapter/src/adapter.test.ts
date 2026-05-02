@@ -1,5 +1,5 @@
 import type { MatrixCore, MatrixCoreEvent } from "better-matrix-js";
-import type { ChatInstance, Logger } from "chat";
+import type { ChatInstance, Logger, StateAdapter } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { MatrixAdapter } from "./adapter";
 import { encodeMatrixChatThreadRef } from "./thread-id";
@@ -14,8 +14,9 @@ function makeLogger(): Logger {
   };
 }
 
-function makeChat() {
+function makeChat(state: StateAdapter = makeState()) {
   return {
+    getState: vi.fn(() => state),
     getLogger: vi.fn(() => makeLogger()),
     processMessage: vi.fn(),
     processReaction: vi.fn(),
@@ -24,6 +25,40 @@ function makeChat() {
     processMessage: ReturnType<typeof vi.fn>;
     processReaction: ReturnType<typeof vi.fn>;
     processSlashCommand: ReturnType<typeof vi.fn>;
+  };
+}
+
+function makeState(): StateAdapter {
+  const values = new Map<string, unknown>();
+  return {
+    acquireLock: vi.fn(async () => null),
+    appendToList: vi.fn(async () => undefined),
+    connect: vi.fn(async () => undefined),
+    delete: vi.fn(async (key: string) => {
+      values.delete(key);
+    }),
+    dequeue: vi.fn(async () => null),
+    disconnect: vi.fn(async () => undefined),
+    enqueue: vi.fn(async () => 0),
+    extendLock: vi.fn(async () => false),
+    forceReleaseLock: vi.fn(async () => undefined),
+    get: vi.fn(async (key: string) => values.get(key) ?? null),
+    getList: vi.fn(async () => []),
+    isSubscribed: vi.fn(async () => false),
+    queueDepth: vi.fn(async () => 0),
+    releaseLock: vi.fn(async () => undefined),
+    set: vi.fn(async (key: string, value: unknown) => {
+      values.set(key, value);
+    }),
+    setIfNotExists: vi.fn(async (key: string, value: unknown) => {
+      if (values.has(key)) {
+        return false;
+      }
+      values.set(key, value);
+      return true;
+    }),
+    subscribe: vi.fn(async () => undefined),
+    unsubscribe: vi.fn(async () => undefined),
   };
 }
 
@@ -115,6 +150,22 @@ function makeCore(overrides: Partial<MatrixCore> = {}) {
 }
 
 describe("MatrixAdapter", () => {
+  it("uses Beeper as the default homeserver", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      polling: { enabled: false },
+    });
+
+    await adapter.initialize(makeChat());
+
+    expect(core.init).toHaveBeenCalledWith({
+      accessToken: "token",
+      homeserverUrl: "https://matrix.beeper.com",
+    });
+  });
+
   it("passes fast startup cursor options to the Matrix core", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({

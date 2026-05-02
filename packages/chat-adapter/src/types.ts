@@ -4,6 +4,7 @@ import type {
   MatrixCore,
   MatrixCoreHost,
   MatrixCoreInitOptions,
+  MatrixKeyValueStore,
 } from "better-matrix-js";
 
 export interface MatrixChatThreadRef {
@@ -11,12 +12,13 @@ export interface MatrixChatThreadRef {
   roomId: string;
 }
 
-export interface MatrixAdapterConfig extends MatrixCoreInitOptions {
+export interface MatrixAdapterConfig extends Omit<MatrixCoreInitOptions, "homeserverUrl"> {
   commandPrefix?: string;
   core?: MatrixCore;
   createCore?: () => Promise<MatrixCore>;
   go?: GoRuntime;
   host?: MatrixCoreHost;
+  homeserverUrl?: string;
   polling?: {
     enabled?: boolean;
     retryDelayMs?: number;
@@ -27,6 +29,8 @@ export interface MatrixAdapterConfig extends MatrixCoreInitOptions {
     inviterAllowlist?: string[];
   };
   roomAllowlist?: string[];
+  statePrefix?: string;
+  store?: MatrixKeyValueStore;
   typingTimeoutMs?: number;
   userName?: string;
   wasmBytes?: BufferSource;

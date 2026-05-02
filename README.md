@@ -18,26 +18,24 @@ Built on `mautrix-go` + `goolm` compiled to WebAssembly. No `matrix-js-sdk`, no 
 ### Node bot (Chat SDK)
 
 ```sh
-npm install chat better-matrix-js @better-matrix-js/chat-adapter
+npm install chat better-matrix-js @better-matrix-js/chat-adapter @chat-adapter/state-redis
 ```
 
 ```ts
 import { Chat } from "chat";
-import { createFileMatrixStore } from "@better-matrix-js/state-file";
-import { loadMatrixCoreFromNodePackage } from "better-matrix-js/node";
+import { createRedisState } from "@chat-adapter/state-redis";
 import { createMatrixAdapter } from "@better-matrix-js/chat-adapter";
 
 const matrix = createMatrixAdapter({
   accessToken: process.env.MATRIX_ACCESS_TOKEN!,
-  homeserverUrl: "https://matrix.example.org",
-  createCore: () =>
-    loadMatrixCoreFromNodePackage({
-      host: { store: createFileMatrixStore(".matrix-store") },
-    }),
+  // homeserverUrl defaults to "https://matrix.beeper.com"
   recoveryKey: process.env.MATRIX_RECOVERY_KEY,
 });
 
-const bot = new Chat({ adapters: { matrix } });
+const bot = new Chat({
+  adapters: { matrix },
+  state: createRedisState({ url: process.env.REDIS_URL! }),
+});
 
 bot.onNewMention(async (thread, message) => {
   await thread.subscribe();

@@ -4,9 +4,11 @@ import {
   type LoadMatrixCoreOptions,
   type MatrixCore,
   type MatrixCoreEvent,
+  type MatrixCoreHost,
   type MatrixCoreInitOptions,
   type MatrixEncryptedFile,
   type MatrixFetchMessagesOptions,
+  type MatrixKeyValueStore,
   type MatrixMediaAttachment,
   type MatrixMessageEvent,
   type MatrixPollingHandle,
@@ -29,6 +31,7 @@ import type {
   ListThreadsOptions,
   ListThreadsResult,
   RawMessage,
+  StateAdapter,
   StreamOptions,
   ThreadInfo,
   WebhookOptions,
@@ -38,7 +41,6 @@ import { createMatrixStreamDriver, isBeeperHomeserver } from "./streaming";
 import {
   ConsoleLogger,
   Message,
-  NotImplementedError,
   defaultEmojiResolver,
   markdownToPlainText,
   parseMarkdown,
@@ -104,6 +106,7 @@ interface MatrixSyncResponsePayload {
 
 const INVITE_JOIN_MAX_ATTEMPTS = 5;
 const INVITE_JOIN_RETRY_BASE_MS = 1000;
+const DEFAULT_HOMESERVER_URL = "https://matrix.beeper.com";
 
 export class MatrixAdapter {
   readonly name = "matrix";
@@ -125,13 +128,15 @@ export class MatrixAdapter {
   #userId: string | null = null;
   #webhookOptions: WebhookOptions | undefined;
   #isBeeperHomeserver: boolean;
+  #homeserverUrl: string;
 
   constructor(config: MatrixAdapterConfig) {
     this.#config = config;
+    this.#homeserverUrl = config.homeserverUrl ?? DEFAULT_HOMESERVER_URL;
     this.userName = config.userName ?? "matrix-bot";
     this.#logger = new ConsoleLogger();
     this.#roomAllowlist = config.roomAllowlist ? new Set(config.roomAllowlist) : null;
-    this.#isBeeperHomeserver = isBeeperHomeserver(config.homeserverUrl);
+    this.#isBeeperHomeserver = isBeeperHomeserver(this.#homeserverUrl);
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -142,7 +147,7 @@ export class MatrixAdapter {
     this.#unsubscribeCore = this.#core.onEvent((event) => this.#handleCoreEvent(event));
     const initOptions: MatrixCoreInitOptions = {
       accessToken: this.#config.accessToken,
-      homeserverUrl: this.#config.homeserverUrl,
+      homeserverUrl: this.#homeserverUrl,
     };
     if (this.#config.catchUpOnStart !== undefined) {
       initOptions.catchUpOnStart = this.#config.catchUpOnStart;
@@ -376,7 +381,7 @@ export class MatrixAdapter {
         content
           ? this.#editMessageWithContent(targetThreadId, messageId, markdown, content)
           : this.editMessage(targetThreadId, messageId, { markdown }),
-      homeserverUrl: this.#config.homeserverUrl,
+      homeserverUrl: this.#homeserverUrl,
       logger: this.#logger.child("stream"),
       postMessage: (targetThreadId, markdown, content) =>
         this.#postMessageWithContent(targetThreadId, markdown, content),
@@ -761,9 +766,7 @@ export class MatrixAdapter {
       if (this.#config.go) {
         options.go = this.#config.go;
       }
-      if (this.#config.host) {
-        options.host = this.#config.host;
-      }
+      options.host = this.#resolveHost();
       if (this.#config.wasmBytes) {
         options.wasmBytes = this.#config.wasmBytes;
       }
@@ -775,10 +778,33 @@ export class MatrixAdapter {
       }
       return loadMatrixCore(options);
     }
-    throw new NotImplementedError(
-      "Provide core, createCore, wasmModule, wasmBytes, or wasmUrl to createMatrixAdapter()",
-      "matrix"
-    );
+    const { loadMatrixCoreFromNodePackage } = await importNodeMatrixCore();
+    const options: NonNullable<Parameters<typeof loadMatrixCoreFromNodePackage>[0]> = {
+      host: this.#resolveHost(),
+    };
+    if (this.#config.go) {
+      options.go = this.#config.go;
+    }
+    return loadMatrixCoreFromNodePackage(options);
+  }
+
+  #resolveHost(): MatrixCoreHost {
+    const host = { ...this.#config.host };
+    host.store ??= this.#config.store ?? this.#chatStateStore();
+    return host;
+  }
+
+  #chatStateStore(): MatrixKeyValueStore {
+    if (!this.#chat) {
+      throw new Error("Matrix adapter has not been initialized");
+    }
+    return new ChatStateMatrixStore(this.#chat.getState(), {
+      prefix:
+        this.#config.statePrefix ??
+        `matrix:${safeStateKeyPart(this.#homeserverUrl)}:${safeStateKeyPart(
+          this.#config.userId ?? this.#config.deviceId ?? "default"
+        )}:`,
+    });
   }
 
   #requireCore(): MatrixCore {
@@ -1060,6 +1086,68 @@ export class MatrixAdapter {
     }
     this.#logger.warn("Matrix invite join failed", { error: lastError, inviter, roomId });
   }
+}
+
+interface ChatStateMatrixStoreOptions {
+  prefix: string;
+}
+
+class ChatStateMatrixStore implements MatrixKeyValueStore {
+  readonly #indexKey: string;
+  readonly #prefix: string;
+  readonly #state: StateAdapter;
+
+  constructor(state: StateAdapter, options: ChatStateMatrixStoreOptions) {
+    this.#state = state;
+    this.#prefix = options.prefix;
+    this.#indexKey = `${this.#prefix}__keys`;
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.#state.delete(this.#key(key));
+    const keys = await this.#readIndex();
+    if (keys.delete(key)) {
+      await this.#writeIndex(keys);
+    }
+  }
+
+  async get(key: string): Promise<Uint8Array | null> {
+    const value = await this.#state.get<string>(this.#key(key));
+    return typeof value === "string" ? base64ToBytes(value) : null;
+  }
+
+  async list(prefix: string): Promise<string[]> {
+    return [...(await this.#readIndex())].filter((key) => key.startsWith(prefix)).sort();
+  }
+
+  async set(key: string, value: Uint8Array): Promise<void> {
+    await this.#state.set(this.#key(key), bytesToBase64(value));
+    const keys = await this.#readIndex();
+    if (!keys.has(key)) {
+      keys.add(key);
+      await this.#writeIndex(keys);
+    }
+  }
+
+  #key(key: string): string {
+    return `${this.#prefix}${key}`;
+  }
+
+  async #readIndex(): Promise<Set<string>> {
+    const keys = await this.#state.get<string[]>(this.#indexKey);
+    return new Set(Array.isArray(keys) ? keys : []);
+  }
+
+  async #writeIndex(keys: Set<string>): Promise<void> {
+    await this.#state.set(this.#indexKey, [...keys].sort());
+  }
+}
+
+async function importNodeMatrixCore(): Promise<typeof import("better-matrix-js/node")> {
+  const dynamicImport = new Function("specifier", "return import(specifier)") as (
+    specifier: string
+  ) => Promise<typeof import("better-matrix-js/node")>;
+  return dynamicImport("better-matrix-js/node");
 }
 
 export function createMatrixAdapter(config: MatrixAdapterConfig): MatrixAdapter {
@@ -1420,6 +1508,10 @@ function normalizeOptionalString(value?: string): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function safeStateKeyPart(value: string): string {
+  return value.replaceAll(/[^A-Za-z0-9_.-]/g, "_");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
