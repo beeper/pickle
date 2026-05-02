@@ -17,11 +17,12 @@ import (
 )
 
 type initReq struct {
-	HomeserverURL string `json:"homeserverUrl"`
-	AccessToken   string `json:"accessToken"`
-	RecoveryCode  string `json:"recoveryCode,omitempty"`
-	RecoveryKey   string `json:"recoveryKey,omitempty"`
-	PickleKey     string `json:"pickleKey,omitempty"`
+	HomeserverURL  string `json:"homeserverUrl"`
+	AccessToken    string `json:"accessToken"`
+	CatchUpOnStart bool   `json:"catchUpOnStart,omitempty"`
+	RecoveryCode   string `json:"recoveryCode,omitempty"`
+	RecoveryKey    string `json:"recoveryKey,omitempty"`
+	PickleKey      string `json:"pickleKey,omitempty"`
 }
 
 type whoamiResp struct {
@@ -85,6 +86,14 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 	if err := c.setupBeeperStream(); err != nil {
 		return nil, err
 	}
+	c.skipNextSync = !req.CatchUpOnStart
+	if c.nextBatch == "" {
+		c.skipNextSync = true
+	}
+	if c.skipNextSync && len(c.pendingDecryptions) > 0 {
+		c.pendingDecryptions = nil
+		_ = c.savePendingDecryptions(ctx)
+	}
 
 	c.emit(OutboundEvent{"type": "sync_status", "status": "initialized"})
 	return json.Marshal(whoamiResp{UserID: resp.UserID.String(), DeviceID: resp.DeviceID.String()})
@@ -141,6 +150,9 @@ func (c *Core) setupCrypto(ctx context.Context, req initReq) error {
 	}
 	helper.DecryptErrorCallback = func(evt *event.Event, err error) {
 		c.rememberPendingDecryption(ctx, evt)
+		if c.retryPendingDecryptionEvent(ctx, evt) {
+			return
+		}
 		eventData := OutboundEvent{}
 		if evt != nil {
 			eventData["eventId"] = evt.ID.String()
@@ -215,12 +227,16 @@ func (c *Core) verifyWithRecovery(ctx context.Context, mach *crypto.OlmMachine, 
 		c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": err.Error()})
 		return "", nil, nil
 	}
-	backupVersion, err := mach.DownloadAndStoreLatestKeyBackup(ctx, backupKey)
-	if err != nil {
-		c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": err.Error()})
+	versionInfo, err := mach.GetAndVerifyLatestKeyBackupVersion(ctx, backupKey)
+	if err != nil || versionInfo == nil {
+		errorMessage := "no verified key backup version found"
+		if err != nil {
+			errorMessage = err.Error()
+		}
+		c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": errorMessage})
 		return "", backupKey, nil
 	}
-	return backupVersion, backupKey, nil
+	return versionInfo.Version, backupKey, nil
 }
 
 func (c *Core) resolvePickleKey(req initReq) []byte {

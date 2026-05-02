@@ -26,6 +26,7 @@ type Core struct {
 	nextBatch          string
 	pickleKey          []byte
 	pendingDecryptions []pendingDecryption
+	skipNextSync       bool
 	messageEdits       map[id.EventID]OutboundEvent
 	reactions          map[id.EventID]reactionSnapshot
 	stores             *storeBundle
@@ -33,6 +34,7 @@ type Core struct {
 	deviceID           id.DeviceID
 	cryptoStatus       string
 	mu                 sync.Mutex
+	syncMu             sync.Mutex
 }
 
 type OutboundEvent map[string]any
@@ -51,6 +53,10 @@ func New(emit func(OutboundEvent), host ...RuntimeHost) *Core {
 }
 
 func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, error) {
+	if op == "sync_once" {
+		return c.handleSyncOnce(ctx, payload)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -59,8 +65,6 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleInit(ctx, payload)
 	case "whoami":
 		return c.handleWhoami(ctx)
-	case "sync_once":
-		return c.handleSyncOnce(ctx, payload)
 	case "apply_sync_response":
 		return c.handleApplySyncResponse(ctx, payload)
 	case "post_message":
@@ -79,6 +83,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleSendEphemeralEvent(ctx, payload)
 	case "create_beeper_stream":
 		return c.handleCreateBeeperStream(ctx, payload)
+	case "register_beeper_stream":
+		return c.handleRegisterBeeperStream(ctx, payload)
 	case "publish_beeper_stream":
 		return c.handlePublishBeeperStream(ctx, payload)
 	case "unsubscribe_beeper_stream":
@@ -145,6 +151,7 @@ func (c *Core) handleClose() ([]byte, error) {
 	c.beeperStream = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
+	c.skipNextSync = false
 	c.messageEdits = make(map[id.EventID]OutboundEvent)
 	c.reactions = make(map[id.EventID]reactionSnapshot)
 	c.stores = nil

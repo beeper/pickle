@@ -30,6 +30,7 @@ import type {
   MatrixOpenDMResult,
   MatrixRawMessage,
   MatrixReactionOptions,
+  MatrixRegisterBeeperStreamOptions,
   MatrixRoomInfo,
   MatrixSendMediaMessageOptions,
   MatrixSendMessageOptions,
@@ -196,6 +197,10 @@ export class MatrixWasmCore implements MatrixCore {
 
   async publishBeeperStream(options: MatrixBeeperStreamOptions): Promise<void> {
     await this.#call("publish_beeper_stream", options);
+  }
+
+  async registerBeeperStream(options: MatrixRegisterBeeperStreamOptions): Promise<void> {
+    await this.#call("register_beeper_stream", options);
   }
 
   async removeReaction(options: MatrixReactionOptions): Promise<void> {

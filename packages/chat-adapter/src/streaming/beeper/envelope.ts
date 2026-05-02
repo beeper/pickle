@@ -26,8 +26,18 @@ export function streamDescriptorType(descriptor: Record<string, unknown>): strin
   return typeof type === "string" && type.trim() ? type : BEEPER_STREAM_EVENT_TYPE;
 }
 
-export function clearStreamContent(): Record<string, unknown> {
+export function aiMessageContent(turnId: string, parts: unknown[] = []): Record<string, unknown> {
   return {
+    id: turnId,
+    metadata: { turn_id: turnId },
+    parts,
+    role: "assistant",
+  };
+}
+
+export function clearStreamContent(turnId: string, parts: unknown[] = []): Record<string, unknown> {
+  return {
+    "com.beeper.ai": aiMessageContent(turnId, parts),
     "com.beeper.stream": null,
   };
 }

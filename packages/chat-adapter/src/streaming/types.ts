@@ -1,5 +1,5 @@
 import type { MatrixCore } from "better-matrix-js";
-import type { RawMessage, StreamChunk, StreamOptions } from "chat";
+import type { Logger, RawMessage, StreamChunk, StreamOptions } from "chat";
 import type { MatrixRawMessage } from "../types";
 
 export type MatrixStream = AsyncIterable<string | StreamChunk | Record<string, unknown>>;
@@ -21,6 +21,7 @@ export interface MatrixStreamDriverOptions {
     content?: Record<string, unknown>
   ): Promise<RawMessage<MatrixRawMessage>>;
   homeserverUrl: string;
+  logger?: Logger;
   postMessage(
     threadId: string,
     message: string,

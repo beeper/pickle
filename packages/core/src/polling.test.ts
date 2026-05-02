@@ -26,6 +26,7 @@ function makePollingCore(syncOnce: MatrixCore["syncOnce"]): MatrixCore {
     postMediaMessage: vi.fn(),
     postMessage: vi.fn(),
     removeReaction: vi.fn(),
+    registerBeeperStream: vi.fn(),
     setTyping: vi.fn(),
     syncOnce,
     uploadEncryptedMedia: vi.fn(),
@@ -48,7 +49,7 @@ describe("startMatrixPolling", () => {
           resolvers.push(resolve);
         })
     );
-    const handle = startMatrixPolling(makePollingCore(syncOnce), { timeoutMs: 12_345 });
+    const handle = startMatrixPolling(makePollingCore(syncOnce), { initialDelayMs: 0, timeoutMs: 12_345 });
 
     await vi.waitFor(() => expect(syncOnce).toHaveBeenCalledTimes(1));
     expect(syncOnce).toHaveBeenLastCalledWith({ timeoutMs: 12_345 });
@@ -69,6 +70,7 @@ describe("startMatrixPolling", () => {
       throw new Error("temporary sync failure");
     });
     const handle = startMatrixPolling(makePollingCore(syncOnce), {
+      initialDelayMs: 0,
       retryDelayMs: 1_000,
       timeoutMs: 1,
     });
@@ -82,4 +84,5 @@ describe("startMatrixPolling", () => {
 
     await expect(handle.stop()).resolves.toBeUndefined();
   });
+
 });

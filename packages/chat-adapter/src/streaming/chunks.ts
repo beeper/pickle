@@ -14,32 +14,87 @@ export function streamChunkText(chunk: string | StreamChunk | Record<string, unk
 }
 
 export function streamPart(chunk: StreamChunk | Record<string, unknown>): Record<string, unknown> {
+  return streamParts(chunk)[0] ?? {};
+}
+
+export function streamParts(chunk: StreamChunk | Record<string, unknown>): Record<string, unknown>[] {
   if (!isStreamChunk(chunk)) {
-    return chunk;
+    return [chunk];
   }
   switch (chunk.type) {
     case "markdown_text":
-      return { delta: chunk.text, type: "text-delta" };
+      return [{ delta: chunk.text, type: "text-delta" }];
     case "task_update":
-      return {
-        data: {
-          call_id: chunk.id,
-          output: chunk.output,
-          progress: chunk.output,
-          status: chunk.status,
-          tool_name: chunk.title,
-        },
-        id: chunk.id,
-        transient: chunk.status === "pending" || chunk.status === "in_progress",
-        type: "data-tool-progress",
-      };
+      return taskUpdateParts(chunk);
     case "plan_update":
-      return {
+      return [{
         data: { title: chunk.title },
         transient: true,
         type: "data-plan-update",
-      };
+      }];
   }
+}
+
+function taskUpdateParts(chunk: Extract<StreamChunk, { type: "task_update" }>): Record<string, unknown>[] {
+  const toolName = toolNameFromTitle(chunk.title);
+  const title = chunk.title || toolName;
+  if (chunk.status === "complete") {
+    return [
+      toolInputStartPart(chunk.id, toolName, title),
+      {
+        output: chunk.output ?? "complete",
+        providerExecuted: true,
+        toolCallId: chunk.id,
+        type: "tool-output-available",
+      },
+    ];
+  }
+  if (chunk.status === "error") {
+    return [
+      toolInputStartPart(chunk.id, toolName, title),
+      {
+        errorText: chunk.output ?? "Tool failed",
+        providerExecuted: true,
+        toolCallId: chunk.id,
+        type: "tool-output-error",
+      },
+    ];
+  }
+  return [
+    toolInputStartPart(chunk.id, toolName, title),
+    {
+      dynamic: true,
+      input: {
+        status: chunk.status,
+        ...(chunk.output ? { note: chunk.output } : {}),
+      },
+      providerExecuted: true,
+      title,
+      toolCallId: chunk.id,
+      toolName,
+      type: "tool-input-available",
+    },
+  ];
+}
+
+function toolInputStartPart(toolCallId: string, toolName: string, title: string): Record<string, unknown> {
+  return {
+    dynamic: true,
+    providerExecuted: true,
+    title,
+    toolCallId,
+    toolName,
+    type: "tool-input-start",
+  };
+}
+
+function toolNameFromTitle(title: string): string {
+  const normalized = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || "tool";
 }
 
 export function normalizeStreamPart(part: Record<string, unknown>, defaultTextId: string): Record<string, unknown> {

@@ -79,6 +79,7 @@ function makeCore(overrides: Partial<MatrixCore> = {}) {
     postMediaMessage: vi.fn(async () => ({ eventId: "$media", raw: {}, roomId: "!room:example.com" })),
     postMessage: vi.fn(async () => ({ eventId: "$message", raw: {}, roomId: "!room:example.com" })),
     publishBeeperStream: vi.fn(async () => undefined),
+    registerBeeperStream: vi.fn(async () => undefined),
     removeReaction: vi.fn(async () => undefined),
     sendEphemeralEvent: vi.fn(async () => ({ eventId: "$ephemeral", raw: {}, roomId: "!room:example.com" })),
     setTyping: vi.fn(async () => undefined),
@@ -427,6 +428,12 @@ describe("MatrixAdapter", () => {
       expect.objectContaining({
         body: "...",
         content: {
+          "com.beeper.ai": {
+            id: expect.any(String),
+            metadata: { turn_id: expect.any(String) },
+            parts: [],
+            role: "assistant",
+          },
           "com.beeper.stream": {
             device_id: "DEVICE",
             type: "com.beeper.llm",
@@ -435,6 +442,15 @@ describe("MatrixAdapter", () => {
         },
       })
     );
+    expect(core.registerBeeperStream).toHaveBeenCalledWith({
+      descriptor: {
+        device_id: "DEVICE",
+        type: "com.beeper.llm",
+        user_id: "@bot:example.com",
+      },
+      eventId: "$message",
+      roomId: "!room:example.com",
+    });
     expect(core.publishBeeperStream).toHaveBeenCalledWith(
       expect.objectContaining({
         content: {
@@ -472,7 +488,16 @@ describe("MatrixAdapter", () => {
     expect(core.editMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         body: "hello",
-        content: { "com.beeper.dont_render_edited": true, "com.beeper.stream": null },
+        content: {
+          "com.beeper.ai": {
+            id: expect.any(String),
+            metadata: { turn_id: expect.any(String) },
+            parts: [{ state: "done", text: "hello", type: "text" }],
+            role: "assistant",
+          },
+          "com.beeper.dont_render_edited": true,
+          "com.beeper.stream": null,
+        },
         messageId: "$message",
       })
     );
@@ -530,7 +555,7 @@ describe("MatrixAdapter", () => {
     );
   });
 
-  it("maps Chat SDK task and plan stream chunks to Beeper data parts", async () => {
+  it("maps Chat SDK task stream chunks to Beeper tool parts", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
       accessToken: "token",
@@ -552,11 +577,33 @@ describe("MatrixAdapter", () => {
         content: {
           "com.beeper.llm.deltas": [
             expect.objectContaining({
-              part: expect.objectContaining({
-                data: expect.objectContaining({ call_id: "task-1", tool_name: "Search" }),
-                id: "task-1",
-                type: "data-tool-progress",
-              }),
+              part: {
+                dynamic: true,
+                providerExecuted: true,
+                title: "Search",
+                toolCallId: "task-1",
+                toolName: "search",
+                type: "tool-input-start",
+              },
+            }),
+          ],
+        },
+      })
+    );
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              part: {
+                dynamic: true,
+                input: { status: "in_progress" },
+                providerExecuted: true,
+                title: "Search",
+                toolCallId: "task-1",
+                toolName: "search",
+                type: "tool-input-available",
+              },
             }),
           ],
         },
@@ -571,6 +618,64 @@ describe("MatrixAdapter", () => {
                 data: { title: "Reading results" },
                 transient: true,
                 type: "data-plan-update",
+              },
+            }),
+          ],
+        },
+      })
+    );
+  });
+
+  it("maps completed Chat SDK task stream chunks to Beeper tool output deltas", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.beeper.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    async function* chunks() {
+      yield {
+        id: "task-1",
+        output: "Found 3 results",
+        status: "complete",
+        title: "Search Docs",
+        type: "task_update",
+      } as const;
+    }
+
+    await adapter.stream(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }), chunks());
+
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              part: {
+                dynamic: true,
+                providerExecuted: true,
+                title: "Search Docs",
+                toolCallId: "task-1",
+                toolName: "search_docs",
+                type: "tool-input-start",
+              },
+            }),
+          ],
+        },
+      })
+    );
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              part: {
+                output: "Found 3 results",
+                providerExecuted: true,
+                toolCallId: "task-1",
+                type: "tool-output-available",
               },
             }),
           ],

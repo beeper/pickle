@@ -118,6 +118,37 @@ func (c *Core) retryPendingDecryptions(ctx context.Context) {
 	}
 }
 
+func (c *Core) retryPendingDecryptionEvent(ctx context.Context, evt *event.Event) bool {
+	if evt == nil || evt.ID == "" || len(c.pendingDecryptions) == 0 || c.crypto == nil {
+		return false
+	}
+	for index := range c.pendingDecryptions {
+		pending := &c.pendingDecryptions[index]
+		if pending.EventID != evt.ID.String() {
+			continue
+		}
+		decrypted, err := c.decryptIfNeeded(ctx, evt)
+		if err != nil {
+			pending.Attempts++
+			if c.requestMissingSession(ctx, pending, true) {
+				decrypted, err = c.decryptIfNeeded(ctx, evt)
+			}
+		}
+		if err != nil {
+			_ = c.savePendingDecryptions(ctx)
+			return false
+		}
+		c.removePendingDecryption(ctx, evt.ID)
+		if decrypted.Type == event.EventMessage {
+			if converted := c.convertMessageEvent(decrypted); converted != nil {
+				c.emit(OutboundEvent{"type": "message", "event": converted})
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func (c *Core) removePendingDecryption(ctx context.Context, eventID id.EventID) {
 	if eventID == "" || len(c.pendingDecryptions) == 0 {
 		return
@@ -163,6 +194,9 @@ func (c *Core) requestMissingSession(ctx context.Context, pending *pendingDecryp
 
 func (c *Core) restorePendingFromBackup(ctx context.Context, pending *pendingDecryption) (bool, bool) {
 	if c.crypto == nil || c.backupKey == nil {
+		return false, false
+	}
+	if pending == nil {
 		return false, false
 	}
 	mach := c.crypto.Machine()

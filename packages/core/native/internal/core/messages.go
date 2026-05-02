@@ -97,6 +97,33 @@ type beeperStreamReq struct {
 	RoomID  string         `json:"roomId"`
 }
 
+type registerBeeperStreamReq struct {
+	Descriptor json.RawMessage `json:"descriptor"`
+	EventID    string          `json:"eventId"`
+	RoomID     string          `json:"roomId"`
+}
+
+func (c *Core) handleRegisterBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
+	if c.beeperStream == nil {
+		return nil, errors.New("beeper stream helper is not initialized")
+	}
+	var req registerBeeperStreamReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	if req.RoomID == "" || req.EventID == "" || len(req.Descriptor) == 0 {
+		return nil, errors.New("missing beeper stream registration fields")
+	}
+	var descriptor event.BeeperStreamInfo
+	if err := json.Unmarshal(req.Descriptor, &descriptor); err != nil {
+		return nil, err
+	}
+	if err := c.beeperStream.Register(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID), &descriptor); err != nil {
+		return nil, err
+	}
+	return c.empty()
+}
+
 func (c *Core) handlePublishBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
 	if c.beeperStream == nil {
 		return nil, errors.New("beeper stream helper is not initialized")
@@ -119,6 +146,7 @@ func (c *Core) handleUnsubscribeBeeperStream(payload []byte) ([]byte, error) {
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
+	c.beeperStream.Unregister(id.RoomID(req.RoomID), id.EventID(req.EventID))
 	c.beeperStream.Unsubscribe(id.RoomID(req.RoomID), id.EventID(req.EventID))
 	return c.empty()
 }

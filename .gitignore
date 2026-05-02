@@ -6,3 +6,4 @@ coverage
 packages/core/dist
 packages/chat-adapter/dist
 packages/core/native/dist
+examples/beeper-streaming-smoke/.matrix-store/

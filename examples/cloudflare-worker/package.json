@@ -7,8 +7,8 @@
     "deploy:dry-run": "wrangler deploy --dry-run --outdir bundled"
   },
   "dependencies": {
-    "@better-matrix-js/cloudflare": "0.1.0",
-    "better-matrix-js": "0.1.0"
+    "@better-matrix-js/cloudflare": "workspace:*",
+    "better-matrix-js": "workspace:*"
   },
   "devDependencies": {
     "wrangler": "^4.85.0"

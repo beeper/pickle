@@ -23,6 +23,7 @@ export interface MatrixLoginSession {
 
 export interface MatrixCoreInitOptions {
   accessToken: string;
+  catchUpOnStart?: boolean;
   homeserverUrl: string;
   pickleKey?: string;
   recoveryCode?: string;
@@ -351,6 +352,12 @@ export interface MatrixCreateBeeperStreamResult {
   descriptor: Record<string, unknown>;
 }
 
+export interface MatrixRegisterBeeperStreamOptions {
+  descriptor: Record<string, unknown>;
+  eventId: string;
+  roomId: string;
+}
+
 export interface MatrixBeeperStreamOptions {
   content?: Record<string, unknown>;
   eventId: string;
@@ -384,6 +391,7 @@ export interface MatrixCore {
   postMediaMessage(options: MatrixSendMediaMessageOptions): Promise<MatrixRawMessage>;
   postMessage(options: MatrixSendMessageOptions): Promise<MatrixRawMessage>;
   publishBeeperStream(options: MatrixBeeperStreamOptions): Promise<void>;
+  registerBeeperStream(options: MatrixRegisterBeeperStreamOptions): Promise<void>;
   removeReaction(options: MatrixReactionOptions): Promise<void>;
   sendEphemeralEvent(options: MatrixSendEphemeralEventOptions): Promise<MatrixRawMessage>;
   setTyping(options: MatrixTypingOptions): Promise<void>;

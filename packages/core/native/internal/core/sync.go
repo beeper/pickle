@@ -9,11 +9,19 @@ import (
 	"maunium.net/go/mautrix/event"
 )
 
+const (
+	liveSyncFilter      = `{"room":{"timeline":{"limit":50}}}`
+	noHistorySyncFilter = `{"room":{"account_data":{"limit":0},"ephemeral":{"limit":0},"state":{"limit":0},"timeline":{"limit":0}}}`
+)
+
 type syncOnceReq struct {
 	TimeoutMS int `json:"timeoutMs,omitempty"`
 }
 
 func (c *Core) handleSyncOnce(ctx context.Context, payload []byte) ([]byte, error) {
+	c.syncMu.Lock()
+	defer c.syncMu.Unlock()
+
 	cli, err := c.requireClient()
 	if err != nil {
 		return nil, err
@@ -23,30 +31,59 @@ func (c *Core) handleSyncOnce(ctx context.Context, payload []byte) ([]byte, erro
 	if req.TimeoutMS <= 0 {
 		req.TimeoutMS = 30000
 	}
+	timeoutMS := req.TimeoutMS
+	filterID := liveSyncFilter
+	skipTimelines := c.skipNextSync
+	if skipTimelines {
+		timeoutMS = 0
+		filterID = noHistorySyncFilter
+	}
 	c.emit(OutboundEvent{"type": "sync_status", "status": "syncing"})
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSync, error) {
 		return cli.FullSyncRequest(ctx, mautrix.ReqSync{
-			Timeout:     req.TimeoutMS,
-			Since:       c.nextBatch,
-			FullState:   false,
-			SetPresence: event.PresenceOffline,
+			Timeout:         timeoutMS,
+			Since:           c.nextBatch,
+			FilterID:        filterID,
+			FullState:       false,
+			SetPresence:     event.PresenceOffline,
+			BeeperStreaming: true,
 		})
 	})
 	if err != nil {
 		return nil, err
 	}
 	since := c.nextBatch
+	if skipTimelines {
+		clearRoomTimelines(resp)
+	}
 	if err := c.processSyncResponse(ctx, resp, since); err != nil {
 		return nil, err
 	}
-	c.retryPendingDecryptions(ctx)
+	if !skipTimelines {
+		c.retryPendingDecryptions(ctx)
+	}
 	c.nextBatch = resp.NextBatch
+	c.skipNextSync = false
 	if c.stores != nil {
 		if err := c.stores.SaveNextBatch(ctx, c.nextBatch); err != nil {
 			return nil, err
 		}
 	}
 	return c.empty()
+}
+
+func clearRoomTimelines(resp *mautrix.RespSync) {
+	if resp == nil {
+		return
+	}
+	for roomID, room := range resp.Rooms.Join {
+		room.Timeline.Events = nil
+		resp.Rooms.Join[roomID] = room
+	}
+	for roomID, room := range resp.Rooms.Leave {
+		room.Timeline.Events = nil
+		resp.Rooms.Leave[roomID] = room
+	}
 }
 
 type applySyncReq struct {
@@ -183,10 +220,11 @@ func (c *Core) processEvent(ctx context.Context, evt *event.Event) {
 	case event.EventRedaction:
 		c.processRedaction(evt)
 	case event.EventEncrypted:
-		if converted := c.convertMaybeEncryptedMessageEvent(ctx, evt); converted != nil {
-			c.removePendingDecryption(ctx, evt.ID)
-			c.emit(OutboundEvent{"type": "message", "event": converted})
-		}
+		// CryptoHelper owns encrypted timeline events. It waits for missing room
+		// keys, requests sessions, then redispatches the decrypted logical event
+		// through the syncer. Handling encrypted events here would turn a
+		// recoverable missing-session state into an immediate user-visible miss.
+		return
 	default:
 		_ = ctx
 	}

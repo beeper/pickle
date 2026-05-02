@@ -353,6 +353,7 @@ export class MatrixAdapter {
           ? this.#editMessageWithContent(targetThreadId, messageId, markdown, content)
           : this.editMessage(targetThreadId, messageId, { markdown }),
       homeserverUrl: this.#config.homeserverUrl,
+      logger: this.#logger.child("stream"),
       postMessage: (targetThreadId, markdown, content) =>
         this.#postMessageWithContent(targetThreadId, markdown, content),
       roomId: parsed.roomId,

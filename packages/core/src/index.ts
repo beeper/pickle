@@ -44,6 +44,7 @@ export type {
   MatrixRawMessage,
   MatrixReactionEvent,
   MatrixReactionOptions,
+  MatrixRegisterBeeperStreamOptions,
   MatrixRoomInfo,
   MatrixRoomThreadSummary,
   MatrixSendMediaMessageOptions,
