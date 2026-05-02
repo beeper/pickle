@@ -188,6 +188,7 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 	now := time.Now().UnixMilli()
 	isMe := true
 	isEdited := true
+	replaces := req.MessageID
 	c.rememberEdit(&MatrixMessageEvent{
 		MatrixRawEvent: MatrixRawEvent{
 			Content:        newContentMap,
@@ -203,7 +204,10 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 		Body:          newContent.Body,
 		FormattedBody: optionalString(newContent.FormattedBody),
 		IsEdited:      &isEdited,
+		Mentions:      matrixMentions(newContent.Mentions),
 		Msgtype:       string(newContent.MsgType),
+		Relation:      &MatrixRelation{EventID: req.MessageID, Type: string(event.RelReplace)},
+		Replaces:      &replaces,
 	})
 	return json.Marshal(MatrixRawMessage{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
 }
@@ -561,10 +565,9 @@ func (c *Core) convertMessageEvent(evt *event.Event) *MatrixMessageEvent {
 		return c.convertEditEvent(evt, content)
 	}
 	content.RemoveReplyFallback()
-	threadRoot := ""
-	if content.RelatesTo != nil {
-		threadRoot = content.RelatesTo.GetThreadParent().String()
-	}
+	relation := matrixRelation(content.RelatesTo)
+	replyTo := optionalEventID(content.RelatesTo.GetNonFallbackReplyTo())
+	threadRoot := optionalEventID(content.RelatesTo.GetThreadParent())
 	isEdited := false
 	if evt.Unsigned.Relations != nil && len(evt.Unsigned.Relations.Replaces.List) > 0 {
 		isEdited = true
@@ -587,8 +590,11 @@ func (c *Core) convertMessageEvent(evt *event.Event) *MatrixMessageEvent {
 		FormattedBody:     optionalString(content.FormattedBody),
 		IsEncrypted:       &isEncrypted,
 		IsEdited:          &isEdited,
+		Mentions:          matrixMentions(content.Mentions),
 		Msgtype:           string(content.MsgType),
-		ThreadRootEventID: optionalString(threadRoot),
+		Relation:          relation,
+		ReplyTo:           replyTo,
+		ThreadRootEventID: threadRoot,
 	}
 }
 
@@ -598,10 +604,10 @@ func (c *Core) convertEditEvent(evt *event.Event, content *event.MessageEventCon
 	}
 	newContent := content.NewContent
 	newContent.RemoveReplyFallback()
-	threadRoot := ""
-	if newContent.RelatesTo != nil {
-		threadRoot = newContent.RelatesTo.GetThreadParent().String()
-	}
+	replaces := optionalEventID(content.RelatesTo.GetReplaceID())
+	relation := matrixRelation(content.RelatesTo)
+	threadRoot := optionalEventID(newContent.RelatesTo.GetThreadParent())
+	replyTo := optionalEventID(newContent.RelatesTo.GetNonFallbackReplyTo())
 	isMe := evt.Sender == c.userID
 	isEncrypted := evt.Mautrix.EventSource&event.SourceDecrypted != 0 || evt.Mautrix.WasEncrypted
 	isEdited := true
@@ -621,11 +627,75 @@ func (c *Core) convertEditEvent(evt *event.Event, content *event.MessageEventCon
 		FormattedBody:     optionalString(newContent.FormattedBody),
 		IsEncrypted:       &isEncrypted,
 		IsEdited:          &isEdited,
+		Mentions:          matrixMentions(newContent.Mentions),
 		Msgtype:           string(newContent.MsgType),
-		ThreadRootEventID: optionalString(threadRoot),
+		Relation:          relation,
+		Replaces:          replaces,
+		ReplyTo:           replyTo,
+		ThreadRootEventID: threadRoot,
 	}
 	c.rememberEdit(converted)
 	return converted
+}
+
+func matrixMentions(mentions *event.Mentions) *MatrixMentions {
+	if mentions == nil || (!mentions.Room && len(mentions.UserIDs) == 0) {
+		return nil
+	}
+	result := &MatrixMentions{Room: mentions.Room}
+	for _, userID := range mentions.UserIDs {
+		result.UserIDs = append(result.UserIDs, userID.String())
+	}
+	return result
+}
+
+func matrixRelation(rel *event.RelatesTo) *MatrixRelation {
+	if rel == nil {
+		return nil
+	}
+	switch rel.Type {
+	case event.RelReplace:
+		if rel.EventID == "" {
+			return nil
+		}
+		return &MatrixRelation{EventID: rel.EventID.String(), Type: string(event.RelReplace)}
+	case event.RelAnnotation:
+		if rel.EventID == "" {
+			return nil
+		}
+		key := rel.Key
+		return &MatrixRelation{EventID: rel.EventID.String(), Key: optionalString(key), Type: string(event.RelAnnotation)}
+	case event.RelThread:
+		if rel.EventID == "" {
+			return nil
+		}
+		isFallback := rel.IsFallingBack
+		return &MatrixRelation{
+			EventID:    rel.EventID.String(),
+			IsFallback: &isFallback,
+			ReplyTo:    optionalEventID(rel.GetReplyTo()),
+			Type:       string(event.RelThread),
+		}
+	case event.RelReference:
+		if rel.EventID == "" {
+			return nil
+		}
+		return &MatrixRelation{EventID: rel.EventID.String(), Type: string(event.RelReference)}
+	default:
+		replyTo := rel.GetNonFallbackReplyTo()
+		if replyTo != "" {
+			return &MatrixRelation{EventID: replyTo.String(), Type: "m.in_reply_to"}
+		}
+		return nil
+	}
+}
+
+func optionalEventID(eventID id.EventID) *string {
+	if eventID == "" {
+		return nil
+	}
+	value := eventID.String()
+	return &value
 }
 
 func messageContent(body, formattedBody, msgType string, mentions *MatrixMentions) *event.MessageEventContent {

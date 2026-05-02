@@ -351,8 +351,19 @@ export interface MatrixMessageEvent extends MatrixRawEvent {
   formattedBody?: string;
   isEncrypted?: boolean;
   isEdited?: boolean;
+  mentions?: MatrixMentions;
   msgtype: string;
+  relation?: MatrixRelation;
+  replaces?: string;
+  replyTo?: string;
   threadRootEventId?: string;
+}
+export interface MatrixRelation {
+  eventId: string;
+  isFallback?: boolean;
+  key?: string;
+  replyTo?: string;
+  type: "m.replace" | "m.annotation" | "m.thread" | "m.reference" | string;
 }
 export interface MatrixReactionEvent extends MatrixRawEvent {
   added?: boolean;

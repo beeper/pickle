@@ -7,7 +7,7 @@
 - [x] Keep one sync ingestion primitive: `client.sync.applyResponse({ response, since })`.
 - [x] Do not add a Matrix-client `applyEnvelope`; encrypted webhook envelopes belong to app/transport helpers.
 - [x] Make `MatrixAdapter` explicitly satisfy Chat SDK adapter requirements.
-- [ ] Delete duplicated `MatrixRawMessage` in the Chat adapter; use the core `MatrixMessageEvent` as raw data.
+- [x] Delete duplicated `MatrixRawMessage` in the Chat adapter; use the core `MatrixMessageEvent` as raw data.
 - [ ] Collapse duplicated public/runtime/generated Matrix event types where possible.
 - [ ] Keep package public entrypoints, but stop internal imports from convenience barrels.
 - [ ] Normalize option naming to one public spelling for each concern.
@@ -36,10 +36,10 @@
 
 ## Go/Core Ownership
 
-- [ ] Move Matrix attachment extraction fully into Go/core event normalization.
-- [ ] Move mention detection fully into Go/core event normalization.
-- [ ] Move relation parsing fully into Go/core event normalization.
-- [ ] Normalize replies, threads, edits, annotations/reactions, and references in core.
+- [x] Move Matrix attachment extraction fully into Go/core event normalization.
+- [x] Move mention detection fully into Go/core event normalization.
+- [x] Move relation parsing fully into Go/core event normalization.
+- [x] Normalize replies, threads, edits, annotations/reactions, and references in core.
 - [ ] Normalize inbound redactions in core.
 - [ ] Normalize inbound edits in core without Chat adapter raw-content inference.
 - [ ] Move reaction target/thread lookup into core state.
@@ -70,7 +70,7 @@
 - [x] Delete old Chat adapter streaming drivers; keep streaming delegated to core plus the public `MatrixStream` type/helper exports.
 - [ ] Remove Chat adapter Matrix attachment parser after core emits normalized attachments.
 - [ ] Remove Chat adapter Matrix mention parser after core emits normalized mentions.
-- [ ] Remove Chat adapter Matrix relation parser after core emits normalized relations.
+- [x] Remove Chat adapter Matrix relation parser after core emits normalized relations.
 - [ ] Remove Chat adapter in-memory reaction/thread authority.
 - [ ] Keep only Chat message construction, formatting conversion, slash dispatch, and Chat SDK method mapping.
 - [x] Wire Chat SDK streaming to `client.streams.send(...)`.

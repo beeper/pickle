@@ -204,13 +204,9 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixMessage
     const body = normalizeOptionalString(raw.text) ?? readString(raw.content, "body") ?? "";
     const formattedBody =
       normalizeOptionalString(raw.html) ?? readString(raw.content, "formatted_body");
-    const relatesTo = readRecord(raw.content, "m.relates_to");
-    const relationType = readString(relatesTo, "rel_type");
     const threadRoot =
       raw.threadRoot ??
-      (relationType === "m.thread"
-        ? readString(relatesTo, "event_id") ?? readString(relatesTo, "relates_to_event_id")
-        : undefined);
+      (raw.relation?.type === "m.thread" ? raw.relation.eventId : undefined);
 
     const chatThreadRef: MatrixChatThreadRef = { roomId: raw.roomId };
     if (threadRoot) {

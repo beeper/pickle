@@ -36,7 +36,11 @@ type MatrixMessageEvent struct {
 	FormattedBody     *string                 `json:"formattedBody,omitempty"`
 	IsEncrypted       *bool                   `json:"isEncrypted,omitempty"`
 	IsEdited          *bool                   `json:"isEdited,omitempty"`
+	Mentions          *MatrixMentions         `json:"mentions,omitempty"`
 	Msgtype           string                  `json:"msgtype"`
+	Relation          *MatrixRelation         `json:"relation,omitempty"`
+	Replaces          *string                 `json:"replaces,omitempty"`
+	ReplyTo           *string                 `json:"replyTo,omitempty"`
 	ThreadRootEventID *string                 `json:"threadRootEventId,omitempty"`
 }
 
@@ -69,6 +73,14 @@ func int64Value(value *int64) int64 {
 		return 0
 	}
 	return *value
+}
+
+type MatrixRelation struct {
+	EventID    string  `json:"eventId"`
+	IsFallback *bool   `json:"isFallback,omitempty"`
+	Key        *string `json:"key,omitempty"`
+	ReplyTo    *string `json:"replyTo,omitempty"`
+	Type       string  `json:"type" tstype:"\"m.replace\" | \"m.annotation\" | \"m.thread\" | \"m.reference\" | string"`
 }
 
 type MatrixReactionEvent struct {
