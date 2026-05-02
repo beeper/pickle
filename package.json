@@ -9,7 +9,7 @@
     "check": "pnpm typecheck && pnpm test && pnpm test:go && pnpm build && pnpm pack:packages && pnpm smoke:consumer && pnpm smoke:cloudflare",
     "clean": "pnpm -r clean",
     "pack:packages": "mkdir -p .packs && pnpm -r --filter './packages/*' pack --pack-destination ./.packs",
-    "publish:packages": "pnpm --filter @better-matrix-js/cloudflare publish --access public --no-git-checks && pnpm --filter better-matrix-js publish --access public --no-git-checks && pnpm --filter @better-matrix-js/chat-adapter publish --access public --no-git-checks",
+    "publish:packages": "pnpm --filter @better-matrix-js/cloudflare publish --access public --no-git-checks && pnpm --filter better-matrix-js publish --access public --no-git-checks && pnpm --filter @better-matrix-js/chat-adapter publish --access public --no-git-checks && pnpm --filter @better-matrix-js/ai-sdk publish --access public --no-git-checks",
     "smoke:cloudflare": "node scripts/smoke-cloudflare-worker.mjs",
     "smoke:consumer": "node scripts/package-consumer-smoke.mjs",
     "smoke:package-consumer": "node scripts/package-consumer-smoke.mjs",

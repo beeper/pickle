@@ -33,8 +33,8 @@ import type {
   ThreadInfo,
   WebhookOptions,
 } from "chat";
-import type { MatrixStream } from "./beeper-streaming";
-import { createMatrixStreamDriver, isBeeperHomeserver } from "./beeper-streaming";
+import type { MatrixStream } from "./streaming";
+import { createMatrixStreamDriver, isBeeperHomeserver } from "./streaming";
 import {
   ConsoleLogger,
   Message,
@@ -346,15 +346,18 @@ export class MatrixAdapter {
     options?: StreamOptions
   ): Promise<RawMessage<MatrixRawMessage>> {
     const parsed = this.decodeThreadId(threadId);
-    return createMatrixStreamDriver({
+    const driver = await createMatrixStreamDriver({
       core: this.#requireCore(),
-      editMessage: (targetThreadId, messageId, markdown) =>
-        this.editMessage(targetThreadId, messageId, { markdown }),
+      editMessage: (targetThreadId, messageId, markdown, content) =>
+        content
+          ? this.#editMessageWithContent(targetThreadId, messageId, markdown, content)
+          : this.editMessage(targetThreadId, messageId, { markdown }),
       homeserverUrl: this.#config.homeserverUrl,
       postMessage: (targetThreadId, markdown, content) =>
         this.#postMessageWithContent(targetThreadId, markdown, content),
       roomId: parsed.roomId,
-    }).stream(threadId, textStream, options);
+    });
+    return driver.stream(threadId, textStream, options);
   }
 
   async postObject(
@@ -782,6 +785,35 @@ export class MatrixAdapter {
     }
     const raw = await core.postMessage(postOptions);
     return this.#rawMessage(raw.eventId, parsed.roomId, threadId, raw.raw);
+  }
+
+  async #editMessageWithContent(
+    threadId: string,
+    messageId: string,
+    markdown: string,
+    content: Record<string, unknown>
+  ): Promise<RawMessage<MatrixRawMessage>> {
+    const core = this.#requireCore();
+    const parsed = this.decodeThreadId(threadId);
+    const rendered = this.#formatConverter.renderPostableMessage({ markdown });
+    const editOptions: Parameters<MatrixCore["editMessage"]>[0] = {
+      body: rendered.body,
+      content: {
+        ...(this.#isBeeperHomeserver ? { "com.beeper.dont_render_edited": true } : {}),
+        ...content,
+      },
+      messageId,
+      roomId: parsed.roomId,
+    };
+    if (rendered.formattedBody !== undefined) {
+      editOptions.formattedBody = rendered.formattedBody;
+    }
+    const raw = await core.editMessage(editOptions);
+    return this.#rawMessage(messageId, parsed.roomId, threadId, {
+      logicalEventId: messageId,
+      replacementEventId: raw.eventId,
+      raw: raw.raw,
+    });
   }
 
   async #collectUploads(message: AdapterPostableMessage): Promise<OutboundUpload[]> {

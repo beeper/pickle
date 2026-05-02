@@ -1,0 +1,59 @@
+{
+  "name": "@better-matrix-js/ai-sdk",
+  "version": "0.1.0",
+  "description": "AI SDK stream adapters for better-matrix-js",
+  "type": "module",
+  "homepage": "https://github.com/batuhan/better-matrix-js#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/batuhan/better-matrix-js.git",
+    "directory": "packages/ai-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/batuhan/better-matrix-js/issues"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "node ../../scripts/guard-pnpm-publish.mjs",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@better-matrix-js/chat-adapter": "^0.1.0"
+  },
+  "devDependencies": {
+    "@better-matrix-js/chat-adapter": "workspace:*",
+    "@types/node": "^25.3.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "keywords": [
+    "matrix",
+    "ai-sdk",
+    "streaming",
+    "beeper"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

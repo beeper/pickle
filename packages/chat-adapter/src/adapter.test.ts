@@ -36,7 +36,7 @@ function makeCore(overrides: Partial<MatrixCore> = {}) {
     createBeeperStream: vi.fn(async () => ({
       descriptor: {
         device_id: "DEVICE",
-        type: "com.beeper.ai.stream_event",
+        type: "com.beeper.llm",
         user_id: "@bot:example.com",
       },
     })),
@@ -398,7 +398,7 @@ describe("MatrixAdapter", () => {
     });
   });
 
-  it("streams Beeper homeserver chunks as encrypted Matrix ephemeral events", async () => {
+  it("streams Beeper homeserver chunks as Beeper Desktop stream deltas", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
       accessToken: "token",
@@ -421,7 +421,7 @@ describe("MatrixAdapter", () => {
     expect(result.id).toBe("$message");
     expect(core.createBeeperStream).toHaveBeenCalledWith({
       roomId: "!room:example.com",
-      streamType: "com.beeper.ai.stream_event",
+      streamType: "com.beeper.llm",
     });
     expect(core.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -429,7 +429,7 @@ describe("MatrixAdapter", () => {
         content: {
           "com.beeper.stream": {
             device_id: "DEVICE",
-            type: "com.beeper.ai.stream_event",
+            type: "com.beeper.llm",
             user_id: "@bot:example.com",
           },
         },
@@ -437,10 +437,34 @@ describe("MatrixAdapter", () => {
     );
     expect(core.publishBeeperStream).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.objectContaining({
-          part: { id: expect.any(String), type: "text-start" },
-          target_event: "$message",
-        }),
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              "m.relates_to": {
+                event_id: "$message",
+                rel_type: "m.reference",
+              },
+              part: { messageId: expect.any(String), messageMetadata: { turn_id: expect.any(String) }, type: "start" },
+              seq: 1,
+              turn_id: expect.any(String),
+            }),
+          ],
+        },
+        eventId: "$message",
+        roomId: "!room:example.com",
+      })
+    );
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              part: { id: expect.any(String), type: "text-start" },
+              seq: 2,
+              turn_id: expect.any(String),
+            }),
+          ],
+        },
         eventId: "$message",
         roomId: "!room:example.com",
       })
@@ -448,7 +472,7 @@ describe("MatrixAdapter", () => {
     expect(core.editMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         body: "hello",
-        content: { "com.beeper.dont_render_edited": true },
+        content: { "com.beeper.dont_render_edited": true, "com.beeper.stream": null },
         messageId: "$message",
       })
     );
@@ -479,21 +503,29 @@ describe("MatrixAdapter", () => {
 
     expect(core.publishBeeperStream).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.objectContaining({
-          part: { id: "reasoning-1", type: "reasoning-start" },
-        }),
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              part: { id: "reasoning-1", type: "reasoning-start" },
+            }),
+          ],
+        },
       })
     );
     expect(core.publishBeeperStream).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.objectContaining({
-          part: {
-            input: { path: "/tmp/a" },
-            toolCallId: "call-1",
-            toolName: "read_file",
-            type: "tool-input-available",
-          },
-        }),
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              part: {
+                input: { path: "/tmp/a" },
+                toolCallId: "call-1",
+                toolName: "read_file",
+                type: "tool-input-available",
+              },
+            }),
+          ],
+        },
       })
     );
   });
@@ -517,23 +549,32 @@ describe("MatrixAdapter", () => {
 
     expect(core.publishBeeperStream).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.objectContaining({
-          part: expect.objectContaining({
-            data: expect.objectContaining({ call_id: "task-1", tool_name: "Search" }),
-            type: "data-tool-progress",
-          }),
-        }),
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              part: expect.objectContaining({
+                data: expect.objectContaining({ call_id: "task-1", tool_name: "Search" }),
+                id: "task-1",
+                type: "data-tool-progress",
+              }),
+            }),
+          ],
+        },
       })
     );
     expect(core.publishBeeperStream).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.objectContaining({
-          part: {
-            data: { title: "Reading results" },
-            transient: true,
-            type: "data-plan-update",
-          },
-        }),
+        content: {
+          "com.beeper.llm.deltas": [
+            expect.objectContaining({
+              part: {
+                data: { title: "Reading results" },
+                transient: true,
+                type: "data-plan-update",
+              },
+            }),
+          ],
+        },
       })
     );
   });

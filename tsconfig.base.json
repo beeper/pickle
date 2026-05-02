@@ -13,6 +13,8 @@
     "baseUrl": ".",
     "paths": {
       "better-matrix-js": ["packages/core/src/index.ts"],
+      "@better-matrix-js/ai-sdk": ["packages/ai-sdk/src/index.ts"],
+      "@better-matrix-js/chat-adapter": ["packages/chat-adapter/src/index.ts"],
       "@better-matrix-js/cloudflare": ["packages/cloudflare/src/index.ts"],
       "better-matrix-js/cloudflare": ["packages/core/src/cloudflare.ts"],
       "better-matrix-js/node": ["packages/core/src/node.ts"]
