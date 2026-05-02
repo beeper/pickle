@@ -17,13 +17,12 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-// ts:export MatrixCoreInitOptions
-type initReq struct {
+type MatrixCoreInitOptions struct {
 	AccessToken           string `json:"accessToken"`
 	CatchUpOnStart        *bool  `json:"catchUpOnStart,omitempty"`
 	DeviceID              string `json:"deviceId,omitempty"`
 	HomeserverURL         string `json:"homeserverUrl"`
-	InitialSyncMode       string `json:"initialSyncMode,omitempty" ts:"\"persisted\" | \"latest\" | \"catch_up\""`
+	InitialSyncMode       string `json:"initialSyncMode,omitempty" tstype:"\"persisted\" | \"latest\" | \"catch_up\""`
 	InitialSyncSince      string `json:"initialSyncSince,omitempty"`
 	PickleKey             string `json:"pickleKey,omitempty"`
 	RecoveryCode          string `json:"recoveryCode,omitempty"`
@@ -32,15 +31,14 @@ type initReq struct {
 	VerifyRecoveryOnStart bool   `json:"verifyRecoveryOnStart,omitempty"`
 }
 
-// ts:export MatrixWhoami
-type whoamiResp struct {
+type MatrixWhoami struct {
 	UserID   string `json:"userId"`
 	DeviceID string `json:"deviceId"`
 }
 
 func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 	initStarted := time.Now()
-	var req initReq
+	var req MatrixCoreInitOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -53,11 +51,11 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 	configureHTTPClient(cli, c.host)
-	var resp whoamiResp
+	var resp MatrixWhoami
 	if req.UserID != "" && req.DeviceID != "" {
 		cli.UserID = id.UserID(req.UserID)
 		cli.DeviceID = id.DeviceID(req.DeviceID)
-		resp = whoamiResp{UserID: req.UserID, DeviceID: req.DeviceID}
+		resp = MatrixWhoami{UserID: req.UserID, DeviceID: req.DeviceID}
 		c.emitInitStep("whoami_cached", initStarted)
 	} else {
 		whoami, err := cli.Whoami(ctx)
@@ -67,7 +65,7 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 		c.emitInitStep("whoami", initStarted)
 		cli.UserID = whoami.UserID
 		cli.DeviceID = whoami.DeviceID
-		resp = whoamiResp{UserID: whoami.UserID.String(), DeviceID: whoami.DeviceID.String()}
+		resp = MatrixWhoami{UserID: whoami.UserID.String(), DeviceID: whoami.DeviceID.String()}
 	}
 
 	c.pickleKey = c.resolvePickleKey(req)
@@ -136,7 +134,7 @@ type startupSyncPlan struct {
 	skipNextSync           bool
 }
 
-func resolveStartupSyncPlan(req initReq, storedNextBatch string) startupSyncPlan {
+func resolveStartupSyncPlan(req MatrixCoreInitOptions, storedNextBatch string) startupSyncPlan {
 	if req.InitialSyncSince != "" {
 		return startupSyncPlan{
 			cursorSource:           "provided",
@@ -238,10 +236,10 @@ func (c *Core) handleWhoami(ctx context.Context) ([]byte, error) {
 		c.userID = resp.UserID
 		c.deviceID = resp.DeviceID
 	}
-	return json.Marshal(whoamiResp{UserID: cli.UserID.String(), DeviceID: cli.DeviceID.String()})
+	return json.Marshal(MatrixWhoami{UserID: cli.UserID.String(), DeviceID: cli.DeviceID.String()})
 }
 
-func (c *Core) setupCrypto(ctx context.Context, req initReq) error {
+func (c *Core) setupCrypto(ctx context.Context, req MatrixCoreInitOptions) error {
 	cli, err := c.requireClient()
 	if err != nil {
 		return err
@@ -374,7 +372,7 @@ func (c *Core) loadRecoveryBackup(ctx context.Context, mach *crypto.OlmMachine, 
 	return versionInfo.Version, backupKey, nil
 }
 
-func (c *Core) resolvePickleKey(req initReq) []byte {
+func (c *Core) resolvePickleKey(req MatrixCoreInitOptions) []byte {
 	switch {
 	case req.PickleKey != "":
 		return []byte(req.PickleKey)

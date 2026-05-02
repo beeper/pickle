@@ -13,13 +13,11 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-// ts:export MatrixFetchRoomOptions
-type roomReq struct {
+type MatrixFetchRoomOptions struct {
 	RoomID string `json:"roomId"`
 }
 
-// ts:export MatrixRoomInfo
-type roomInfo struct {
+type MatrixRoomInfo struct {
 	Encrypted   bool           `json:"encrypted"`
 	ID          string         `json:"id"`
 	IsDM        bool           `json:"isDM,omitempty"`
@@ -28,7 +26,7 @@ type roomInfo struct {
 	Name        string         `json:"name,omitempty"`
 	Topic       string         `json:"topic,omitempty"`
 	Raw         map[string]any `json:"raw,omitempty"`
-	Visibility  string         `json:"visibility,omitempty" ts:"\"private\" | \"workspace\" | \"external\" | \"unknown\""`
+	Visibility  string         `json:"visibility,omitempty" tstype:"\"private\" | \"workspace\" | \"external\" | \"unknown\""`
 }
 
 func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, error) {
@@ -36,11 +34,11 @@ func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	var req roomReq
+	var req MatrixFetchRoomOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	info := roomInfo{ID: req.RoomID, Raw: map[string]any{}}
+	info := MatrixRoomInfo{ID: req.RoomID, Raw: map[string]any{}}
 	if cli.StateStore != nil {
 		if encrypted, err := cli.StateStore.IsEncrypted(ctx, id.RoomID(req.RoomID)); err == nil {
 			info.Encrypted = encrypted
@@ -97,8 +95,7 @@ func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, err
 	return json.Marshal(info)
 }
 
-// ts:export MatrixOpenDMOptions
-type openDMReq struct {
+type MatrixOpenDMOptions struct {
 	UserID string `json:"userId"`
 }
 
@@ -107,7 +104,7 @@ func (c *Core) handleOpenDM(ctx context.Context, payload []byte) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	var req openDMReq
+	var req MatrixOpenDMOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -141,8 +138,7 @@ func (c *Core) handleOpenDM(ctx context.Context, payload []byte) ([]byte, error)
 	return json.Marshal(OutboundEvent{"roomId": resp.RoomID.String(), "raw": resp})
 }
 
-// ts:export MatrixJoinRoomOptions
-type joinRoomReq struct {
+type MatrixJoinRoomOptions struct {
 	RoomIDOrAlias string `json:"roomIdOrAlias"`
 }
 
@@ -151,7 +147,7 @@ func (c *Core) handleJoinRoom(ctx context.Context, payload []byte) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	var req joinRoomReq
+	var req MatrixJoinRoomOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -164,8 +160,7 @@ func (c *Core) handleJoinRoom(ctx context.Context, payload []byte) ([]byte, erro
 	return json.Marshal(OutboundEvent{"roomId": resp.RoomID.String(), "raw": resp})
 }
 
-// ts:export MatrixLeaveRoomOptions
-type leaveRoomReq struct {
+type MatrixLeaveRoomOptions struct {
 	Reason string `json:"reason,omitempty"`
 	RoomID string `json:"roomId"`
 }
@@ -175,7 +170,7 @@ func (c *Core) handleLeaveRoom(ctx context.Context, payload []byte) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	var req leaveRoomReq
+	var req MatrixLeaveRoomOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -192,8 +187,7 @@ func (c *Core) handleLeaveRoom(ctx context.Context, payload []byte) ([]byte, err
 	return json.Marshal(OutboundEvent{"raw": resp})
 }
 
-// ts:export MatrixInviteUserOptions
-type inviteUserReq struct {
+type MatrixInviteUserOptions struct {
 	Reason string `json:"reason,omitempty"`
 	RoomID string `json:"roomId"`
 	UserID string `json:"userId"`
@@ -204,7 +198,7 @@ func (c *Core) handleInviteUser(ctx context.Context, payload []byte) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	var req inviteUserReq
+	var req MatrixInviteUserOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}

@@ -15,13 +15,11 @@ const (
 	noHistorySyncFilter = `{"room":{"account_data":{"limit":0},"ephemeral":{"limit":0},"state":{"limit":0},"timeline":{"limit":0}}}`
 )
 
-// ts:export MatrixSyncOnceOptions
-type syncOnceReq struct {
+type MatrixSyncOnceOptions struct {
 	TimeoutMS int `json:"timeoutMs,omitempty"`
 }
 
-// ts:export MatrixSyncStartOptions
-type syncStartReq struct {
+type MatrixSyncStartOptions struct {
 	RetryDelayMS int `json:"retryDelayMs,omitempty"`
 	TimeoutMS    int `json:"timeoutMs,omitempty"`
 }
@@ -36,7 +34,7 @@ func (c *Core) handleSyncOnce(ctx context.Context, payload []byte) ([]byte, erro
 	c.syncMu.Lock()
 	defer c.syncMu.Unlock()
 
-	var req syncOnceReq
+	var req MatrixSyncOnceOptions
 	_ = json.Unmarshal(payload, &req)
 	if req.TimeoutMS <= 0 {
 		req.TimeoutMS = defaultSyncTimeoutMS
@@ -48,7 +46,7 @@ func (c *Core) handleSyncOnce(ctx context.Context, payload []byte) ([]byte, erro
 }
 
 func (c *Core) handleStartSync(payload []byte) ([]byte, error) {
-	var req syncStartReq
+	var req MatrixSyncStartOptions
 	_ = json.Unmarshal(payload, &req)
 	if req.TimeoutMS <= 0 {
 		req.TimeoutMS = defaultSyncTimeoutMS
@@ -86,7 +84,7 @@ func (c *Core) handleStopSync() ([]byte, error) {
 	return c.empty()
 }
 
-func (c *Core) runSyncLoop(ctx context.Context, done chan struct{}, req syncStartReq) {
+func (c *Core) runSyncLoop(ctx context.Context, done chan struct{}, req MatrixSyncStartOptions) {
 	defer func() {
 		c.syncLoopMu.Lock()
 		c.syncLoopCancel = nil
@@ -203,14 +201,13 @@ func clearRoomTimelines(resp *mautrix.RespSync) {
 	}
 }
 
-// ts:export MatrixApplySyncResponseOptions
-type applySyncReq struct {
+type MatrixApplySyncResponseOptions struct {
 	Since    string          `json:"since,omitempty"`
 	Response json.RawMessage `json:"response"`
 }
 
 func (c *Core) handleApplySyncResponse(ctx context.Context, payload []byte) ([]byte, error) {
-	var req applySyncReq
+	var req MatrixApplySyncResponseOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -299,7 +296,7 @@ func (c *Core) processInvites(resp *mautrix.RespSync) {
 		}
 		c.emit(OutboundEvent{
 			"type": "invite",
-			"event": tsInviteEvent{
+			"event": MatrixInviteEvent{
 				Inviter: optionalString(inviter),
 				Raw:     room,
 				RoomID:  roomID.String(),
@@ -348,7 +345,7 @@ func (c *Core) processEvent(ctx context.Context, evt *event.Event) {
 	}
 }
 
-func (c *Core) convertMaybeEncryptedMessageEvent(ctx context.Context, evt *event.Event) *tsMessageEvent {
+func (c *Core) convertMaybeEncryptedMessageEvent(ctx context.Context, evt *event.Event) *MatrixMessageEvent {
 	decrypted, err := c.decryptIfNeeded(ctx, evt)
 	if err != nil {
 		c.rememberPendingDecryption(ctx, evt)

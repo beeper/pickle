@@ -8,8 +8,7 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-// ts:export MatrixGetUserOptions
-type getUserReq struct {
+type MatrixGetUserOptions struct {
 	UserID string `json:"userId"`
 }
 
@@ -18,7 +17,7 @@ func (c *Core) handleGetUser(ctx context.Context, payload []byte) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	var req getUserReq
+	var req MatrixGetUserOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}

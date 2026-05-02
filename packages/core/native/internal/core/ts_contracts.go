@@ -2,8 +2,7 @@ package core
 
 import "maunium.net/go/mautrix/event"
 
-// ts:export MatrixRawEvent
-type tsRawEvent struct {
+type MatrixRawEvent struct {
 	Content        map[string]any `json:"content"`
 	EventID        string         `json:"eventId"`
 	IsMe           *bool          `json:"isMe,omitempty"`
@@ -14,8 +13,7 @@ type tsRawEvent struct {
 	Type           string         `json:"type"`
 }
 
-// ts:export MatrixMediaInfo
-type tsMediaInfo struct {
+type MatrixMediaInfo struct {
 	ContentType *string `json:"contentType,omitempty"`
 	Duration    *int64  `json:"duration,omitempty"`
 	Height      *int    `json:"height,omitempty"`
@@ -23,28 +21,26 @@ type tsMediaInfo struct {
 	Width       *int    `json:"width,omitempty"`
 }
 
-// ts:export MatrixMediaAttachment
-type tsMediaAttachment struct {
+type MatrixMediaAttachment struct {
 	ContentURI    *string                  `json:"contentUri,omitempty"`
-	EncryptedFile *event.EncryptedFileInfo `json:"encryptedFile,omitempty" ts:"MatrixEncryptedFile"`
+	EncryptedFile *event.EncryptedFileInfo `json:"encryptedFile,omitempty" tstype:"MatrixEncryptedFile"`
 	Filename      *string                  `json:"filename,omitempty"`
-	Info          *tsMediaInfo             `json:"info,omitempty"`
-	Msgtype       string                   `json:"msgtype" ts:"\"m.image\" | \"m.video\" | \"m.audio\" | \"m.file\""`
+	Info          *MatrixMediaInfo         `json:"info,omitempty"`
+	Msgtype       string                   `json:"msgtype" tstype:"\"m.image\" | \"m.video\" | \"m.audio\" | \"m.file\""`
 }
 
-// ts:export MatrixMessageEvent
-type tsMessageEvent struct {
-	tsRawEvent
-	Attachments       []tsMediaAttachment `json:"attachments,omitempty"`
-	Body              string              `json:"body"`
-	FormattedBody     *string             `json:"formattedBody,omitempty"`
-	IsEncrypted       *bool               `json:"isEncrypted,omitempty"`
-	IsEdited          *bool               `json:"isEdited,omitempty"`
-	Msgtype           string              `json:"msgtype"`
-	ThreadRootEventID *string             `json:"threadRootEventId,omitempty"`
+type MatrixMessageEvent struct {
+	MatrixRawEvent
+	Attachments       []MatrixMediaAttachment `json:"attachments,omitempty"`
+	Body              string                  `json:"body"`
+	FormattedBody     *string                 `json:"formattedBody,omitempty"`
+	IsEncrypted       *bool                   `json:"isEncrypted,omitempty"`
+	IsEdited          *bool                   `json:"isEdited,omitempty"`
+	Msgtype           string                  `json:"msgtype"`
+	ThreadRootEventID *string                 `json:"threadRootEventId,omitempty"`
 }
 
-func (evt *tsMessageEvent) setThreadRoot(threadRoot string) {
+func (evt *MatrixMessageEvent) setThreadRoot(threadRoot string) {
 	if threadRoot != "" && evt.ThreadRootEventID == nil {
 		evt.ThreadRootEventID = &threadRoot
 	}
@@ -75,85 +71,72 @@ func int64Value(value *int64) int64 {
 	return *value
 }
 
-// ts:export MatrixReactionEvent
-type tsReactionEvent struct {
-	tsRawEvent
+type MatrixReactionEvent struct {
+	MatrixRawEvent
 	Added            *bool  `json:"added,omitempty"`
 	Key              string `json:"key"`
 	RelatesToEventID string `json:"relatesToEventId"`
 }
 
-// ts:export MatrixInviteEvent
-type tsInviteEvent struct {
+type MatrixInviteEvent struct {
 	Inviter *string `json:"inviter,omitempty"`
 	Raw     any     `json:"raw"`
 	RoomID  string  `json:"roomId"`
 }
 
-// ts:export MatrixRoomThreadSummary
-type tsRoomThreadSummary struct {
-	LastReplyTS *int64         `json:"lastReplyTs,omitempty"`
-	ReplyCount  *int           `json:"replyCount,omitempty"`
-	Root        tsMessageEvent `json:"root"`
+type MatrixRoomThreadSummary struct {
+	LastReplyTS *int64             `json:"lastReplyTs,omitempty"`
+	ReplyCount  *int               `json:"replyCount,omitempty"`
+	Root        MatrixMessageEvent `json:"root"`
 }
 
-// ts:export MatrixFetchMessagesResult
-type tsFetchMessagesResult struct {
-	Messages   []tsMessageEvent `json:"messages"`
-	NextCursor *string          `json:"nextCursor,omitempty"`
+type MatrixFetchMessagesResult struct {
+	Messages   []MatrixMessageEvent `json:"messages"`
+	NextCursor *string              `json:"nextCursor,omitempty"`
 }
 
-// ts:export MatrixFetchMessageResult
-type tsFetchMessageResult struct {
-	Message *tsMessageEvent `json:"message" ts:"MatrixMessageEvent | null"`
+type MatrixFetchMessageResult struct {
+	Message *MatrixMessageEvent `json:"message" tstype:"MatrixMessageEvent | null"`
 }
 
-// ts:export MatrixUploadMediaResult
-type tsUploadMediaResult struct {
+type MatrixUploadMediaResult struct {
 	ContentURI string `json:"contentUri"`
 	Raw        any    `json:"raw"`
 }
 
-// ts:export MatrixDownloadMediaResult
-type tsDownloadMediaResult struct {
+type MatrixDownloadMediaResult struct {
 	BytesBase64 string `json:"bytesBase64"`
 }
 
-// ts:export MatrixUploadEncryptedMediaResult
-type tsUploadEncryptedMediaResult struct {
+type MatrixUploadEncryptedMediaResult struct {
 	ContentURI string                  `json:"contentUri"`
-	File       event.EncryptedFileInfo `json:"file" ts:"MatrixEncryptedFile"`
+	File       event.EncryptedFileInfo `json:"file" tstype:"MatrixEncryptedFile"`
 	Raw        any                     `json:"raw"`
 }
 
-// ts:export MatrixOpenDMResult
-type tsOpenDMResult struct {
+type MatrixOpenDMResult struct {
 	Raw    any    `json:"raw"`
 	RoomID string `json:"roomId"`
 }
 
-// ts:export MatrixJoinRoomResult
-type tsJoinRoomResult struct {
+type MatrixJoinRoomResult struct {
 	Raw    any    `json:"raw"`
 	RoomID string `json:"roomId"`
 }
 
-// ts:export MatrixJoinedRoomsResult
-type tsJoinedRoomsResult struct {
+type MatrixJoinedRoomsResult struct {
 	Raw     any      `json:"raw"`
 	RoomIDs []string `json:"roomIds"`
 }
 
-// ts:export MatrixUserInfo
-type tsUserInfo struct {
+type MatrixUserInfo struct {
 	AvatarURL   *string `json:"avatarUrl,omitempty"`
 	DisplayName *string `json:"displayName,omitempty"`
 	Raw         any     `json:"raw"`
 	UserID      string  `json:"userId"`
 }
 
-// ts:export MatrixListRoomThreadsResult
-type tsListRoomThreadsResult struct {
-	NextCursor *string               `json:"nextCursor,omitempty"`
-	Threads    []tsRoomThreadSummary `json:"threads"`
+type MatrixListRoomThreadsResult struct {
+	NextCursor *string                   `json:"nextCursor,omitempty"`
+	Threads    []MatrixRoomThreadSummary `json:"threads"`
 }

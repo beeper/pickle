@@ -27,7 +27,7 @@ type Core struct {
 	pickleKey          []byte
 	pendingDecryptions []pendingDecryption
 	skipNextSync       bool
-	messageEdits       map[id.EventID]*tsMessageEvent
+	messageEdits       map[id.EventID]*MatrixMessageEvent
 	reactions          map[id.EventID]reactionSnapshot
 	stores             *storeBundle
 	userID             id.UserID
@@ -50,7 +50,7 @@ func New(emit func(OutboundEvent), host ...RuntimeHost) *Core {
 	return &Core{
 		emit:         emit,
 		host:         runtimeHost,
-		messageEdits: make(map[id.EventID]*tsMessageEvent),
+		messageEdits: make(map[id.EventID]*MatrixMessageEvent),
 		reactions:    make(map[id.EventID]reactionSnapshot),
 	}
 }
@@ -187,7 +187,7 @@ func (c *Core) handleClose() ([]byte, error) {
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
 	c.skipNextSync = false
-	c.messageEdits = make(map[id.EventID]*tsMessageEvent)
+	c.messageEdits = make(map[id.EventID]*MatrixMessageEvent)
 	c.reactions = make(map[id.EventID]reactionSnapshot)
 	c.stores = nil
 	c.userID = ""

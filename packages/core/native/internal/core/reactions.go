@@ -18,8 +18,7 @@ type reactionSnapshot struct {
 	Raw              any
 }
 
-// ts:export MatrixReactionOptions
-type reactionReq struct {
+type MatrixReactionOptions struct {
 	RoomID    string `json:"roomId"`
 	MessageID string `json:"messageId"`
 	Emoji     string `json:"emoji"`
@@ -30,7 +29,7 @@ func (c *Core) handleAddReaction(ctx context.Context, payload []byte) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	var req reactionReq
+	var req MatrixReactionOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -43,7 +42,7 @@ func (c *Core) handleAddReaction(ctx context.Context, payload []byte) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(rawMessageResp{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
+	return json.Marshal(MatrixRawMessage{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
 }
 
 func (c *Core) handleRemoveReaction(ctx context.Context, payload []byte) ([]byte, error) {
@@ -51,7 +50,7 @@ func (c *Core) handleRemoveReaction(ctx context.Context, payload []byte) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	var req reactionReq
+	var req MatrixReactionOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -107,8 +106,8 @@ func (c *Core) emitReaction(snapshot reactionSnapshot, added bool) {
 	content := map[string]any{}
 	c.emit(OutboundEvent{
 		"type": "reaction",
-		"event": tsReactionEvent{
-			tsRawEvent: tsRawEvent{
+		"event": MatrixReactionEvent{
+			MatrixRawEvent: MatrixRawEvent{
 				Content: content,
 				EventID: snapshot.EventID.String(),
 				IsMe:    &isMe,

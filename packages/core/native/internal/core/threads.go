@@ -11,8 +11,7 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-// ts:export MatrixListRoomThreadsOptions
-type listRoomThreadsReq struct {
+type MatrixListRoomThreadsOptions struct {
 	Cursor string `json:"cursor,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 	RoomID string `json:"roomId"`
@@ -29,7 +28,7 @@ func (c *Core) handleListRoomThreads(ctx context.Context, payload []byte) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	var req listRoomThreadsReq
+	var req MatrixListRoomThreadsOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -40,7 +39,7 @@ func (c *Core) handleListRoomThreads(ctx context.Context, payload []byte) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	threads := make([]tsRoomThreadSummary, 0, len(response.Chunk))
+	threads := make([]MatrixRoomThreadSummary, 0, len(response.Chunk))
 	for _, evt := range response.Chunk {
 		if evt != nil && evt.RoomID == "" {
 			evt.RoomID = id.RoomID(req.RoomID)
@@ -55,7 +54,7 @@ func (c *Core) handleListRoomThreads(ctx context.Context, payload []byte) ([]byt
 				replyCount = chunk.Count
 			}
 		}
-		threads = append(threads, tsRoomThreadSummary{
+		threads = append(threads, MatrixRoomThreadSummary{
 			ReplyCount: &replyCount,
 			Root:       *root,
 		})
@@ -63,7 +62,7 @@ func (c *Core) handleListRoomThreads(ctx context.Context, payload []byte) ([]byt
 	return json.Marshal(OutboundEvent{"threads": threads, "nextCursor": response.NextBatch})
 }
 
-func (c *Core) requestThreadList(ctx context.Context, cli *mautrix.Client, req listRoomThreadsReq) (*threadListResp, error) {
+func (c *Core) requestThreadList(ctx context.Context, cli *mautrix.Client, req MatrixListRoomThreadsOptions) (*threadListResp, error) {
 	query := map[string]string{
 		"dir":     string(mautrix.DirectionBackward),
 		"include": "all",

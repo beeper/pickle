@@ -9,7 +9,7 @@ import (
 )
 
 func TestResolveStartupSyncPlanDefaultsToLiveCursorForFreshLogin(t *testing.T) {
-	plan := resolveStartupSyncPlan(initReq{}, "")
+	plan := resolveStartupSyncPlan(MatrixCoreInitOptions{}, "")
 	if !plan.skipNextSync {
 		t.Fatal("fresh login should establish a live cursor without timeline history")
 	}
@@ -22,7 +22,7 @@ func TestResolveStartupSyncPlanDefaultsToLiveCursorForFreshLogin(t *testing.T) {
 }
 
 func TestResolveStartupSyncPlanCatchesUpFromPersistedCursorByDefault(t *testing.T) {
-	plan := resolveStartupSyncPlan(initReq{}, "s123")
+	plan := resolveStartupSyncPlan(MatrixCoreInitOptions{}, "s123")
 	if plan.skipNextSync {
 		t.Fatal("persisted cursor should catch up timeline events by default")
 	}
@@ -35,7 +35,7 @@ func TestResolveStartupSyncPlanCatchesUpFromPersistedCursorByDefault(t *testing.
 }
 
 func TestResolveStartupSyncPlanUsesProvidedCursor(t *testing.T) {
-	plan := resolveStartupSyncPlan(initReq{InitialSyncSince: "provided"}, "stored")
+	plan := resolveStartupSyncPlan(MatrixCoreInitOptions{InitialSyncSince: "provided"}, "stored")
 	if plan.skipNextSync {
 		t.Fatal("provided cursor should catch up from that cursor")
 	}
@@ -49,7 +49,7 @@ func TestResolveStartupSyncPlanUsesProvidedCursor(t *testing.T) {
 
 func TestResolveStartupSyncPlanCompatibilityCatchUpOnStartFalseMeansLatest(t *testing.T) {
 	catchUp := false
-	plan := resolveStartupSyncPlan(initReq{CatchUpOnStart: &catchUp}, "stored")
+	plan := resolveStartupSyncPlan(MatrixCoreInitOptions{CatchUpOnStart: &catchUp}, "stored")
 	if !plan.skipNextSync {
 		t.Fatal("catchUpOnStart=false should skip timeline catch-up")
 	}

@@ -12,15 +12,13 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-// ts:export MatrixUploadMediaOptions
-type uploadMediaReq struct {
+type MatrixUploadMediaOptions struct {
 	BytesBase64 string `json:"bytesBase64"`
 	ContentType string `json:"contentType,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 }
 
-// ts:export MatrixSendMediaMessageOptions
-type postMediaReq struct {
+type MatrixSendMediaMessageOptions struct {
 	RoomID            string `json:"roomId"`
 	Body              string `json:"body,omitempty"`
 	BytesBase64       string `json:"bytesBase64"`
@@ -28,14 +26,14 @@ type postMediaReq struct {
 	Duration          int    `json:"duration,omitempty"`
 	Filename          string `json:"filename,omitempty"`
 	Height            int    `json:"height,omitempty"`
-	MsgType           string `json:"msgtype,omitempty" ts:"\"m.image\" | \"m.video\" | \"m.audio\" | \"m.file\""`
+	MsgType           string `json:"msgtype,omitempty" tstype:"\"m.image\" | \"m.video\" | \"m.audio\" | \"m.file\""`
 	Size              int    `json:"size,omitempty"`
 	ThreadRootEventID string `json:"threadRootEventId,omitempty"`
 	Width             int    `json:"width,omitempty"`
 }
 
 func (c *Core) handleUploadMedia(ctx context.Context, payload []byte) ([]byte, error) {
-	var req uploadMediaReq
+	var req MatrixUploadMediaOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -47,14 +45,14 @@ func (c *Core) handleUploadMedia(ctx context.Context, payload []byte) ([]byte, e
 }
 
 func (c *Core) handleUploadMediaBytes(ctx context.Context, payload []byte, data []byte) ([]byte, error) {
-	var req uploadMediaReq
+	var req MatrixUploadMediaOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
 	return c.uploadMedia(ctx, req, data)
 }
 
-func (c *Core) uploadMedia(ctx context.Context, req uploadMediaReq, data []byte) ([]byte, error) {
+func (c *Core) uploadMedia(ctx context.Context, req MatrixUploadMediaOptions, data []byte) ([]byte, error) {
 	cli, err := c.requireClient()
 	if err != nil {
 		return nil, err
@@ -72,7 +70,7 @@ func (c *Core) uploadMedia(ctx context.Context, req uploadMediaReq, data []byte)
 }
 
 func (c *Core) handlePostMediaMessage(ctx context.Context, payload []byte) ([]byte, error) {
-	var req postMediaReq
+	var req MatrixSendMediaMessageOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -84,14 +82,14 @@ func (c *Core) handlePostMediaMessage(ctx context.Context, payload []byte) ([]by
 }
 
 func (c *Core) handlePostMediaMessageBytes(ctx context.Context, payload []byte, plaintext []byte) ([]byte, error) {
-	var req postMediaReq
+	var req MatrixSendMediaMessageOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
 	return c.postMediaMessage(ctx, req, plaintext)
 }
 
-func (c *Core) postMediaMessage(ctx context.Context, req postMediaReq, plaintext []byte) ([]byte, error) {
+func (c *Core) postMediaMessage(ctx context.Context, req MatrixSendMediaMessageOptions, plaintext []byte) ([]byte, error) {
 	cli, err := c.requireClient()
 	if err != nil {
 		return nil, err
@@ -163,11 +161,10 @@ func (c *Core) postMediaMessage(ctx context.Context, req postMediaReq, plaintext
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(rawMessageResp{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
+	return json.Marshal(MatrixRawMessage{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
 }
 
-// ts:export MatrixDownloadMediaOptions
-type downloadMediaReq struct {
+type MatrixDownloadMediaOptions struct {
 	ContentURI string `json:"contentUri"`
 }
 
@@ -188,7 +185,7 @@ func (c *Core) downloadMedia(ctx context.Context, payload []byte) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	var req downloadMediaReq
+	var req MatrixDownloadMediaOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -206,7 +203,7 @@ func (c *Core) downloadMedia(ctx context.Context, payload []byte) ([]byte, error
 }
 
 func (c *Core) handleUploadEncryptedMedia(ctx context.Context, payload []byte) ([]byte, error) {
-	var req uploadMediaReq
+	var req MatrixUploadMediaOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -218,14 +215,14 @@ func (c *Core) handleUploadEncryptedMedia(ctx context.Context, payload []byte) (
 }
 
 func (c *Core) handleUploadEncryptedMediaBytes(ctx context.Context, payload []byte, plaintext []byte) ([]byte, error) {
-	var req uploadMediaReq
+	var req MatrixUploadMediaOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
 	return c.uploadEncryptedMedia(ctx, req, plaintext)
 }
 
-func (c *Core) uploadEncryptedMedia(ctx context.Context, req uploadMediaReq, plaintext []byte) ([]byte, error) {
+func (c *Core) uploadEncryptedMedia(ctx context.Context, req MatrixUploadMediaOptions, plaintext []byte) ([]byte, error) {
 	cli, err := c.requireClient()
 	if err != nil {
 		return nil, err
@@ -248,9 +245,8 @@ func (c *Core) uploadEncryptedMedia(ctx context.Context, req uploadMediaReq, pla
 	})
 }
 
-// ts:export MatrixDownloadEncryptedMediaOptions
-type downloadEncryptedMediaReq struct {
-	File event.EncryptedFileInfo `json:"file" ts:"MatrixEncryptedFile"`
+type MatrixDownloadEncryptedMediaOptions struct {
+	File event.EncryptedFileInfo `json:"file" tstype:"MatrixEncryptedFile"`
 }
 
 func (c *Core) handleDownloadEncryptedMedia(ctx context.Context, payload []byte) ([]byte, error) {
@@ -270,7 +266,7 @@ func (c *Core) downloadEncryptedMedia(ctx context.Context, payload []byte) ([]by
 	if err != nil {
 		return nil, err
 	}
-	var req downloadEncryptedMediaReq
+	var req MatrixDownloadEncryptedMediaOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
@@ -314,11 +310,11 @@ func mediaMsgType(contentType string) event.MessageType {
 	}
 }
 
-func messageAttachments(content *event.MessageEventContent) []tsMediaAttachment {
+func messageAttachments(content *event.MessageEventContent) []MatrixMediaAttachment {
 	if content == nil || !content.MsgType.IsMedia() {
 		return nil
 	}
-	attachment := tsMediaAttachment{
+	attachment := MatrixMediaAttachment{
 		Filename: optionalString(content.GetFileName()),
 		Msgtype:  string(content.MsgType),
 	}
@@ -330,7 +326,7 @@ func messageAttachments(content *event.MessageEventContent) []tsMediaAttachment 
 		attachment.EncryptedFile = content.File
 	}
 	if content.Info != nil {
-		info := tsMediaInfo{}
+		info := MatrixMediaInfo{}
 		if content.Info.MimeType != "" {
 			info.ContentType = &content.Info.MimeType
 		}
@@ -350,5 +346,5 @@ func messageAttachments(content *event.MessageEventContent) []tsMediaAttachment 
 		}
 		attachment.Info = &info
 	}
-	return []tsMediaAttachment{attachment}
+	return []MatrixMediaAttachment{attachment}
 }

@@ -29,210 +29,177 @@ export interface MatrixCoreInitOptions {
   userId?: string;
   verifyRecoveryOnStart?: boolean;
 }
-
 export interface MatrixWhoami {
   userId: string;
   deviceId: string;
 }
-
 export interface MatrixUploadMediaOptions {
   bytesBase64: string;
   contentType?: string;
   filename?: string;
 }
-
 export interface MatrixSendMediaMessageOptions {
   roomId: string;
   body?: string;
   bytesBase64: string;
   contentType?: string;
-  duration?: number;
+  duration?: number /* int */;
   filename?: string;
-  height?: number;
+  height?: number /* int */;
   msgtype?: "m.image" | "m.video" | "m.audio" | "m.file";
-  size?: number;
+  size?: number /* int */;
   threadRootEventId?: string;
-  width?: number;
+  width?: number /* int */;
 }
-
 export interface MatrixDownloadMediaOptions {
   contentUri: string;
 }
-
 export interface MatrixDownloadEncryptedMediaOptions {
   file: MatrixEncryptedFile;
 }
-
 export interface MatrixSendMessageOptions {
   roomId: string;
   body: string;
-  content?: Record<string, unknown>;
+  content?: { [key: string]: unknown };
   formattedBody?: string;
   mentions?: MatrixMentions;
   msgtype?: "m.text" | "m.notice" | "m.emote";
   threadRootEventId?: string;
   replyToEventId?: string;
 }
-
 export interface MatrixMentions {
   room?: boolean;
   userIds?: string[];
 }
-
 export interface MatrixRawMessage {
   eventId: string;
   roomId: string;
   raw: unknown;
 }
-
 export interface MatrixCreateBeeperStreamResult {
-  descriptor: Record<string, unknown>;
+  descriptor: { [key: string]: unknown };
 }
-
 export interface MatrixCreateBeeperStreamOptions {
   roomId: string;
   streamType?: string;
 }
-
 export interface MatrixBeeperStreamOptions {
-  content?: Record<string, unknown>;
+  content?: { [key: string]: unknown};
   eventId: string;
   roomId: string;
 }
-
 export interface MatrixRegisterBeeperStreamOptions {
-  descriptor: Record<string, unknown>;
+  descriptor: { [key: string]: unknown };
   eventId: string;
   roomId: string;
 }
-
 export interface MatrixEditMessageOptions {
   roomId: string;
   messageId: string;
   body: string;
-  content?: Record<string, unknown>;
+  content?: { [key: string]: unknown };
   formattedBody?: string;
   mentions?: MatrixMentions;
   msgtype?: "m.text" | "m.notice" | "m.emote";
 }
-
 export interface MatrixSendEphemeralEventOptions {
-  content: Record<string, unknown>;
+  content: { [key: string]: unknown };
   eventType: string;
   roomId: string;
   transactionId?: string;
 }
-
 export interface MatrixDeleteMessageOptions {
   roomId: string;
   messageId: string;
   reason?: string;
 }
-
 export interface MatrixTypingOptions {
   roomId: string;
   typing: boolean;
-  timeoutMs?: number;
+  timeoutMs?: number /* int */;
 }
-
 export interface MatrixFetchMessageOptions {
   roomId: string;
   messageId: string;
 }
-
 export interface MatrixFetchMessagesOptions {
   roomId: string;
   cursor?: string;
   direction?: "backward" | "forward";
-  limit?: number;
+  limit?: number /* int */;
   threadRootEventId?: string;
 }
-
 export interface MatrixMarkReadOptions {
   eventId: string;
   roomId: string;
 }
-
 export interface MatrixReactionOptions {
   roomId: string;
   messageId: string;
   emoji: string;
 }
-
 export interface MatrixFetchRoomOptions {
   roomId: string;
 }
-
 export interface MatrixRoomInfo {
   encrypted: boolean;
   id: string;
   isDM?: boolean;
   joinRule?: string;
-  memberCount?: number;
+  memberCount?: number /* int */;
   name?: string;
   topic?: string;
-  raw?: Record<string, unknown>;
+  raw?: { [key: string]: unknown};
   visibility?: "private" | "workspace" | "external" | "unknown";
 }
-
 export interface MatrixOpenDMOptions {
   userId: string;
 }
-
 export interface MatrixJoinRoomOptions {
   roomIdOrAlias: string;
 }
-
 export interface MatrixLeaveRoomOptions {
   reason?: string;
   roomId: string;
 }
-
 export interface MatrixInviteUserOptions {
   reason?: string;
   roomId: string;
   userId: string;
 }
-
 export interface MatrixSyncOnceOptions {
-  timeoutMs?: number;
+  timeoutMs?: number /* int */;
 }
-
 export interface MatrixSyncStartOptions {
-  retryDelayMs?: number;
-  timeoutMs?: number;
+  retryDelayMs?: number /* int */;
+  timeoutMs?: number /* int */;
 }
-
 export interface MatrixApplySyncResponseOptions {
   since?: string;
   response: unknown;
 }
-
 export interface MatrixListRoomThreadsOptions {
   cursor?: string;
-  limit?: number;
+  limit?: number /* int */;
   roomId: string;
 }
-
 export interface MatrixRawEvent {
-  content: Record<string, unknown>;
+  content: { [key: string]: unknown};
   eventId: string;
   isMe?: boolean;
-  originServerTs?: number;
+  originServerTs?: number /* int64 */;
   raw: unknown;
   roomId: string;
   sender: string;
   type: string;
 }
-
 export interface MatrixMediaInfo {
   contentType?: string;
-  duration?: number;
-  height?: number;
-  size?: number;
-  width?: number;
+  duration?: number /* int64 */;
+  height?: number /* int */;
+  size?: number /* int64 */;
+  width?: number /* int */;
 }
-
 export interface MatrixMediaAttachment {
   contentUri?: string;
   encryptedFile?: MatrixEncryptedFile;
@@ -240,7 +207,6 @@ export interface MatrixMediaAttachment {
   info?: MatrixMediaInfo;
   msgtype: "m.image" | "m.video" | "m.audio" | "m.file";
 }
-
 export interface MatrixMessageEvent extends MatrixRawEvent {
   attachments?: MatrixMediaAttachment[];
   body: string;
@@ -250,77 +216,62 @@ export interface MatrixMessageEvent extends MatrixRawEvent {
   msgtype: string;
   threadRootEventId?: string;
 }
-
 export interface MatrixReactionEvent extends MatrixRawEvent {
   added?: boolean;
   key: string;
   relatesToEventId: string;
 }
-
 export interface MatrixInviteEvent {
   inviter?: string;
   raw: unknown;
   roomId: string;
 }
-
 export interface MatrixRoomThreadSummary {
-  lastReplyTs?: number;
-  replyCount?: number;
+  lastReplyTs?: number /* int64 */;
+  replyCount?: number /* int */;
   root: MatrixMessageEvent;
 }
-
 export interface MatrixFetchMessagesResult {
   messages: MatrixMessageEvent[];
   nextCursor?: string;
 }
-
 export interface MatrixFetchMessageResult {
   message?: MatrixMessageEvent | null;
 }
-
 export interface MatrixUploadMediaResult {
   contentUri: string;
   raw: unknown;
 }
-
 export interface MatrixDownloadMediaResult {
   bytesBase64: string;
 }
-
 export interface MatrixUploadEncryptedMediaResult {
   contentUri: string;
   file: MatrixEncryptedFile;
   raw: unknown;
 }
-
 export interface MatrixOpenDMResult {
   raw: unknown;
   roomId: string;
 }
-
 export interface MatrixJoinRoomResult {
   raw: unknown;
   roomId: string;
 }
-
 export interface MatrixJoinedRoomsResult {
   raw: unknown;
   roomIds: string[];
 }
-
 export interface MatrixUserInfo {
   avatarUrl?: string;
   displayName?: string;
   raw: unknown;
   userId: string;
 }
-
 export interface MatrixListRoomThreadsResult {
   nextCursor?: string;
   threads: MatrixRoomThreadSummary[];
 }
-
 export interface MatrixGetUserOptions {
   userId: string;
 }
-
