@@ -22,9 +22,9 @@
 - [x] Expose `client.streams.send(...)` with automatic Beeper-native or edit-fallback mode.
 - [x] Keep Beeper native streaming available under `client.beeper.streams`.
 - [x] Move AI-specific stream conversion into `@better-matrix-js/ai-sdk`.
-- [ ] Expose `client.crypto.status()` or equivalent queryable E2EE status.
-- [ ] Expose pending decryption count/status.
-- [ ] Expose recovery/backup status after startup.
+- [x] Expose `client.crypto.status()` or equivalent queryable E2EE status.
+- [x] Expose pending decryption count/status.
+- [x] Expose recovery/backup status after startup.
 - [x] Add profile APIs: get/set own display name and avatar.
 - [x] Add room creation API beyond DM creation.
 - [ ] Add room permission/power-level inspection.

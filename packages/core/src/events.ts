@@ -7,6 +7,7 @@ import type {
 import type {
   MatrixAttachment,
   MatrixClientEvent,
+  MatrixCryptoStatus,
   MatrixCryptoStatusEvent,
   MatrixMessageEvent,
   MatrixReactionEvent,
@@ -109,7 +110,35 @@ function toSyncEvent(event: Extract<MatrixCoreEvent, { type: "sync_status" }>): 
 function toCryptoEvent(
   event: Extract<MatrixCoreEvent, { type: "crypto_status" }>
 ): MatrixCryptoStatusEvent {
+  const state = toCryptoState(event.status);
+  return stripUndefined({
+    error: event.error,
+    keyBackupVersion: event.keyBackupVersion,
+    keyId: event.keyId,
+    kind: "crypto" as const,
+    state,
+  }) as MatrixCryptoStatusEvent;
+}
+
+export function toCryptoStatusSnapshot(
+  status: import("./runtime-types").MatrixCryptoStatus
+): MatrixCryptoStatus {
+  return stripUndefined({
+    deviceId: status.deviceId,
+    hasRecoveryKey: status.hasRecoveryKey,
+    keyBackupVersion: status.keyBackupVersion,
+    pendingDecryptionCount: status.pendingDecryptionCount,
+    state: toCryptoState(status.state),
+    storeBacked: status.storeBacked,
+    userId: status.userId,
+  }) as MatrixCryptoStatus;
+}
+
+function toCryptoState(
+  state: import("./runtime-types").MatrixCryptoStatus["state"]
+): MatrixCryptoStatus["state"] {
   const states = {
+    disabled: "disabled",
     enabled: "enabled",
     key_backup_unavailable: "keyBackupUnavailable",
     recovery_cache_unavailable: "recoveryCacheUnavailable",
@@ -118,11 +147,5 @@ function toCryptoEvent(
     recovery_restored: "recoveryRestored",
     recovery_unverified: "recoveryUnverified",
   } as const;
-  return stripUndefined({
-    error: event.error,
-    keyBackupVersion: event.keyBackupVersion,
-    keyId: event.keyId,
-    kind: "crypto" as const,
-    state: states[event.status],
-  }) as MatrixCryptoStatusEvent;
+  return states[state];
 }

@@ -11,6 +11,8 @@ const (
 	opInit = "init"
 	// ts:operation whoami whoami - MatrixWhoami
 	opWhoami = "whoami"
+	// ts:operation getCryptoStatus get_crypto_status - MatrixCryptoStatus
+	opGetCryptoStatus = "get_crypto_status"
 	// ts:operation applySyncResponse apply_sync_response MatrixApplySyncResponseOptions void
 	opApplySyncResponse = "apply_sync_response"
 	// ts:operation postMessage post_message MatrixSendMessageOptions MatrixRawMessage

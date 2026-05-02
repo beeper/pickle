@@ -74,6 +74,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleInit(ctx, payload)
 	case opWhoami:
 		return c.handleWhoami(ctx)
+	case opGetCryptoStatus:
+		return c.handleGetCryptoStatus()
 	case opApplySyncResponse:
 		return c.handleApplySyncResponse(ctx, payload)
 	case opPostMessage:

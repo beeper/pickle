@@ -200,6 +200,24 @@ export interface MatrixCryptoStatusEvent {
     | "recoveryUnverified";
 }
 
+export interface MatrixCryptoStatus {
+  deviceId?: string;
+  hasRecoveryKey: boolean;
+  keyBackupVersion?: string;
+  pendingDecryptionCount: number;
+  state:
+    | "disabled"
+    | "enabled"
+    | "keyBackupUnavailable"
+    | "recoveryCacheUnavailable"
+    | "recoveryKeyCached"
+    | "recoveryKeyLoaded"
+    | "recoveryRestored"
+    | "recoveryUnverified";
+  storeBacked: boolean;
+  userId?: string;
+}
+
 export interface MatrixDecryptionErrorEvent {
   error: string;
   event?: Pick<MatrixBaseEvent, "eventId" | "roomId"> & { senderId?: string };

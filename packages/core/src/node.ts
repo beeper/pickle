@@ -55,6 +55,10 @@ class NodeMatrixClient implements MatrixClient {
     return this.#clientRequired().beeper;
   }
 
+  get crypto() {
+    return this.#clientRequired().crypto;
+  }
+
   get media() {
     return this.#clientRequired().media;
   }

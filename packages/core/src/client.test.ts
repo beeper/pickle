@@ -137,6 +137,40 @@ describe("createMatrixClient", () => {
     expect(calls[1]?.payload).toEqual({ retryDelayMs: 250, timeoutMs: 12_345 });
   });
 
+  it("maps the public crypto status API to the runtime contract", async () => {
+    const calls = installRuntime({
+      get_crypto_status: {
+        deviceId: "DEVICE",
+        hasRecoveryKey: true,
+        keyBackupVersion: "1",
+        pendingDecryptionCount: 2,
+        state: "recovery_key_loaded",
+        storeBacked: true,
+        userId: "@bot:example.com",
+      },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+
+    await client.connect();
+
+    await expect(client.crypto.status()).resolves.toEqual({
+      deviceId: "DEVICE",
+      hasRecoveryKey: true,
+      keyBackupVersion: "1",
+      pendingDecryptionCount: 2,
+      state: "recoveryKeyLoaded",
+      storeBacked: true,
+      userId: "@bot:example.com",
+    });
+    expect(calls.map((call) => call.operation)).toEqual(["init", "get_crypto_status"]);
+    expect(calls[1]?.payload).toEqual({});
+  });
+
   it("maps the public own profile API to the runtime contract", async () => {
     const calls = installRuntime({
       get_own_avatar_url: { avatarUrl: "mxc://example/avatar" },

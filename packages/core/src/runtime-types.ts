@@ -11,6 +11,7 @@ export type {
   MatrixBanUserOptions,
   MatrixBeeperStreamOptions,
   MatrixCoreInitOptions,
+  MatrixCryptoStatus,
   MatrixCreateBeeperStreamOptions,
   MatrixCreateBeeperStreamResult,
   MatrixCreateRoomOptions,

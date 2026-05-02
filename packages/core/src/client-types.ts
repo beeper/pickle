@@ -24,6 +24,7 @@ import type {
   ListThreadsResult,
   MarkReadOptions,
   MatrixClientEvent,
+  MatrixCryptoStatus,
   MatrixMessageEvent,
   MatrixReactionEvent,
   MatrixWhoami,
@@ -59,6 +60,7 @@ export interface MatrixClient {
   beeper: MatrixBeeper;
   close(): Promise<void>;
   connect(options?: { signal?: AbortSignal }): Promise<MatrixWhoami>;
+  crypto: MatrixCrypto;
   events: MatrixEvents;
   media: MatrixMedia;
   messages: MatrixMessages;
@@ -84,6 +86,10 @@ export interface MatrixBeeper {
 
 export interface MatrixStreams {
   send(options: SendMatrixStreamOptions): Promise<SentEvent>;
+}
+
+export interface MatrixCrypto {
+  status(): Promise<MatrixCryptoStatus>;
 }
 
 export interface MatrixEvents {

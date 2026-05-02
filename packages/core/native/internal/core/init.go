@@ -287,6 +287,7 @@ func (c *Core) setupCrypto(ctx context.Context, req MatrixCoreInitOptions) error
 			if req.VerifyRecoveryOnStart {
 				status = "recovery_restored"
 			}
+			c.cryptoStatus = status
 			c.emit(OutboundEvent{
 				"type":             "crypto_status",
 				"status":           status,
@@ -305,8 +306,10 @@ func (c *Core) loadRecoveryBackup(ctx context.Context, mach *crypto.OlmMachine, 
 	if !verifyIdentity && c.stores != nil {
 		version, backupKey, ok, err := c.stores.LoadRecoveryBackup(ctx, code)
 		if err != nil {
+			c.cryptoStatus = "recovery_cache_unavailable"
 			c.emit(OutboundEvent{"type": "crypto_status", "status": "recovery_cache_unavailable", "error": err.Error()})
 		} else if ok {
+			c.cryptoStatus = "recovery_key_cached"
 			c.emit(OutboundEvent{"type": "crypto_status", "status": "recovery_key_cached", "keyBackupVersion": version.String()})
 			return version, backupKey, nil
 		}
@@ -321,6 +324,7 @@ func (c *Core) loadRecoveryBackup(ctx context.Context, mach *crypto.OlmMachine, 
 		key, err = keyData.VerifyPassphrase(keyID, code)
 	}
 	if errors.Is(err, ssss.ErrUnverifiableKey) {
+		c.cryptoStatus = "recovery_unverified"
 		c.emit(OutboundEvent{"type": "crypto_status", "status": "recovery_unverified", "keyId": keyID})
 	} else if err != nil {
 		return "", nil, fmt.Errorf("failed to verify Matrix recovery code: %w", err)
@@ -339,11 +343,13 @@ func (c *Core) loadRecoveryBackup(ctx context.Context, mach *crypto.OlmMachine, 
 
 	data, err := mach.SSSS.GetDecryptedAccountData(ctx, event.AccountDataMegolmBackupKey, key)
 	if err != nil {
+		c.cryptoStatus = "key_backup_unavailable"
 		c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": err.Error()})
 		return "", nil, nil
 	}
 	backupKey, err := backup.MegolmBackupKeyFromBytes(data)
 	if err != nil {
+		c.cryptoStatus = "key_backup_unavailable"
 		c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": err.Error()})
 		return "", nil, nil
 	}
@@ -359,6 +365,7 @@ func (c *Core) loadRecoveryBackup(ctx context.Context, mach *crypto.OlmMachine, 
 		if err != nil {
 			errorMessage = err.Error()
 		}
+		c.cryptoStatus = "key_backup_unavailable"
 		c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": errorMessage})
 		return "", backupKey, nil
 	}

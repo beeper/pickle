@@ -16,6 +16,15 @@ export interface MatrixEncryptedFile {
   v: "v2";
 }
 
+export interface MatrixCryptoStatus {
+  deviceId?: string;
+  hasRecoveryKey: boolean;
+  keyBackupVersion?: string;
+  pendingDecryptionCount: number /* int */;
+  state: "disabled" | "enabled" | "key_backup_unavailable" | "recovery_cache_unavailable" | "recovery_key_cached" | "recovery_key_loaded" | "recovery_restored" | "recovery_unverified";
+  storeBacked: boolean;
+  userId?: string;
+}
 export interface MatrixCoreInitOptions {
   accessToken: string;
   catchUpOnStart?: boolean;

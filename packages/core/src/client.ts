@@ -2,6 +2,7 @@ import { base64ToBytes, bytesToBase64 } from "./bytes";
 import type {
   MatrixBeeper,
   MatrixClient,
+  MatrixCrypto,
   MatrixEvents,
   MatrixMedia,
   MatrixMessages,
@@ -12,7 +13,7 @@ import type {
   MatrixTyping,
   MatrixUsers,
 } from "./client-types";
-import { toClientEvent, toMessageEvent } from "./events";
+import { toClientEvent, toCryptoStatusSnapshot, toMessageEvent } from "./events";
 import { stripUndefined } from "./object";
 import type { MatrixCore, MatrixCoreEvent, MatrixCoreHost } from "./runtime-types";
 import { createMatrixStreams } from "./streams";
@@ -36,6 +37,7 @@ export function createMatrixClient(options: MatrixClientOptions): MatrixClient {
 class DefaultMatrixClient implements MatrixClient {
   readonly events: MatrixEvents;
   readonly beeper: MatrixBeeper;
+  readonly crypto: MatrixCrypto;
   readonly media: MatrixMedia;
   readonly messages: MatrixMessages;
   readonly reactions: MatrixReactions;
@@ -68,6 +70,9 @@ class DefaultMatrixClient implements MatrixClient {
         publish: (opts) => this.#coreRequired().publishBeeperStream(opts),
         register: (opts) => this.#coreRequired().registerBeeperStream(opts),
       },
+    };
+    this.crypto = {
+      status: async () => toCryptoStatusSnapshot(await this.#coreRequired().getCryptoStatus()),
     };
     this.events = {
       on: (listener) => this.#on(listener),

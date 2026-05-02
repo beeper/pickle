@@ -50,6 +50,7 @@ export type {
   MatrixBaseEvent,
   MatrixClientEvent,
   MatrixClientOptions,
+  MatrixCryptoStatus,
   MatrixCryptoStatusEvent,
   MatrixDecryptionErrorEvent,
   MatrixEncryptedFile,

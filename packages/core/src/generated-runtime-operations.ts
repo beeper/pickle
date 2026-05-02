@@ -9,6 +9,7 @@ import type {
   MatrixCreateBeeperStreamResult,
   MatrixCreateRoomOptions,
   MatrixCreateRoomResult,
+  MatrixCryptoStatus,
   MatrixDeleteMessageOptions,
   MatrixDownloadEncryptedMediaOptions,
   MatrixDownloadMediaOptions,
@@ -66,6 +67,7 @@ export interface MatrixCoreOperations {
   stopSync(): Promise<void>;
   init(options: MatrixCoreInitOptions): Promise<MatrixWhoami>;
   whoami(): Promise<MatrixWhoami>;
+  getCryptoStatus(): Promise<MatrixCryptoStatus>;
   applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void>;
   postMessage(options: MatrixSendMessageOptions): Promise<MatrixRawMessage>;
   postMediaMessage(options: MatrixSendMediaMessageOptions): Promise<MatrixRawMessage>;
@@ -130,6 +132,10 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   whoami(): Promise<MatrixWhoami> {
     return this.call<MatrixWhoami>("whoami");
+  }
+
+  getCryptoStatus(): Promise<MatrixCryptoStatus> {
+    return this.call<MatrixCryptoStatus>("get_crypto_status");
   }
 
   applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void> {
