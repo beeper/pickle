@@ -1,10 +1,10 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Chat } from "chat";
-import { FileMatrixStore, loadMatrixCoreFromNodePackage } from "better-matrix-js/node";
+import { loadMatrixCoreFromNodePackage } from "better-matrix-js/node";
 import { createMatrixAdapter, loginMatrix } from "@better-matrix-js/chat-adapter";
-import { MemoryState } from "./memory-state.mjs";
+import { FileState, MatrixStateStore } from "./file-state.mjs";
 
 const DEFAULT_INVITE = "@batuhan:beeper.com";
 const loremSentenceCorpus = [
@@ -81,12 +81,13 @@ async function main() {
     join(dirname(fileURLToPath(import.meta.url)), "..", ".matrix-store")
   );
 
-  await mkdir(storeDir, { recursive: true });
+  const state = new FileState(join(storeDir, "state.json"));
+  await state.connect();
   logTiming("store_ready", startedAt);
-  const login = await resolveLogin(homeserverUrl, storeDir);
+  const login = await resolveLogin(homeserverUrl, state);
   logTiming("login_resolved", startedAt);
   const inviteUserId = env("MATRIX_INVITE_USER_ID", DEFAULT_INVITE);
-  const roomId = await resolveSmokeRoom(homeserverUrl, login.accessToken, inviteUserId, storeDir);
+  const roomId = await resolveSmokeRoom(homeserverUrl, login.accessToken, inviteUserId, state);
   console.log(`room_id=${roomId}`);
   console.log(`invited=${inviteUserId}`);
 
@@ -94,7 +95,7 @@ async function main() {
     accessToken: login.accessToken,
     createCore: () =>
       loadMatrixCoreFromNodePackage({
-        host: { store: new FileMatrixStore(storeDir) },
+        host: { store: new MatrixStateStore(state, "matrix-core") },
       }),
     deviceId: process.env.MATRIX_DEVICE_ID || login.deviceId,
     homeserverUrl,
@@ -105,7 +106,6 @@ async function main() {
     recoveryKey: process.env.MATRIX_RECOVERY_KEY,
     userId: process.env.MATRIX_USER_ID || login.userId,
     verifyRecoveryOnStart: process.env.MATRIX_VERIFY_RECOVERY_ON_START === "1",
-    userName: "matrix-stream-smoke",
   });
 
   const bot = new Chat({
@@ -113,7 +113,7 @@ async function main() {
     fallbackStreamingPlaceholderText: "...",
     logger: "debug",
     onLockConflict: "force",
-    state: new MemoryState(),
+    state,
     streamingUpdateIntervalMs: 250,
     userName: "matrix-stream-smoke",
   });
@@ -345,7 +345,7 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-async function resolveLogin(homeserverUrl, storeDir) {
+async function resolveLogin(homeserverUrl, state) {
   if (process.env.MATRIX_ACCESS_TOKEN) {
     return {
       accessToken: process.env.MATRIX_ACCESS_TOKEN,
@@ -357,8 +357,7 @@ async function resolveLogin(homeserverUrl, storeDir) {
   if (!process.env.MATRIX_USERNAME || !process.env.MATRIX_PASSWORD) {
     throw new Error("Missing MATRIX_ACCESS_TOKEN or MATRIX_USERNAME/MATRIX_PASSWORD");
   }
-  const cachePath = join(storeDir, "login-session.json");
-  const cached = await readJSON(cachePath);
+  const cached = await state.get("beeper-streaming-smoke:login-session");
   if (
     cached?.accessToken &&
     cached?.homeserverUrl === homeserverUrl &&
@@ -375,37 +374,23 @@ async function resolveLogin(homeserverUrl, storeDir) {
     username: process.env.MATRIX_USERNAME,
   });
   const session = { ...login, username: process.env.MATRIX_USERNAME };
-  await writeJSON(cachePath, session);
+  await state.set("beeper-streaming-smoke:login-session", session);
   return session;
 }
 
-async function resolveSmokeRoom(homeserverUrl, accessToken, inviteUserId, storeDir) {
+async function resolveSmokeRoom(homeserverUrl, accessToken, inviteUserId, state) {
   if (process.env.MATRIX_ROOM_ID) {
     return process.env.MATRIX_ROOM_ID;
   }
-  const cachePath = join(storeDir, "smoke-room.json");
-  const cached = await readJSON(cachePath);
+  const cached = await state.get("beeper-streaming-smoke:smoke-room");
   if (cached?.roomId && cached.inviteUserId === inviteUserId && cached.homeserverUrl === homeserverUrl) {
     console.log("smoke_room_cache=hit");
     return cached.roomId;
   }
   console.log("smoke_room_cache=miss");
   const roomId = await createSmokeRoom(homeserverUrl, accessToken, inviteUserId);
-  await writeJSON(cachePath, { homeserverUrl, inviteUserId, roomId });
+  await state.set("beeper-streaming-smoke:smoke-room", { homeserverUrl, inviteUserId, roomId });
   return roomId;
-}
-
-async function readJSON(path) {
-  try {
-    return JSON.parse(await readFile(path, "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-async function writeJSON(path, value) {
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 async function createSmokeRoom(homeserverUrl, accessToken, inviteUserId) {

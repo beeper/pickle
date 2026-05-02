@@ -110,7 +110,6 @@ const DEFAULT_HOMESERVER_URL = "https://matrix.beeper.com";
 
 export class MatrixAdapter {
   readonly name = "matrix";
-  readonly userName: string;
 
   botUserId?: string;
 
@@ -133,7 +132,6 @@ export class MatrixAdapter {
   constructor(config: MatrixAdapterConfig) {
     this.#config = config;
     this.#homeserverUrl = config.homeserverUrl ?? DEFAULT_HOMESERVER_URL;
-    this.userName = config.userName ?? "matrix-bot";
     this.#logger = new ConsoleLogger();
     this.#roomAllowlist = config.roomAllowlist ? new Set(config.roomAllowlist) : null;
     this.#isBeeperHomeserver = isBeeperHomeserver(this.#homeserverUrl);
@@ -994,7 +992,7 @@ export class MatrixAdapter {
     if (this.#userId && text.includes(this.#userId)) {
       return true;
     }
-    return text.includes(`@${this.userName}`);
+    return false;
   }
 
   #cacheRoom(info: MatrixRoomInfo): void {

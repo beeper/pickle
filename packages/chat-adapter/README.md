@@ -18,7 +18,6 @@ const matrix = createMatrixAdapter({
   // Defaults to https://matrix.beeper.com
   recoveryKey: process.env.MATRIX_RECOVERY_KEY,    // optional, enables E2EE
   inviteAutoJoin: { inviterAllowlist: ["@me:example.org"] },
-  userName: "matrix-bot",
 });
 
 const bot = new Chat({
@@ -110,7 +109,6 @@ createMatrixAdapter({
   polling: { enabled, retryDelayMs, timeoutMs },
   typingTimeoutMs,
   commandPrefix,
-  userName,
 });
 ```
 

@@ -85,15 +85,6 @@ pnpm test       # unit tests
 pnpm typecheck
 ```
 
-Live E2E tests need real credentials — they never create accounts:
-
-```sh
-MATRIX_HOMESERVER_URL=https://matrix.example.org \
-MATRIX_BOT_ACCESS_TOKEN=... \
-MATRIX_PEER_ACCESS_TOKEN=... \
-pnpm test:live
-```
-
 ## Publish
 
 Always publish with pnpm so workspace ranges get rewritten:

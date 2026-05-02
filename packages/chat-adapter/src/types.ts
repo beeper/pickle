@@ -32,7 +32,6 @@ export interface MatrixAdapterConfig extends Omit<MatrixCoreInitOptions, "homese
   statePrefix?: string;
   store?: MatrixKeyValueStore;
   typingTimeoutMs?: number;
-  userName?: string;
   wasmBytes?: BufferSource;
   wasmModule?: WebAssembly.Module;
   wasmUrl?: string | URL;
