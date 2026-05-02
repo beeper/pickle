@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryMatrixState } from "./index";
+import { createMemoryMatrixStore } from "./index";
 
-describe("MemoryMatrixState", () => {
+describe("MemoryMatrixStore", () => {
   it("copies bytes on set/get", async () => {
-    const store = createMemoryMatrixState();
+    const store = createMemoryMatrixStore();
     const original = new Uint8Array([1, 2, 3]);
     await store.set("a", original);
     original[0] = 9;

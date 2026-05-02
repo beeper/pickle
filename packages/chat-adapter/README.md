@@ -14,7 +14,7 @@ import { createRedisState } from "@chat-adapter/state-redis";
 import { createMatrixAdapter } from "@better-matrix-js/chat-adapter";
 
 const matrix = createMatrixAdapter({
-  accessToken: process.env.MATRIX_ACCESS_TOKEN!,
+  token: process.env.MATRIX_ACCESS_TOKEN!,
   // Defaults to https://matrix.beeper.com
   recoveryKey: process.env.MATRIX_RECOVERY_KEY,    // optional, enables E2EE
   inviteAutoJoin: { inviterAllowlist: ["@me:example.org"] },
@@ -43,7 +43,7 @@ If you don't have an access token yet:
 import { loginMatrix } from "@better-matrix-js/chat-adapter";
 
 const { accessToken } = await loginMatrix({
-  homeserverUrl: "https://matrix.example.org",
+  homeserver: "https://matrix.example.org",
   username: "bot",
   password: process.env.MATRIX_PASSWORD!,
   initialDeviceDisplayName: "my bot",

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startMatrixPolling } from "./polling";
-import type { MatrixCore } from "./types";
+import type { MatrixCore } from "./runtime-types";
 
 function makePollingCore(syncOnce: MatrixCore["syncOnce"]): MatrixCore {
   return {

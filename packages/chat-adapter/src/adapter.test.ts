@@ -153,7 +153,7 @@ describe("MatrixAdapter", () => {
   it("uses Beeper as the default homeserver", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
       polling: { enabled: false },
     });
@@ -169,12 +169,12 @@ describe("MatrixAdapter", () => {
   it("passes fast startup cursor options to the Matrix core", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
       deviceId: "DEVICE",
-      homeserverUrl: "https://matrix.example.com",
-      initialSyncMode: "persisted",
-      initialSyncSince: "s123",
+      homeserver: "https://matrix.example.com",
+      initialSync: "persisted",
+      since: "s123",
       polling: { enabled: false },
       userId: "@bot:example.com",
     });
@@ -193,9 +193,9 @@ describe("MatrixAdapter", () => {
   it("parses Matrix formatted HTML and m.mentions into Chat SDK messages", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -226,9 +226,9 @@ describe("MatrixAdapter", () => {
   it("only derives thread ids from Matrix thread relations", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -278,9 +278,9 @@ describe("MatrixAdapter", () => {
   it("posts formatted text with Matrix mentions and media attachments", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -343,9 +343,9 @@ describe("MatrixAdapter", () => {
       })),
     });
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -371,9 +371,9 @@ describe("MatrixAdapter", () => {
     const { core, emit } = makeCore();
     const chat = makeChat();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(chat);
@@ -406,9 +406,9 @@ describe("MatrixAdapter", () => {
   it("auto-joins allowed invites", async () => {
     const { core, emit } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       inviteAutoJoin: { inviterAllowlist: ["@alice:example.com"] },
       polling: { enabled: false },
     });
@@ -435,9 +435,9 @@ describe("MatrixAdapter", () => {
           .mockResolvedValueOnce({ raw: {}, roomId: "!room:example.com" }),
       });
       const adapter = new MatrixAdapter({
-        accessToken: "token",
+        token: "token",
         core,
-        homeserverUrl: "https://matrix.example.com",
+        homeserver: "https://matrix.example.com",
         inviteAutoJoin: { inviterAllowlist: ["@alice:example.com"] },
         polling: { enabled: false },
       });
@@ -464,10 +464,10 @@ describe("MatrixAdapter", () => {
     const { core, emit } = makeCore();
     const chat = makeChat();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       commandPrefix: "/",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(chat);
@@ -502,9 +502,9 @@ describe("MatrixAdapter", () => {
   it("applies sync responses directly through the Matrix core", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -529,9 +529,9 @@ describe("MatrixAdapter", () => {
   it("streams Beeper homeserver chunks as Beeper Desktop stream deltas", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.beeper.com",
+      homeserver: "https://matrix.beeper.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -633,9 +633,9 @@ describe("MatrixAdapter", () => {
   it("passes raw AI SDK stream parts through to Beeper", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.beeper-dev.com",
+      homeserver: "https://matrix.beeper-dev.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -685,9 +685,9 @@ describe("MatrixAdapter", () => {
   it("maps Chat SDK task stream chunks to Beeper tool parts", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.beeper-staging.com",
+      homeserver: "https://matrix.beeper-staging.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -756,9 +756,9 @@ describe("MatrixAdapter", () => {
   it("maps completed Chat SDK task stream chunks to Beeper tool output deltas", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.beeper.com",
+      homeserver: "https://matrix.beeper.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -814,9 +814,9 @@ describe("MatrixAdapter", () => {
   it("streams non-Beeper homeservers with debounced Matrix edits", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -842,9 +842,9 @@ describe("MatrixAdapter", () => {
   it("posts and edits Chat SDK plan objects as Matrix markdown", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -877,9 +877,9 @@ describe("MatrixAdapter", () => {
   it("maps Matrix profiles to Chat SDK user info", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());
@@ -897,9 +897,9 @@ describe("MatrixAdapter", () => {
   it("rehydrates Matrix attachments with authenticated media downloads", async () => {
     const { core } = makeCore();
     const adapter = new MatrixAdapter({
-      accessToken: "token",
+      token: "token",
       core,
-      homeserverUrl: "https://matrix.example.com",
+      homeserver: "https://matrix.example.com",
       polling: { enabled: false },
     });
     await adapter.initialize(makeChat());

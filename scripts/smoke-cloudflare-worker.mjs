@@ -31,27 +31,27 @@ await writeFile(
   `
 import "better-matrix-js/wasm_exec.js";
 import wasmModule from "better-matrix-js/matrix-core.wasm";
-import { loadMatrixCore } from "better-matrix-js";
+import { createMatrixClient } from "better-matrix-js";
 import {
   createDurableObjectMatrixStore,
   MatrixSyncDurableObject,
 } from "@better-matrix-js/cloudflare";
 
-export class MatrixCoreObject {
+export class MatrixClientObject {
   constructor(state) {
     this.state = state;
     this.corePromise = null;
   }
 
   async fetch() {
-    this.corePromise ??= loadMatrixCore({
+    this.corePromise ??= Promise.resolve(createMatrixClient({
+      homeserver: "https://matrix.example.org",
+      token: "smoke-token",
+      store: createDurableObjectMatrixStore(this.state.storage, {
+        prefix: "matrix/default/",
+      }),
       wasmModule,
-      host: {
-        store: createDurableObjectMatrixStore(this.state.storage, {
-          prefix: "matrix/default/",
-        }),
-      },
-    });
+    }));
     const core = await this.corePromise;
     return Response.json({ ok: Boolean(core) });
   }
@@ -64,7 +64,7 @@ export default {
     const url = new URL(request.url);
     const binding = url.pathname.startsWith("/matrix/sync")
       ? env.MATRIX_SYNC
-      : env.MATRIX_CORE;
+      : env.MATRIX_CLIENT;
     return binding.get(binding.idFromName("default")).fetch(request);
   },
 };
@@ -80,13 +80,13 @@ await writeFile(
       compatibility_date: "2026-04-24",
       durable_objects: {
         bindings: [
-          { class_name: "MatrixCoreObject", name: "MATRIX_CORE" },
+          { class_name: "MatrixClientObject", name: "MATRIX_CLIENT" },
           { class_name: "MatrixSyncObject", name: "MATRIX_SYNC" },
         ],
       },
       migrations: [
         {
-          new_classes: ["MatrixCoreObject", "MatrixSyncObject"],
+          new_classes: ["MatrixClientObject", "MatrixSyncObject"],
           tag: "v1",
         },
       ],

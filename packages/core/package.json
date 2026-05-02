@@ -24,6 +24,10 @@
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
     },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
     "./matrix-core.wasm": "./dist/matrix-core.wasm",
     "./wasm_exec.js": "./dist/wasm_exec.js"
   },

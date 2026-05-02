@@ -9,40 +9,38 @@ npm install better-matrix-js
 ## Node
 
 ```ts
-import { createFileMatrixState } from "@better-matrix-js/state-file";
-import { loadMatrixCoreFromNodePackage } from "better-matrix-js/node";
+import { createMatrixClient } from "better-matrix-js/node";
+import { createFileMatrixStore } from "@better-matrix-js/state-file";
 
-const core = await loadMatrixCoreFromNodePackage({
-  host: { state: createFileMatrixState(".matrix-state/my-account") },
+const client = createMatrixClient({
+  homeserver: "https://matrix.example.org",
+  token: process.env.MATRIX_ACCESS_TOKEN!,
+  store: createFileMatrixStore(".matrix-state/my-account"),
+  recoveryKey: process.env.MATRIX_RECOVERY_KEY,
 });
 
-await core.init({
-  accessToken: process.env.MATRIX_ACCESS_TOKEN!,
-  homeserverUrl: "https://matrix.example.org",
-  recoveryKey: process.env.MATRIX_RECOVERY_KEY, // optional, enables E2EE
+client.events.onMessage(async (event) => {
+  if (event.sender.isMe) return;
+  await client.messages.send({
+    roomId: event.roomId,
+    text: "Got it.",
+    replyTo: event.eventId,
+  });
 });
 
-const { eventId } = await core.postMessage({
-  roomId: "!room:example.org",
-  body: "hello world",
-});
-
-await core.postReaction({ roomId: "!room:example.org", eventId, key: "👋" });
+await client.connect();
+await client.sync.start();
 ```
 
-Drive incoming events with the built-in long poller:
+Send directly through the explicit namespaces:
 
 ```ts
-import { startMatrixPolling } from "better-matrix-js";
-
-const polling = startMatrixPolling(core, { timeoutMs: 30_000 });
-
-core.onEvent((event) => {
-  if (event.type === "message") console.log(event.message);
+const { eventId } = await client.messages.send({
+  roomId: "!room:example.org",
+  text: "hello world",
 });
 
-// later
-await polling.stop();
+await client.reactions.send({ roomId: "!room:example.org", eventId, key: "hi" });
 ```
 
 ## Cloudflare Workers
@@ -50,36 +48,38 @@ await polling.stop();
 ```ts
 import "better-matrix-js/wasm_exec.js";
 import wasmModule from "better-matrix-js/matrix-core.wasm";
-import { loadMatrixCore } from "better-matrix-js";
-import { createDurableObjectMatrixState } from "@better-matrix-js/cloudflare";
+import { createMatrixClient } from "better-matrix-js";
+import { createDurableObjectMatrixStore } from "@better-matrix-js/cloudflare";
 
-const core = await loadMatrixCore({
+const client = createMatrixClient({
+  homeserver,
+  token: accessToken,
+  store: createDurableObjectMatrixStore(state.storage),
   wasmModule,
-  host: { state: createDurableObjectMatrixState(state.storage) },
 });
 
-await core.init({ accessToken, homeserverUrl });
+await client.connect();
 ```
 
-For sync, use `MatrixSyncDurableObject` from `@better-matrix-js/cloudflare` and forward the response into `core.applySyncResponse({ response, since })`. See [`examples/cloudflare-worker`](https://github.com/batuhan/better-matrix-js/tree/main/examples/cloudflare-worker).
+For sync, use `MatrixSyncDurableObject` from `@better-matrix-js/cloudflare` and forward the response into `client.sync.applyResponse({ response, since })`. See [`examples/cloudflare-worker`](https://github.com/batuhan/better-matrix-js/tree/main/examples/cloudflare-worker).
 
 ## State
 
-Pass a state adapter as `host.state`. The state persists Matrix sync state and E2EE crypto state, so use durable state for any real account.
+Pass a store as `store`. The store persists Matrix sync state and E2EE crypto state, so use durable storage for any real account.
 
 ```ts
-import { createMatrixState } from "@better-matrix-js/state-simple";
-import { createMemoryMatrixState } from "@better-matrix-js/state-memory";
-import { createFileMatrixState } from "@better-matrix-js/state-file";
-import { createSQLiteMatrixState } from "@better-matrix-js/state-sqlite";
-import { createDurableObjectMatrixState } from "@better-matrix-js/cloudflare";
+import { createMatrixStore } from "@better-matrix-js/state-simple";
+import { createMemoryMatrixStore } from "@better-matrix-js/state-memory";
+import { createFileMatrixStore } from "@better-matrix-js/state-file";
+import { createSQLiteMatrixStore } from "@better-matrix-js/state-sqlite";
+import { createDurableObjectMatrixStore } from "@better-matrix-js/cloudflare";
 
-const memory = createMemoryMatrixState(); // tests and local experiments
-const filesystem = createFileMatrixState(".matrix-state/alice");
-const sqlite = await createSQLiteMatrixState(".matrix-state/alice.db");
-const durableObject = createDurableObjectMatrixState(state.storage);
+const memory = createMemoryMatrixStore(); // tests and local experiments
+const filesystem = createFileMatrixStore(".matrix-state/alice");
+const sqlite = await createSQLiteMatrixStore(".matrix-state/alice.db");
+const durableObject = createDurableObjectMatrixStore(state.storage);
 
-const custom = createMatrixState({
+const custom = createMatrixStore({
   get: (key) => backend.get(key),
   set: (key, value) => backend.set(key, value),
   delete: (key) => backend.delete(key),
@@ -90,17 +90,19 @@ const custom = createMatrixState({
 Browser apps can use IndexedDB:
 
 ```ts
-import { createIndexedDBMatrixState } from "@better-matrix-js/state-indexeddb";
+import { createIndexedDBMatrixStore } from "@better-matrix-js/state-indexeddb";
 
-const core = await loadMatrixCore({
+const client = createMatrixClient({
+  homeserver,
+  token,
   wasmUrl: "/matrix-core.wasm",
-  host: { state: createIndexedDBMatrixState({ databaseName: "matrix-alice" }) },
+  store: createIndexedDBMatrixStore({ databaseName: "matrix-alice" }),
 });
 ```
 
 ## Browser / other runtimes
 
-Pass any of `wasmModule`, `wasmBytes`, or `wasmUrl` to `loadMatrixCore()`, plus a `host.state` implementing the `MatrixState` interface (4 methods: `get`, `set`, `delete`, `list`).
+Pass any of `wasmModule`, `wasmBytes`, or `wasmUrl` to `createMatrixClient()`, plus a `store` implementing the `MatrixStore` interface.
 
 ## What it does
 
@@ -108,7 +110,7 @@ Login (password, token, JWT), `/sync` long polling, send/edit/delete messages, f
 
 ## API surface
 
-`MatrixCore` exposes everything as flat methods — `init`, `postMessage`, `editMessage`, `deleteMessage`, `postReaction`, `fetchMessages`, `fetchRoom`, `joinRoom`, `leaveRoom`, `inviteUser`, `openDM`, `uploadMedia`, `downloadMedia`, `applySyncResponse`, `syncOnce`, `close`, etc. All types are exported from the package root.
+`MatrixClient` exposes one explicit lifecycle plus namespaces: `connect`, `close`, `events`, `messages`, `reactions`, `rooms`, `media`, `users`, `typing`, and `sync`.
 
 ## License
 

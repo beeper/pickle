@@ -84,24 +84,18 @@ try {
         import * as core from "better-matrix-js";
         import * as node from "better-matrix-js/node";
         import * as cloudflare from "@better-matrix-js/cloudflare";
-        import * as cloudflareCompat from "better-matrix-js/cloudflare";
         import * as adapter from "@better-matrix-js/chat-adapter";
 
         const checks = {
-          core: ["loadMatrixCore", "startMatrixPolling"].every((key) => key in core),
-          node: ["loadMatrixCoreFromNodePackage"].every((key) => key in node),
+          core: ["createMatrixClient"].every((key) => key in core),
+          node: ["createMatrixClient"].every((key) => key in node),
           cloudflare: ["createCloudflareKVMatrixStore", "createDurableObjectMatrixStore", "MatrixSyncDurableObject"].every((key) => key in cloudflare),
-          cloudflareCompat: ["createCloudflareKVMatrixStore", "createDurableObjectMatrixStore", "MatrixSyncDurableObject"].every((key) => key in cloudflareCompat),
           adapter: ["createMatrixAdapter", "MatrixAdapter", "MatrixFormatConverter", "loginMatrix"].every((key) => key in adapter),
         };
 
         if (!Object.values(checks).every(Boolean)) {
           throw new Error(JSON.stringify(checks));
         }
-
-        const matrixCore = await node.loadMatrixCoreFromNodePackage();
-        await matrixCore.close();
-
         console.log(JSON.stringify(checks));
       `,
     ],

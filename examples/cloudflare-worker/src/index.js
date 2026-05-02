@@ -1,12 +1,12 @@
 import "better-matrix-js/wasm_exec.js";
 import wasmModule from "better-matrix-js/matrix-core.wasm";
-import { loadMatrixCore } from "better-matrix-js";
+import { createMatrixClient } from "better-matrix-js";
 import {
-  createDurableObjectMatrixState,
+  createDurableObjectMatrixStore,
   MatrixSyncDurableObject,
 } from "@better-matrix-js/cloudflare";
 
-export class MatrixCoreObject {
+export class MatrixClientObject {
   constructor(state, env) {
     this.state = state;
     this.env = env;
@@ -30,7 +30,7 @@ export class MatrixCoreObject {
 
     const body = await request.json();
     const core = await this.loadCore();
-    await core.applySyncResponse({
+    await core.sync.applyResponse({
       response: body.response ?? body.sync ?? body,
       since: typeof body.since === "string" ? body.since : undefined,
     });
@@ -38,21 +38,18 @@ export class MatrixCoreObject {
   }
 
   async loadCore() {
-    this.corePromise ??= loadMatrixCore({
+    this.corePromise ??= Promise.resolve(createMatrixClient({
+      homeserver: this.env.MATRIX_HOMESERVER_URL ?? "https://matrix.example.org",
+      token: this.env.MATRIX_ACCESS_TOKEN ?? "missing-token",
+      recoveryKey: this.env.MATRIX_RECOVERY_KEY,
+      store: createDurableObjectMatrixStore(this.state.storage, {
+        prefix: "matrix/default/",
+      }),
       wasmModule,
-      host: {
-        state: createDurableObjectMatrixState(this.state.storage, {
-          prefix: "matrix/default/",
-        }),
-      },
-    });
+    }));
     const core = await this.corePromise;
     if (this.env.MATRIX_ACCESS_TOKEN && this.env.MATRIX_HOMESERVER_URL) {
-      this.initPromise ??= core.init({
-        accessToken: this.env.MATRIX_ACCESS_TOKEN,
-        homeserverUrl: this.env.MATRIX_HOMESERVER_URL,
-        recoveryKey: this.env.MATRIX_RECOVERY_KEY,
-      });
+      this.initPromise ??= core.connect();
       await this.initPromise;
     }
     return core;
@@ -67,7 +64,7 @@ export default {
     const objectName = url.searchParams.get("account") ?? "default";
     const binding = url.pathname.startsWith("/matrix/sync")
       ? env.MATRIX_SYNC
-      : env.MATRIX_CORE;
+      : env.MATRIX_CLIENT;
     return binding.get(binding.idFromName(objectName)).fetch(request);
   },
 };

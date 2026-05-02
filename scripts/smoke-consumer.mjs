@@ -35,13 +35,11 @@ const { stdout } = await execFileAsync(
       import * as core from "better-matrix-js";
       import * as node from "better-matrix-js/node";
       import * as cf from "@better-matrix-js/cloudflare";
-      import * as cfCompat from "better-matrix-js/cloudflare";
       import * as adapter from "@better-matrix-js/chat-adapter";
       const checks = {
-        core: ["loadMatrixCore", "startMatrixPolling"].every((key) => key in core),
-        node: ["loadMatrixCoreFromNodePackage"].every((key) => key in node),
+        core: ["createMatrixClient"].every((key) => key in core),
+        node: ["createMatrixClient"].every((key) => key in node),
         cloudflare: ["createCloudflareKVMatrixStore", "createDurableObjectMatrixStore", "MatrixSyncDurableObject"].every((key) => key in cf),
-        cloudflareCompat: ["createCloudflareKVMatrixStore", "createDurableObjectMatrixStore", "MatrixSyncDurableObject"].every((key) => key in cfCompat),
         adapter: ["createMatrixAdapter", "loginMatrix"].every((key) => key in adapter),
       };
       if (!Object.values(checks).every(Boolean)) {

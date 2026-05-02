@@ -10,9 +10,6 @@ import {
   type MatrixFetchMessagesOptions,
   type MatrixStateStore,
   type MatrixMediaAttachment,
-  type MatrixMessageEvent,
-  type MatrixPollingHandle,
-  type MatrixRoomInfo,
   type MatrixSendMediaMessageOptions,
   type MatrixSendMessageOptions,
 } from "better-matrix-js";
@@ -54,6 +51,10 @@ import {
   matrixChannelIdFromChatThreadId,
 } from "./thread-id";
 import type { MatrixAdapterConfig, MatrixRawMessage, MatrixChatThreadRef } from "./types";
+
+type MatrixMessageEvent = Extract<MatrixCoreEvent, { type: "message" }>["event"];
+type MatrixPollingHandle = ReturnType<typeof startMatrixPolling>;
+type MatrixRoomInfo = Awaited<ReturnType<MatrixCore["fetchRoom"]>>;
 
 interface RoomCacheEntry {
   isDM?: boolean;
@@ -131,7 +132,7 @@ export class MatrixAdapter {
 
   constructor(config: MatrixAdapterConfig) {
     this.#config = config;
-    this.#homeserverUrl = config.homeserverUrl ?? DEFAULT_HOMESERVER_URL;
+    this.#homeserverUrl = config.homeserver ?? DEFAULT_HOMESERVER_URL;
     this.#logger = new ConsoleLogger();
     this.#roomAllowlist = config.roomAllowlist ? new Set(config.roomAllowlist) : null;
     this.#isBeeperHomeserver = isBeeperHomeserver(this.#homeserverUrl);
@@ -144,23 +145,21 @@ export class MatrixAdapter {
     this.#unsubscribeCore?.();
     this.#unsubscribeCore = this.#core.onEvent((event) => this.#handleCoreEvent(event));
     const initOptions: MatrixCoreInitOptions = {
-      accessToken: this.#config.accessToken,
+      accessToken: this.#config.token,
       homeserverUrl: this.#homeserverUrl,
     };
-    if (this.#config.catchUpOnStart !== undefined) {
-      initOptions.catchUpOnStart = this.#config.catchUpOnStart;
-    }
     if (this.#config.pickleKey) {
       initOptions.pickleKey = this.#config.pickleKey;
     }
     if (this.#config.deviceId) {
       initOptions.deviceId = this.#config.deviceId;
     }
-    if (this.#config.initialSyncMode) {
-      initOptions.initialSyncMode = this.#config.initialSyncMode;
+    if (this.#config.initialSync) {
+      initOptions.initialSyncMode =
+        this.#config.initialSync === "catchUp" ? "catch_up" : this.#config.initialSync;
     }
-    if (this.#config.initialSyncSince) {
-      initOptions.initialSyncSince = this.#config.initialSyncSince;
+    if (this.#config.since) {
+      initOptions.initialSyncSince = this.#config.since;
     }
     if (this.#config.recoveryKey) {
       initOptions.recoveryKey = this.#config.recoveryKey;
@@ -790,7 +789,7 @@ export class MatrixAdapter {
 
   #resolveHost(): MatrixCoreHost {
     const host = { ...this.#config.host };
-    host.state ??= this.#config.state ?? this.#chatStateStore();
+    host.state ??= this.#config.store ?? this.#chatStateStore();
     return host;
   }
 
@@ -800,7 +799,7 @@ export class MatrixAdapter {
     }
     return new ChatMatrixState(this.#chat.getState(), {
       prefix:
-        this.#config.statePrefix ??
+        this.#config.storePrefix ??
         `matrix:${safeStateKeyPart(this.#homeserverUrl)}:${safeStateKeyPart(
           this.#config.userId ?? this.#config.deviceId ?? "default"
         )}:`,

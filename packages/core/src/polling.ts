@@ -1,4 +1,4 @@
-import type { MatrixCore } from "./types";
+import type { MatrixCore } from "./runtime-types";
 
 export interface MatrixPollingOptions {
   onError?: (error: unknown, details: { failures: number; nextRetryMs: number }) => void;

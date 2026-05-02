@@ -42,7 +42,7 @@ import type {
   MatrixUploadMediaResult,
   MatrixUserInfo,
   MatrixWhoami,
-} from "./types";
+} from "./runtime-types";
 
 export interface GoRuntime {
   importObject: WebAssembly.Imports;

@@ -1,65 +1,65 @@
-export interface MatrixLoginOptions {
-  deviceId?: string;
-  homeserverUrl: string;
-  initialDeviceDisplayName?: string;
-  password: string;
-  username: string;
+export interface MatrixStore {
+  delete(key: string): Promise<void>;
+  get(key: string): Promise<Uint8Array | null>;
+  list(prefix: string): Promise<string[]>;
+  set(key: string, value: Uint8Array): Promise<void>;
 }
 
-export interface MatrixTokenLoginOptions {
-  deviceId?: string;
-  homeserverUrl: string;
-  initialDeviceDisplayName?: string;
-  loginToken: string;
-  type?: "m.login.token" | "org.matrix.login.jwt";
+export interface MatrixLogger {
+  (level: "debug" | "info" | "warn" | "error", message: string, data?: unknown): void;
 }
 
-export interface MatrixLoginSession {
-  accessToken: string;
-  deviceId: string;
-  homeserverUrl: string;
-  userId: string;
-}
-
-export interface MatrixCoreInitOptions {
-  accessToken: string;
-  /**
-   * Deprecated compatibility switch. Prefer initialSyncMode.
-   * false maps to "latest"; true maps to "catch_up".
-   */
-  catchUpOnStart?: boolean;
+export interface MatrixClientOptions {
   deviceId?: string;
-  homeserverUrl: string;
-  /**
-   * Startup cursor policy:
-   * - "persisted": use the stored sync cursor when present; otherwise start at latest.
-   * - "latest": establish a fresh live cursor with no timeline history.
-   * - "catch_up": process from the stored cursor, or initial history if no cursor exists.
-   */
-  initialSyncMode?: "persisted" | "latest" | "catch_up";
-  /** Explicit Matrix /sync since token. Overrides the persisted cursor when set. */
-  initialSyncSince?: string;
+  fetch?: typeof fetch;
+  homeserver: string;
+  initialSync?: "persisted" | "latest" | "catchUp";
+  logger?: MatrixLogger;
   pickleKey?: string;
+  randomBytes?: (length: number) => Uint8Array;
   recoveryCode?: string;
   recoveryKey?: string;
+  since?: string;
+  store?: MatrixStore;
+  token: string;
   userId?: string;
   verifyRecoveryOnStart?: boolean;
+  wasmBytes?: BufferSource;
+  wasmModule?: WebAssembly.Module;
+  wasmUrl?: string | URL;
+}
+
+export interface MatrixBeeperStreamDescriptor {
+  descriptor: Record<string, unknown>;
+}
+
+export interface CreateBeeperStreamOptions {
+  roomId: string;
+  streamType?: string;
+}
+
+export interface RegisterBeeperStreamOptions {
+  descriptor: Record<string, unknown>;
+  eventId: string;
+  roomId: string;
+}
+
+export interface PublishBeeperStreamOptions {
+  content?: Record<string, unknown>;
+  eventId: string;
+  roomId: string;
+}
+
+export interface MatrixSession {
+  accessToken: string;
+  deviceId: string;
+  homeserver: string;
+  userId: string;
 }
 
 export interface MatrixWhoami {
   deviceId: string;
   userId: string;
-}
-
-export interface MatrixRawEvent {
-  content: Record<string, unknown>;
-  eventId: string;
-  isMe?: boolean;
-  originServerTs?: number;
-  raw: unknown;
-  roomId: string;
-  sender: string;
-  type: string;
 }
 
 export interface MatrixMentions {
@@ -75,161 +75,8 @@ export interface MatrixMediaInfo {
   width?: number;
 }
 
-export interface MatrixMessageEvent extends MatrixRawEvent {
-  attachments?: MatrixMediaAttachment[];
-  body: string;
-  formattedBody?: string;
-  isEncrypted?: boolean;
-  isEdited?: boolean;
-  msgtype: string;
-  threadRootEventId?: string;
-}
-
-export interface MatrixReactionEvent extends MatrixRawEvent {
-  added?: boolean;
-  key: string;
-  relatesToEventId: string;
-}
-
-export interface MatrixInviteEvent {
-  inviter?: string;
-  roomId: string;
-  raw: unknown;
-}
-
-export type MatrixCoreEvent =
-  | { event: MatrixMessageEvent; type: "message" }
-  | { event: MatrixReactionEvent; type: "reaction" }
-  | { event: MatrixInviteEvent; type: "invite" }
-  | {
-      event: {
-        content?: Record<string, unknown>;
-        eventId: string;
-        raw: unknown;
-        roomId: string;
-        sender?: string;
-      };
-      type: "beeper_stream_update";
-    }
-  | {
-      error?: string;
-      keyBackupVersion?: string;
-      keyId?: string;
-      status:
-        | "enabled"
-        | "key_backup_unavailable"
-        | "recovery_cache_unavailable"
-        | "recovery_key_cached"
-        | "recovery_key_loaded"
-        | "recovery_restored"
-        | "recovery_unverified";
-      type: "crypto_status";
-    }
-  | {
-      error: string;
-      event?: Pick<MatrixRawEvent, "eventId" | "roomId" | "sender">;
-      type: "decryption_error";
-    }
-  | { error: string; type: "error" }
-  | {
-      durationMs?: number;
-      error?: string;
-      failures?: number;
-      nextRetryMs?: number;
-      status: "initialized" | "init_step" | "syncing" | "synced" | "retrying" | "stopped";
-      step?: string;
-      type: "sync_status";
-    };
-
-export interface MatrixSendMessageOptions {
-  body: string;
-  content?: Record<string, unknown>;
-  formattedBody?: string;
-  mentions?: MatrixMentions;
-  msgtype?: "m.text" | "m.notice" | "m.emote";
-  replyToEventId?: string;
-  roomId: string;
-  threadRootEventId?: string;
-}
-
-export interface MatrixEditMessageOptions {
-  body: string;
-  content?: Record<string, unknown>;
-  formattedBody?: string;
-  mentions?: MatrixMentions;
-  messageId: string;
-  msgtype?: "m.text" | "m.notice" | "m.emote";
-  roomId: string;
-}
-
-export interface MatrixDeleteMessageOptions {
-  messageId: string;
-  reason?: string;
-  roomId: string;
-}
-
-export interface MatrixReactionOptions {
-  emoji: string;
-  messageId: string;
-  roomId: string;
-}
-
-export interface MatrixTypingOptions {
-  roomId: string;
-  timeoutMs?: number;
-  typing: boolean;
-}
-
-export interface MatrixFetchMessagesOptions {
-  cursor?: string;
-  direction?: "backward" | "forward";
-  limit?: number;
-  roomId: string;
-  threadRootEventId?: string;
-}
-
-export interface MatrixFetchMessagesResult {
-  messages: MatrixMessageEvent[];
-  nextCursor?: string;
-}
-
-export interface MatrixFetchMessageOptions {
-  messageId: string;
-  roomId: string;
-}
-
-export interface MatrixFetchMessageResult {
-  message: MatrixMessageEvent | null;
-}
-
-export interface MatrixMarkReadOptions {
-  eventId: string;
-  roomId: string;
-}
-
-export interface MatrixUploadMediaOptions {
-  bytesBase64: string;
-  contentType?: string;
-  filename?: string;
-}
-
-export interface MatrixUploadMediaResult {
-  contentUri: string;
-  raw: unknown;
-}
-
-export interface MatrixDownloadMediaOptions {
-  contentUri: string;
-}
-
-export interface MatrixDownloadMediaResult {
-  bytesBase64: string;
-}
-
 export interface MatrixEncryptedFile {
-  hashes: {
-    sha256: string;
-  };
+  hashes: { sha256: string };
   iv: string;
   key: {
     alg: "A256CTR";
@@ -242,17 +89,227 @@ export interface MatrixEncryptedFile {
   v: "v2";
 }
 
-export interface MatrixUploadEncryptedMediaResult {
+export interface MatrixAttachment extends MatrixMediaInfo {
+  contentUri?: string;
+  encryptedFile?: MatrixEncryptedFile;
+  filename?: string;
+  kind: "image" | "video" | "audio" | "file";
+}
+
+export interface MatrixEventSender {
+  isMe: boolean;
+  userId: string;
+}
+
+export interface MatrixBaseEvent {
+  class: "message" | "state" | "ephemeral" | "accountData" | "toDevice" | "unknown";
+  content: Record<string, unknown>;
+  eventId?: string;
+  raw: unknown;
+  roomId?: string;
+  sender?: MatrixEventSender;
+  stateKey?: string;
+  timestamp?: number;
+  type: string;
+  unsigned?: Record<string, unknown>;
+}
+
+export type MatrixRelation =
+  | { eventId: string; type: "m.replace" }
+  | { eventId: string; key: string; type: "m.annotation" }
+  | { eventId: string; isFallback?: boolean; replyTo?: string; type: "m.thread" }
+  | { eventId: string; type: "m.reference" };
+
+export interface MatrixMessageEvent extends MatrixBaseEvent {
+  attachments: MatrixAttachment[];
+  edited: boolean;
+  encrypted: boolean;
+  eventId: string;
+  html?: string;
+  kind: "message";
+  mentions?: MatrixMentions;
+  messageType: "m.text" | "m.notice" | "m.emote" | "m.image" | "m.video" | "m.audio" | "m.file" | string;
+  relation?: MatrixRelation;
+  replyTo?: string;
+  replaces?: string;
+  roomId: string;
+  sender: MatrixEventSender;
+  text: string;
+  threadRoot?: string;
+  type: "m.room.message" | string;
+}
+
+export interface MatrixReactionEvent extends MatrixBaseEvent {
+  added: boolean;
+  eventId: string;
+  kind: "reaction";
+  key: string;
+  relatesTo: string;
+  roomId: string;
+  sender: MatrixEventSender;
+  type: "m.reaction" | string;
+}
+
+export interface MatrixInviteEvent {
+  inviter?: string;
+  kind: "invite";
+  raw: unknown;
+  roomId: string;
+}
+
+export interface MatrixSyncStatusEvent {
+  durationMs?: number;
+  error?: string;
+  failures?: number;
+  kind: "sync";
+  nextRetryMs?: number;
+  state: "initialized" | "initStep" | "syncing" | "synced" | "retrying" | "stopped";
+  step?: string;
+}
+
+export interface MatrixCryptoStatusEvent {
+  error?: string;
+  keyBackupVersion?: string;
+  keyId?: string;
+  kind: "crypto";
+  state:
+    | "enabled"
+    | "keyBackupUnavailable"
+    | "recoveryCacheUnavailable"
+    | "recoveryKeyCached"
+    | "recoveryKeyLoaded"
+    | "recoveryRestored"
+    | "recoveryUnverified";
+}
+
+export interface MatrixDecryptionErrorEvent {
+  error: string;
+  event?: Pick<MatrixBaseEvent, "eventId" | "roomId"> & { senderId?: string };
+  kind: "decryptionError";
+}
+
+export interface MatrixErrorEvent {
+  error: string;
+  kind: "error";
+}
+
+export type MatrixClientEvent =
+  | MatrixMessageEvent
+  | MatrixReactionEvent
+  | MatrixInviteEvent
+  | MatrixSyncStatusEvent
+  | MatrixCryptoStatusEvent
+  | MatrixDecryptionErrorEvent
+  | MatrixErrorEvent;
+
+export interface SendMessageOptions {
+  content?: Record<string, unknown>;
+  html?: string;
+  mentions?: MatrixMentions;
+  messageType?: "m.text" | "m.notice" | "m.emote";
+  replyTo?: string;
+  roomId: string;
+  text: string;
+  threadRoot?: string;
+}
+
+export interface EditMessageOptions {
+  content?: Record<string, unknown>;
+  eventId: string;
+  html?: string;
+  mentions?: MatrixMentions;
+  messageType?: "m.text" | "m.notice" | "m.emote";
+  roomId: string;
+  text: string;
+}
+
+export interface RedactMessageOptions {
+  eventId: string;
+  reason?: string;
+  roomId: string;
+}
+
+export interface FetchMessageOptions {
+  eventId: string;
+  roomId: string;
+}
+
+export interface FetchMessageResult {
+  message: MatrixMessageEvent | null;
+}
+
+export interface FetchMessagesOptions {
+  cursor?: string;
+  direction?: "backward" | "forward";
+  limit?: number;
+  roomId: string;
+  threadRoot?: string;
+}
+
+export interface FetchMessagesResult {
+  messages: MatrixMessageEvent[];
+  nextCursor?: string;
+}
+
+export interface SentEvent {
+  eventId: string;
+  raw: unknown;
+  roomId: string;
+}
+
+export interface ReactionOptions {
+  eventId: string;
+  key: string;
+  roomId: string;
+}
+
+export interface TypingOptions {
+  roomId: string;
+  timeoutMs?: number;
+  typing: boolean;
+}
+
+export interface MarkReadOptions {
+  eventId: string;
+  roomId: string;
+}
+
+export interface UploadMediaOptions extends MatrixMediaInfo {
+  bytes: Uint8Array;
+  filename?: string;
+}
+
+export interface UploadMediaResult {
   contentUri: string;
-  file: MatrixEncryptedFile;
   raw: unknown;
 }
 
-export interface MatrixDownloadEncryptedMediaOptions {
+export interface UploadEncryptedMediaResult extends UploadMediaResult {
   file: MatrixEncryptedFile;
 }
 
-export interface MatrixRoomInfo {
+export interface DownloadMediaOptions {
+  contentUri: string;
+}
+
+export interface DownloadMediaResult {
+  bytes: Uint8Array;
+}
+
+export interface DownloadEncryptedMediaOptions {
+  file: MatrixEncryptedFile;
+}
+
+export interface SendMediaMessageOptions extends MatrixMediaInfo {
+  bytes: Uint8Array;
+  caption?: string;
+  filename?: string;
+  kind?: "image" | "video" | "audio" | "file";
+  roomId: string;
+  threadRoot?: string;
+}
+
+export interface RoomInfo {
   encrypted: boolean;
   id: string;
   isDM?: boolean;
@@ -264,181 +321,59 @@ export interface MatrixRoomInfo {
   visibility?: "private" | "workspace" | "external" | "unknown";
 }
 
-export interface MatrixFetchRoomOptions {
-  roomId: string;
+export interface JoinRoomOptions {
+  roomIdOrAlias: string;
 }
 
-export interface MatrixOpenDMOptions {
-  userId: string;
-}
-
-export interface MatrixOpenDMResult {
+export interface JoinRoomResult {
   raw: unknown;
   roomId: string;
 }
 
-export interface MatrixGetUserOptions {
+export interface OpenDMOptions {
   userId: string;
 }
 
-export interface MatrixUserInfo {
+export interface OpenDMResult {
+  raw: unknown;
+  roomId: string;
+}
+
+export interface UserInfo {
   avatarUrl?: string;
   displayName?: string;
   raw: unknown;
   userId: string;
 }
 
-export interface MatrixJoinRoomOptions {
-  roomIdOrAlias: string;
-}
-
-export interface MatrixJoinRoomResult {
-  raw: unknown;
-  roomId: string;
-}
-
-export interface MatrixLeaveRoomOptions {
-  reason?: string;
-  roomId: string;
-}
-
-export interface MatrixInviteUserOptions {
-  reason?: string;
-  roomId: string;
-  userId: string;
-}
-
-export interface MatrixJoinedRoomsResult {
-  raw: unknown;
-  roomIds: string[];
-}
-
-export interface MatrixRawMessage {
-  eventId: string;
-  raw: unknown;
-  roomId: string;
-}
-
-export interface MatrixMediaAttachment {
-  contentUri?: string;
-  encryptedFile?: MatrixEncryptedFile;
-  filename?: string;
-  info?: MatrixMediaInfo;
-  msgtype: "m.image" | "m.video" | "m.audio" | "m.file";
-}
-
-export interface MatrixSendMediaMessageOptions extends MatrixMediaInfo {
-  body?: string;
-  bytesBase64: string;
-  contentType?: string;
-  filename?: string;
-  msgtype?: "m.image" | "m.video" | "m.audio" | "m.file";
-  roomId: string;
-  threadRootEventId?: string;
-}
-
-export interface MatrixRoomThreadSummary {
-  lastReplyTs?: number;
-  replyCount?: number;
-  root: MatrixMessageEvent;
-}
-
-export interface MatrixListRoomThreadsOptions {
+export interface ListThreadsOptions {
   cursor?: string;
   limit?: number;
   roomId: string;
 }
 
-export interface MatrixListRoomThreadsResult {
-  nextCursor?: string;
-  threads: MatrixRoomThreadSummary[];
+export interface MatrixThreadSummary {
+  lastReplyTimestamp?: number;
+  replyCount?: number;
+  root: MatrixMessageEvent;
 }
 
-export interface MatrixSyncOnceOptions {
+export interface ListThreadsResult {
+  nextCursor?: string;
+  threads: MatrixThreadSummary[];
+}
+
+export interface SyncStartOptions {
+  retryDelayMs?: number;
+  signal?: AbortSignal;
   timeoutMs?: number;
 }
 
-export interface MatrixApplySyncResponseOptions {
+export interface SyncOnceOptions {
+  timeoutMs?: number;
+}
+
+export interface ApplySyncResponseOptions {
   response: unknown;
   since?: string;
-}
-
-export interface MatrixSendEphemeralEventOptions {
-  content: Record<string, unknown>;
-  eventType: string;
-  roomId: string;
-  transactionId?: string;
-}
-
-export interface MatrixCreateBeeperStreamOptions {
-  roomId: string;
-  streamType?: string;
-}
-
-export interface MatrixCreateBeeperStreamResult {
-  descriptor: Record<string, unknown>;
-}
-
-export interface MatrixRegisterBeeperStreamOptions {
-  descriptor: Record<string, unknown>;
-  eventId: string;
-  roomId: string;
-}
-
-export interface MatrixBeeperStreamOptions {
-  content?: Record<string, unknown>;
-  eventId: string;
-  roomId: string;
-}
-
-export interface MatrixCore {
-  addReaction(options: MatrixReactionOptions): Promise<MatrixRawMessage>;
-  applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void>;
-  close(): Promise<void>;
-  createBeeperStream(options: MatrixCreateBeeperStreamOptions): Promise<MatrixCreateBeeperStreamResult>;
-  deleteMessage(options: MatrixDeleteMessageOptions): Promise<void>;
-  downloadEncryptedMedia(
-    options: MatrixDownloadEncryptedMediaOptions
-  ): Promise<MatrixDownloadMediaResult>;
-  downloadMedia(options: MatrixDownloadMediaOptions): Promise<MatrixDownloadMediaResult>;
-  editMessage(options: MatrixEditMessageOptions): Promise<MatrixRawMessage>;
-  fetchMessage(options: MatrixFetchMessageOptions): Promise<MatrixFetchMessageResult>;
-  fetchMessages(options: MatrixFetchMessagesOptions): Promise<MatrixFetchMessagesResult>;
-  fetchRoom(options: MatrixFetchRoomOptions): Promise<MatrixRoomInfo>;
-  fetchJoinedRooms(): Promise<MatrixJoinedRoomsResult>;
-  getUser(options: MatrixGetUserOptions): Promise<MatrixUserInfo>;
-  init(options: MatrixCoreInitOptions): Promise<MatrixWhoami>;
-  inviteUser(options: MatrixInviteUserOptions): Promise<void>;
-  joinRoom(options: MatrixJoinRoomOptions): Promise<MatrixJoinRoomResult>;
-  leaveRoom(options: MatrixLeaveRoomOptions): Promise<void>;
-  listRoomThreads(options: MatrixListRoomThreadsOptions): Promise<MatrixListRoomThreadsResult>;
-  markRead(options: MatrixMarkReadOptions): Promise<void>;
-  onEvent(listener: (event: MatrixCoreEvent) => void): () => void;
-  openDM(options: MatrixOpenDMOptions): Promise<MatrixOpenDMResult>;
-  postMediaMessage(options: MatrixSendMediaMessageOptions): Promise<MatrixRawMessage>;
-  postMessage(options: MatrixSendMessageOptions): Promise<MatrixRawMessage>;
-  publishBeeperStream(options: MatrixBeeperStreamOptions): Promise<void>;
-  registerBeeperStream(options: MatrixRegisterBeeperStreamOptions): Promise<void>;
-  removeReaction(options: MatrixReactionOptions): Promise<void>;
-  sendEphemeralEvent(options: MatrixSendEphemeralEventOptions): Promise<MatrixRawMessage>;
-  setTyping(options: MatrixTypingOptions): Promise<void>;
-  syncOnce(options?: MatrixSyncOnceOptions): Promise<void>;
-  uploadEncryptedMedia(options: MatrixUploadMediaOptions): Promise<MatrixUploadEncryptedMediaResult>;
-  uploadMedia(options: MatrixUploadMediaOptions): Promise<MatrixUploadMediaResult>;
-  unsubscribeBeeperStream(options: MatrixBeeperStreamOptions): Promise<void>;
-  whoami(): Promise<MatrixWhoami>;
-}
-
-export interface MatrixCoreHost {
-  fetch?: typeof fetch;
-  log?: (level: "debug" | "info" | "warn" | "error", message: string, data?: unknown) => void;
-  randomBytes?: (length: number) => Uint8Array;
-  state?: MatrixStateStore;
-}
-
-export interface MatrixStateStore {
-  delete(key: string): Promise<void>;
-  get(key: string): Promise<Uint8Array | null>;
-  list(prefix: string): Promise<string[]>;
-  set(key: string, value: Uint8Array): Promise<void>;
 }

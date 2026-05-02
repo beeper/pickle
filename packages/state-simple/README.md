@@ -3,9 +3,9 @@
 Wrap any simple getter/setter backend as `better-matrix-js` Matrix state.
 
 ```ts
-import { createMatrixState } from "@better-matrix-js/state-simple";
+import { createMatrixStore } from "@better-matrix-js/state-simple";
 
-const state = createMatrixState({
+const state = createMatrixStore({
   get: (key) => backend.get(key),
   set: (key, value) => backend.set(key, value),
   delete: (key) => backend.delete(key),

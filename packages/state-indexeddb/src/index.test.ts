@@ -1,10 +1,10 @@
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
-import { createIndexedDBMatrixState } from "./index";
+import { createIndexedDBMatrixStore } from "./index";
 
-describe("IndexedDBMatrixState", () => {
+describe("IndexedDBMatrixStore", () => {
   it("round-trips bytes and lists by prefix", async () => {
-    const store = createIndexedDBMatrixState({
+    const store = createIndexedDBMatrixStore({
       databaseName: `matrix-store-${crypto.randomUUID()}`,
       indexedDB: new IDBFactory(),
     });

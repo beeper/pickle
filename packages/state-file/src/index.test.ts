@@ -2,13 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createFileMatrixState } from "./index";
+import { createFileMatrixStore } from "./index";
 
-describe("FileMatrixState", () => {
+describe("FileMatrixStore", () => {
   it("round-trips bytes and lists by prefix", async () => {
     const dir = await mkdtemp(join(tmpdir(), "matrix-store-"));
     try {
-      const store = createFileMatrixState(dir);
+      const store = createFileMatrixStore(dir);
       const original = new Uint8Array([1, 2, 3]);
 
       await store.set("crypto/account", original);

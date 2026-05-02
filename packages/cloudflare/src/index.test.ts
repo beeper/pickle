@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  createDurableObjectMatrixState,
+  createDurableObjectMatrixStore,
   MatrixSyncDurableObject,
   type DurableObjectStorageLike,
 } from "./index";
@@ -40,10 +40,10 @@ class FakeDurableObjectStorage implements DurableObjectStorageLike {
   }
 }
 
-describe("createDurableObjectMatrixState", () => {
+describe("createDurableObjectMatrixStore", () => {
   it("round-trips bytes through Durable Object storage", async () => {
     const storage = new FakeDurableObjectStorage();
-    const store = createDurableObjectMatrixState(storage, { prefix: "matrix/" });
+    const store = createDurableObjectMatrixStore(storage, { prefix: "matrix/" });
 
     const original = new Uint8Array([1, 2, 3]);
     await store.set("a", original);

@@ -3,7 +3,7 @@
 IndexedDB state adapter for `better-matrix-js`.
 
 ```ts
-import { createIndexedDBMatrixState } from "@better-matrix-js/state-indexeddb";
+import { createIndexedDBMatrixStore } from "@better-matrix-js/state-indexeddb";
 
-const state = createIndexedDBMatrixState({ databaseName: "matrix-alice" });
+const state = createIndexedDBMatrixStore({ databaseName: "matrix-alice" });
 ```

@@ -27,8 +27,8 @@ import { createRedisState } from "@chat-adapter/state-redis";
 import { createMatrixAdapter } from "@better-matrix-js/chat-adapter";
 
 const matrix = createMatrixAdapter({
-  accessToken: process.env.MATRIX_ACCESS_TOKEN!,
-  // homeserverUrl defaults to "https://matrix.beeper.com"
+  token: process.env.MATRIX_ACCESS_TOKEN!,
+  // homeserver defaults to "https://matrix.beeper.com"
   recoveryKey: process.env.MATRIX_RECOVERY_KEY,
 });
 
@@ -48,19 +48,27 @@ await bot.initialize();
 ### Raw Matrix core (no Chat SDK)
 
 ```ts
-import { createFileMatrixState } from "@better-matrix-js/state-file";
-import { loadMatrixCoreFromNodePackage } from "better-matrix-js/node";
+import { createMatrixClient } from "better-matrix-js/node";
+import { createFileMatrixStore } from "@better-matrix-js/state-file";
 
-const core = await loadMatrixCoreFromNodePackage({
-  host: { state: createFileMatrixState(".matrix-store") },
+const client = createMatrixClient({
+  homeserver: "https://matrix.example.org",
+  token: process.env.MATRIX_ACCESS_TOKEN!,
+  store: createFileMatrixStore(".matrix-store"),
+  recoveryKey: process.env.MATRIX_RECOVERY_KEY,
 });
 
-await core.init({
-  accessToken: process.env.MATRIX_ACCESS_TOKEN!,
-  homeserverUrl: "https://matrix.example.org",
+client.events.onMessage(async (event) => {
+  if (event.sender.isMe) return;
+  await client.messages.send({
+    roomId: event.roomId,
+    text: "Got it.",
+    replyTo: event.eventId,
+  });
 });
 
-await core.postMessage({ roomId: "!room:example.org", body: "hello" });
+await client.connect();
+await client.sync.start();
 ```
 
 ### Cloudflare Worker

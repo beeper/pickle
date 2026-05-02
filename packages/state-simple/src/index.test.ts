@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createMatrixState } from "./index";
+import { createMatrixStore } from "./index";
 
-describe("createMatrixState", () => {
+describe("createMatrixStore", () => {
   it("adapts simple get/set stores and maintains an index for list()", async () => {
     const values = new Map<string, Uint8Array>();
-    const store = createMatrixState({
+    const store = createMatrixStore({
       async delete(key) {
         values.delete(key);
       },

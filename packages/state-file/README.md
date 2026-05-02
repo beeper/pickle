@@ -3,7 +3,7 @@
 Filesystem state adapter for `better-matrix-js`.
 
 ```ts
-import { createFileMatrixState } from "@better-matrix-js/state-file";
+import { createFileMatrixStore } from "@better-matrix-js/state-file";
 
-const state = createFileMatrixState(".matrix-state/alice");
+const state = createFileMatrixStore(".matrix-state/alice");
 ```

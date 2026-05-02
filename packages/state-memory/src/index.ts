@@ -1,6 +1,6 @@
-import { copyBytes, type MatrixStateStore } from "better-matrix-js";
+import { copyBytes, type MatrixStore } from "better-matrix-js";
 
-export class MemoryMatrixState implements MatrixStateStore {
+export class MemoryMatrixStore implements MatrixStore {
   readonly #values = new Map<string, Uint8Array>();
 
   async delete(key: string): Promise<void> {
@@ -21,6 +21,6 @@ export class MemoryMatrixState implements MatrixStateStore {
   }
 }
 
-export function createMemoryMatrixState(): MemoryMatrixState {
-  return new MemoryMatrixState();
+export function createMemoryMatrixStore(): MemoryMatrixStore {
+  return new MemoryMatrixStore();
 }

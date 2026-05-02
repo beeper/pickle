@@ -1,18 +1,18 @@
-import { copyBytes, type MatrixStateStore } from "better-matrix-js";
+import { copyBytes, type MatrixStore } from "better-matrix-js";
 
-export interface IndexedDBMatrixStateOptions {
+export interface IndexedDBMatrixStoreOptions {
   databaseName?: string;
   indexedDB?: IDBFactory;
   objectStoreName?: string;
 }
 
-export class IndexedDBMatrixState implements MatrixStateStore {
+export class IndexedDBMatrixStore implements MatrixStore {
   readonly #databaseName: string;
   readonly #factory: IDBFactory;
   readonly #objectStoreName: string;
   #database: Promise<IDBDatabase> | null = null;
 
-  constructor(options: IndexedDBMatrixStateOptions = {}) {
+  constructor(options: IndexedDBMatrixStoreOptions = {}) {
     const factory = options.indexedDB ?? globalThis.indexedDB;
     if (!factory) {
       throw new Error("IndexedDB is not available. Pass options.indexedDB or use another store.");
@@ -87,8 +87,8 @@ export class IndexedDBMatrixState implements MatrixStateStore {
   }
 }
 
-export function createIndexedDBMatrixState(
-  options: IndexedDBMatrixStateOptions = {}
-): IndexedDBMatrixState {
-  return new IndexedDBMatrixState(options);
+export function createIndexedDBMatrixStore(
+  options: IndexedDBMatrixStoreOptions = {}
+): IndexedDBMatrixStore {
+  return new IndexedDBMatrixStore(options);
 }

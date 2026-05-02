@@ -1,6 +1,6 @@
 # @better-matrix-js/cloudflare
 
-Cloudflare Workers helpers for [`better-matrix-js`](https://github.com/batuhan/better-matrix-js): KV / Durable Object state adapters and a ready-made sync Durable Object.
+Cloudflare Workers helpers for [`better-matrix-js`](https://github.com/batuhan/better-matrix-js): KV / Durable Object stores and a ready-made sync Durable Object.
 
 ```sh
 npm install better-matrix-js @better-matrix-js/cloudflare
@@ -8,19 +8,19 @@ npm install better-matrix-js @better-matrix-js/cloudflare
 
 ## State
 
-Pick whichever fits your binding. Both implement the `MatrixStateStore` interface that `better-matrix-js` expects on `host.state`.
+Pick whichever fits your binding. Both implement the `MatrixStore` interface that `better-matrix-js` expects as `store`.
 
 ```ts
 import {
-  createCloudflareKVMatrixState,
-  createDurableObjectMatrixState,
+  createCloudflareKVMatrixStore,
+  createDurableObjectMatrixStore,
 } from "@better-matrix-js/cloudflare";
 
 // Cloudflare KV
-const matrixState = createCloudflareKVMatrixState(env.MATRIX_KV, { prefix: "matrix/" });
+const store = createCloudflareKVMatrixStore(env.MATRIX_KV, { prefix: "matrix/" });
 
 // Durable Object storage (recommended for E2EE — strong consistency)
-const matrixState = createDurableObjectMatrixState(state.storage, { prefix: "matrix/" });
+const store = createDurableObjectMatrixStore(state.storage, { prefix: "matrix/" });
 ```
 
 
@@ -64,10 +64,10 @@ curl -X POST https://your-worker.example.com/stop
 curl       https://your-worker.example.com/status
 ```
 
-Your webhook receives `{ response, since }`. Apply it to a `MatrixCore` running in another Durable Object:
+Your webhook receives `{ response, since }`. Apply it to a `MatrixClient` running in another Durable Object:
 
 ```ts
-await core.applySyncResponse({ response: body.response, since: body.since });
+await client.sync.applyResponse({ response: body.response, since: body.since });
 ```
 
 ## Config

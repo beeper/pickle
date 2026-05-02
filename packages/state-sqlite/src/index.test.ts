@@ -2,13 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createSQLiteMatrixState } from "./index";
+import { createSQLiteMatrixStore } from "./index";
 
-describe("SQLiteMatrixState", () => {
+describe("SQLiteMatrixStore", () => {
   it("round-trips bytes and lists by prefix", async () => {
     const dir = await mkdtemp(join(tmpdir(), "matrix-sqlite-store-"));
     try {
-      const store = await createSQLiteMatrixState(join(dir, "matrix.db"));
+      const store = await createSQLiteMatrixStore(join(dir, "matrix.db"));
       const original = new Uint8Array([4, 5, 6]);
 
       await store.set("state/rooms", original);

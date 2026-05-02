@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { copyBytes, type MatrixStateStore } from "better-matrix-js";
+import { copyBytes, type MatrixStore } from "better-matrix-js";
 
-export class FileMatrixState implements MatrixStateStore {
+export class FileMatrixStore implements MatrixStore {
   readonly #dir: string;
   #index: Map<string, string> | null = null;
 
@@ -77,8 +77,8 @@ export class FileMatrixState implements MatrixStateStore {
   }
 }
 
-export function createFileMatrixState(dir: string): FileMatrixState {
-  return new FileMatrixState(dir);
+export function createFileMatrixStore(dir: string): FileMatrixStore {
+  return new FileMatrixStore(dir);
 }
 
 function keyToFilename(key: string): string {

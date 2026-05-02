@@ -1,4 +1,4 @@
-import type { MatrixStateStore } from "better-matrix-js";
+import type { MatrixStore } from "better-matrix-js";
 
 export interface CloudflareKVNamespaceLike {
   delete(key: string): Promise<void>;
@@ -29,7 +29,7 @@ export interface DurableObjectStateLike {
   storage: DurableObjectStorageLike;
 }
 
-export interface CloudflareStateOptions {
+export interface CloudflareStoreOptions {
   prefix?: string;
 }
 
@@ -71,10 +71,10 @@ export interface MatrixSyncDurableObjectStatus {
   since?: string;
 }
 
-export function createCloudflareKVMatrixState(
+export function createCloudflareKVMatrixStore(
   namespace: CloudflareKVNamespaceLike,
-  options: CloudflareStateOptions = {}
-): MatrixStateStore {
+  options: CloudflareStoreOptions = {}
+): MatrixStore {
   const prefix = options.prefix ?? "";
   return {
     async delete(key) {
@@ -106,10 +106,10 @@ export function createCloudflareKVMatrixState(
   };
 }
 
-export function createDurableObjectMatrixState(
+export function createDurableObjectMatrixStore(
   storage: DurableObjectStorageLike,
-  options: CloudflareStateOptions = {}
-): MatrixStateStore {
+  options: CloudflareStoreOptions = {}
+): MatrixStore {
   const prefix = options.prefix ?? "";
   return {
     async delete(key) {

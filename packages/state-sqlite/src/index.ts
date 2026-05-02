@@ -1,4 +1,4 @@
-import { copyBytes, type MatrixStateStore } from "better-matrix-js";
+import { copyBytes, type MatrixStore } from "better-matrix-js";
 
 export interface SQLiteDatabaseLike {
   exec(sql: string): unknown;
@@ -9,15 +9,15 @@ export interface SQLiteDatabaseLike {
   };
 }
 
-export interface SQLiteMatrixStateOptions {
+export interface SQLiteMatrixStoreOptions {
   tableName?: string;
 }
 
-export class SQLiteMatrixState implements MatrixStateStore {
+export class SQLiteMatrixStore implements MatrixStore {
   readonly #database: SQLiteDatabaseLike;
   readonly #tableName: string;
 
-  constructor(database: SQLiteDatabaseLike, options: SQLiteMatrixStateOptions = {}) {
+  constructor(database: SQLiteDatabaseLike, options: SQLiteMatrixStoreOptions = {}) {
     this.#database = database;
     this.#tableName = options.tableName ?? "matrix_store";
     this.#ensureSchema();
@@ -53,7 +53,7 @@ export class SQLiteMatrixState implements MatrixStateStore {
 
   #ensureSchema(): void {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(this.#tableName)) {
-      throw new Error("SQLiteMatrixState tableName must be a valid SQLite identifier.");
+      throw new Error("SQLiteMatrixStore tableName must be a valid SQLite identifier.");
     }
     this.#database.exec(`
       CREATE TABLE IF NOT EXISTS ${this.#tableName} (
@@ -64,12 +64,12 @@ export class SQLiteMatrixState implements MatrixStateStore {
   }
 }
 
-export async function createSQLiteMatrixState(
+export async function createSQLiteMatrixStore(
   filename: string,
-  options: SQLiteMatrixStateOptions = {}
-): Promise<SQLiteMatrixState> {
+  options: SQLiteMatrixStoreOptions = {}
+): Promise<SQLiteMatrixStore> {
   const sqlite = await import("node:sqlite");
-  return new SQLiteMatrixState(new sqlite.DatabaseSync(filename), options);
+  return new SQLiteMatrixStore(new sqlite.DatabaseSync(filename), options);
 }
 
 function escapeLike(value: string): string {

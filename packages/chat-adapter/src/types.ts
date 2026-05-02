@@ -3,8 +3,7 @@ import type {
   MatrixMediaAttachment,
   MatrixCore,
   MatrixCoreHost,
-  MatrixCoreInitOptions,
-  MatrixStateStore,
+  MatrixStore,
 } from "better-matrix-js";
 
 export interface MatrixChatThreadRef {
@@ -12,26 +11,34 @@ export interface MatrixChatThreadRef {
   roomId: string;
 }
 
-export interface MatrixAdapterConfig extends Omit<MatrixCoreInitOptions, "homeserverUrl"> {
+export interface MatrixAdapterConfig {
   commandPrefix?: string;
   core?: MatrixCore;
   createCore?: () => Promise<MatrixCore>;
+  deviceId?: string;
   go?: GoRuntime;
   host?: MatrixCoreHost;
-  homeserverUrl?: string;
+  homeserver?: string;
+  initialSync?: "persisted" | "latest" | "catchUp";
+  pickleKey?: string;
   polling?: {
     enabled?: boolean;
     retryDelayMs?: number;
     timeoutMs?: number;
   };
+  recoveryCode?: string;
+  recoveryKey?: string;
   verifyRecoveryOnStart?: boolean;
   inviteAutoJoin?: {
     inviterAllowlist?: string[];
   };
   roomAllowlist?: string[];
-  statePrefix?: string;
-  state?: MatrixStateStore;
+  since?: string;
+  storePrefix?: string;
+  store?: MatrixStore;
+  token: string;
   typingTimeoutMs?: number;
+  userId?: string;
   wasmBytes?: BufferSource;
   wasmModule?: WebAssembly.Module;
   wasmUrl?: string | URL;
