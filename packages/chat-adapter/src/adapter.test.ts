@@ -33,6 +33,13 @@ function makeCore(overrides: Partial<MatrixCore> = {}) {
     addReaction: vi.fn(async () => ({ eventId: "$reaction", raw: {}, roomId: "!room:example.com" })),
     applySyncResponse: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
+    createBeeperStream: vi.fn(async () => ({
+      descriptor: {
+        device_id: "DEVICE",
+        type: "com.beeper.ai.stream_event",
+        user_id: "@bot:example.com",
+      },
+    })),
     deleteMessage: vi.fn(async () => undefined),
     downloadEncryptedMedia: vi.fn(async () => ({ bytesBase64: bytesToBase64(new Uint8Array([4, 5, 6])) })),
     downloadMedia: vi.fn(async () => ({ bytesBase64: bytesToBase64(new Uint8Array([1, 2, 3])) })),
@@ -71,7 +78,9 @@ function makeCore(overrides: Partial<MatrixCore> = {}) {
     openDM: vi.fn(async () => ({ raw: {}, roomId: "!dm:example.com" })),
     postMediaMessage: vi.fn(async () => ({ eventId: "$media", raw: {}, roomId: "!room:example.com" })),
     postMessage: vi.fn(async () => ({ eventId: "$message", raw: {}, roomId: "!room:example.com" })),
+    publishBeeperStream: vi.fn(async () => undefined),
     removeReaction: vi.fn(async () => undefined),
+    sendEphemeralEvent: vi.fn(async () => ({ eventId: "$ephemeral", raw: {}, roomId: "!room:example.com" })),
     setTyping: vi.fn(async () => undefined),
     syncOnce: vi.fn(async () => undefined),
     uploadEncryptedMedia: vi.fn(async () => ({
@@ -92,6 +101,7 @@ function makeCore(overrides: Partial<MatrixCore> = {}) {
       raw: {},
     })),
     uploadMedia: vi.fn(async () => ({ contentUri: "mxc://example.com/upload", raw: {} })),
+    unsubscribeBeeperStream: vi.fn(async () => undefined),
     whoami: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@bot:example.com" })),
     ...overrides,
   };
@@ -393,6 +403,209 @@ describe("MatrixAdapter", () => {
       },
       since: "prev",
     });
+  });
+
+  it("streams Beeper homeserver chunks as encrypted Matrix ephemeral events", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.beeper.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    async function* chunks(): AsyncIterable<string | { text: string; type: "markdown_text" }> {
+      yield "hel";
+      yield { text: "lo", type: "markdown_text" };
+    }
+
+    const result = await adapter.stream(
+      encodeMatrixChatThreadRef({ roomId: "!room:example.com" }),
+      chunks()
+    );
+
+    expect(result.id).toBe("$message");
+    expect(core.createBeeperStream).toHaveBeenCalledWith({
+      roomId: "!room:example.com",
+      streamType: "com.beeper.ai.stream_event",
+    });
+    expect(core.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "...",
+        content: {
+          "com.beeper.stream": {
+            device_id: "DEVICE",
+            type: "com.beeper.ai.stream_event",
+            user_id: "@bot:example.com",
+          },
+        },
+      })
+    );
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          part: { id: expect.any(String), type: "text-start" },
+          target_event: "$message",
+        }),
+        eventId: "$message",
+        roomId: "!room:example.com",
+      })
+    );
+    expect(core.editMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "hello",
+        content: { "com.beeper.dont_render_edited": true },
+        messageId: "$message",
+      })
+    );
+  });
+
+  it("passes raw AI SDK stream parts through to Beeper", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.beeper-dev.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    async function* chunks(): AsyncIterable<Record<string, unknown>> {
+      yield { id: "reasoning-1", type: "reasoning-start" };
+      yield { delta: "thinking", id: "reasoning-1", type: "reasoning-delta" };
+      yield {
+        input: { path: "/tmp/a" },
+        toolCallId: "call-1",
+        toolName: "read_file",
+        type: "tool-input-available",
+      };
+    }
+
+    await adapter.stream(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }), chunks());
+
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          part: { id: "reasoning-1", type: "reasoning-start" },
+        }),
+      })
+    );
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          part: {
+            input: { path: "/tmp/a" },
+            toolCallId: "call-1",
+            toolName: "read_file",
+            type: "tool-input-available",
+          },
+        }),
+      })
+    );
+  });
+
+  it("maps Chat SDK task and plan stream chunks to Beeper data parts", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.beeper-staging.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    async function* chunks() {
+      yield { id: "task-1", status: "in_progress", title: "Search", type: "task_update" } as const;
+      yield { title: "Reading results", type: "plan_update" } as const;
+    }
+
+    await adapter.stream(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }), chunks());
+
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          part: expect.objectContaining({
+            data: expect.objectContaining({ call_id: "task-1", tool_name: "Search" }),
+            type: "data-tool-progress",
+          }),
+        }),
+      })
+    );
+    expect(core.publishBeeperStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          part: {
+            data: { title: "Reading results" },
+            transient: true,
+            type: "data-plan-update",
+          },
+        }),
+      })
+    );
+  });
+
+  it("streams non-Beeper homeservers with debounced Matrix edits", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.example.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    async function* chunks(): AsyncIterable<string> {
+      yield "hel";
+      yield "lo";
+    }
+
+    await adapter.stream(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }), chunks());
+
+    expect(core.sendEphemeralEvent).not.toHaveBeenCalled();
+    expect(core.publishBeeperStream).not.toHaveBeenCalled();
+    expect(core.postMessage).toHaveBeenCalledWith(expect.objectContaining({ body: "hel" }));
+    expect(core.editMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: "hello",
+        messageId: "$message",
+      })
+    );
+  });
+
+  it("posts and edits Chat SDK plan objects as Matrix markdown", async () => {
+    const { core } = makeCore();
+    const adapter = new MatrixAdapter({
+      accessToken: "token",
+      core,
+      homeserverUrl: "https://matrix.example.com",
+      polling: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+    const threadId = encodeMatrixChatThreadRef({ roomId: "!room:example.com" });
+    const plan = {
+      tasks: [
+        { id: "1", status: "complete", title: "Inspect" },
+        { details: { markdown: "Use Beeper stream events" }, id: "2", status: "in_progress", title: "Implement" },
+      ],
+      title: "Matrix work",
+    };
+
+    await adapter.postObject(threadId, "plan", plan);
+    await adapter.editObject(threadId, "$message", "plan", plan);
+
+    expect(core.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining("Matrix work"),
+        formattedBody: expect.stringContaining("<strong>Matrix work</strong>"),
+      })
+    );
+    expect(core.editMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formattedBody: expect.stringContaining("checked"),
+        messageId: "$message",
+      })
+    );
   });
 
   it("maps Matrix profiles to Chat SDK user info", async () => {

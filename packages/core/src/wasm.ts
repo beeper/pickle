@@ -1,6 +1,9 @@
 import type {
   MatrixApplySyncResponseOptions,
+  MatrixBeeperStreamOptions,
   MatrixCore,
+  MatrixCreateBeeperStreamOptions,
+  MatrixCreateBeeperStreamResult,
   MatrixCoreEvent,
   MatrixCoreHost,
   MatrixCoreInitOptions,
@@ -30,6 +33,7 @@ import type {
   MatrixRoomInfo,
   MatrixSendMediaMessageOptions,
   MatrixSendMessageOptions,
+  MatrixSendEphemeralEventOptions,
   MatrixSyncOnceOptions,
   MatrixTypingOptions,
   MatrixUploadMediaOptions,
@@ -103,6 +107,12 @@ export class MatrixWasmCore implements MatrixCore {
     await this.#call("close");
     this.#listeners.clear();
     listenersByCore.delete(this.#coreId);
+  }
+
+  createBeeperStream(
+    options: MatrixCreateBeeperStreamOptions
+  ): Promise<MatrixCreateBeeperStreamResult> {
+    return this.#call("create_beeper_stream", options);
   }
 
   async deleteMessage(options: MatrixDeleteMessageOptions): Promise<void> {
@@ -184,8 +194,16 @@ export class MatrixWasmCore implements MatrixCore {
     return this.#call("post_media_message", options);
   }
 
+  async publishBeeperStream(options: MatrixBeeperStreamOptions): Promise<void> {
+    await this.#call("publish_beeper_stream", options);
+  }
+
   async removeReaction(options: MatrixReactionOptions): Promise<void> {
     await this.#call("remove_reaction", options);
+  }
+
+  sendEphemeralEvent(options: MatrixSendEphemeralEventOptions): Promise<MatrixRawMessage> {
+    return this.#call("send_ephemeral_event", options);
   }
 
   async setTyping(options: MatrixTypingOptions): Promise<void> {
@@ -204,6 +222,10 @@ export class MatrixWasmCore implements MatrixCore {
     options: MatrixUploadMediaOptions
   ): Promise<MatrixUploadEncryptedMediaResult> {
     return this.#call("upload_encrypted_media", options);
+  }
+
+  async unsubscribeBeeperStream(options: MatrixBeeperStreamOptions): Promise<void> {
+    await this.#call("unsubscribe_beeper_stream", options);
   }
 
   whoami(): Promise<MatrixWhoami> {

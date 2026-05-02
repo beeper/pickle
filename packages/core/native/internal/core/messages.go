@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"maunium.net/go/mautrix"
@@ -13,13 +16,14 @@ import (
 )
 
 type sendReq struct {
-	RoomID            string       `json:"roomId"`
-	Body              string       `json:"body"`
-	FormattedBody     string       `json:"formattedBody,omitempty"`
-	Mentions          *mentionsReq `json:"mentions,omitempty"`
-	MsgType           string       `json:"msgtype,omitempty"`
-	ThreadRootEventID string       `json:"threadRootEventId,omitempty"`
-	ReplyToEventID    string       `json:"replyToEventId,omitempty"`
+	RoomID            string        `json:"roomId"`
+	Body              string        `json:"body"`
+	Content           OutboundEvent `json:"content,omitempty"`
+	FormattedBody     string        `json:"formattedBody,omitempty"`
+	Mentions          *mentionsReq  `json:"mentions,omitempty"`
+	MsgType           string        `json:"msgtype,omitempty"`
+	ThreadRootEventID string        `json:"threadRootEventId,omitempty"`
+	ReplyToEventID    string        `json:"replyToEventId,omitempty"`
 }
 
 type mentionsReq struct {
@@ -33,6 +37,10 @@ type rawMessageResp struct {
 	Raw     any    `json:"raw"`
 }
 
+type streamDescriptorResp struct {
+	Descriptor any `json:"descriptor"`
+}
+
 func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, error) {
 	cli, err := c.requireClient()
 	if err != nil {
@@ -43,13 +51,16 @@ func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, e
 		return nil, err
 	}
 	content := messageContent(req.Body, req.FormattedBody, req.MsgType, req.Mentions)
+	contentMap := messageContentMap(content, req.Content)
 	if req.ThreadRootEventID != "" {
 		content.RelatesTo = (&event.RelatesTo{}).SetThread(id.EventID(req.ThreadRootEventID), "")
+		contentMap["m.relates_to"] = content.RelatesTo
 	} else if req.ReplyToEventID != "" {
 		content.RelatesTo = (&event.RelatesTo{}).SetReplyTo(id.EventID(req.ReplyToEventID))
+		contentMap["m.relates_to"] = content.RelatesTo
 	}
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
-		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
+		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, contentMap)
 	})
 	if err != nil {
 		return nil, err
@@ -57,13 +68,69 @@ func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, e
 	return json.Marshal(rawMessageResp{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
 }
 
+type createBeeperStreamReq struct {
+	RoomID     string `json:"roomId"`
+	StreamType string `json:"streamType"`
+}
+
+func (c *Core) handleCreateBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
+	if c.beeperStream == nil {
+		return nil, errors.New("beeper stream helper is not initialized")
+	}
+	var req createBeeperStreamReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	if req.StreamType == "" {
+		req.StreamType = "com.beeper.ai.stream_event"
+	}
+	descriptor, err := c.beeperStream.NewDescriptor(ctx, id.RoomID(req.RoomID), req.StreamType)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(streamDescriptorResp{Descriptor: descriptor})
+}
+
+type beeperStreamReq struct {
+	Content map[string]any `json:"content,omitempty"`
+	EventID string         `json:"eventId"`
+	RoomID  string         `json:"roomId"`
+}
+
+func (c *Core) handlePublishBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
+	if c.beeperStream == nil {
+		return nil, errors.New("beeper stream helper is not initialized")
+	}
+	var req beeperStreamReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	if err := c.beeperStream.Publish(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID), req.Content); err != nil {
+		return nil, err
+	}
+	return c.empty()
+}
+
+func (c *Core) handleUnsubscribeBeeperStream(payload []byte) ([]byte, error) {
+	if c.beeperStream == nil {
+		return c.empty()
+	}
+	var req beeperStreamReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	c.beeperStream.Unsubscribe(id.RoomID(req.RoomID), id.EventID(req.EventID))
+	return c.empty()
+}
+
 type editReq struct {
-	RoomID        string       `json:"roomId"`
-	MessageID     string       `json:"messageId"`
-	Body          string       `json:"body"`
-	FormattedBody string       `json:"formattedBody,omitempty"`
-	Mentions      *mentionsReq `json:"mentions,omitempty"`
-	MsgType       string       `json:"msgtype,omitempty"`
+	RoomID        string        `json:"roomId"`
+	MessageID     string        `json:"messageId"`
+	Body          string        `json:"body"`
+	Content       OutboundEvent `json:"content,omitempty"`
+	FormattedBody string        `json:"formattedBody,omitempty"`
+	Mentions      *mentionsReq  `json:"mentions,omitempty"`
+	MsgType       string        `json:"msgtype,omitempty"`
 }
 
 func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, error) {
@@ -76,12 +143,14 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 		return nil, err
 	}
 	newContent := messageContent(req.Body, req.FormattedBody, req.MsgType, req.Mentions)
-	content := &event.MessageEventContent{
+	newContentMap := messageContentMap(newContent, req.Content)
+	content := messageContentMap(&event.MessageEventContent{
 		Body:       "",
 		MsgType:    newContent.MsgType,
 		NewContent: newContent,
 		RelatesTo:  (&event.RelatesTo{}).SetReplace(id.EventID(req.MessageID)),
-	}
+	}, req.Content)
+	content["m.new_content"] = newContentMap
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
 		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
 	})
@@ -102,6 +171,57 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 		"type":               event.EventMessage.Type,
 	})
 	return json.Marshal(rawMessageResp{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
+}
+
+type ephemeralEventReq struct {
+	Content       OutboundEvent `json:"content"`
+	EventType     string        `json:"eventType"`
+	RoomID        string        `json:"roomId"`
+	TransactionID string        `json:"transactionId,omitempty"`
+}
+
+func (c *Core) handleSendEphemeralEvent(ctx context.Context, payload []byte) ([]byte, error) {
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	var req ephemeralEventReq
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	if req.EventType == "" {
+		return nil, errors.New("eventType is required")
+	}
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		return beeperSendEphemeralEvent(ctx, cli, id.RoomID(req.RoomID), event.Type{Type: req.EventType, Class: event.EphemeralEventType}, req.Content, req.TransactionID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(rawMessageResp{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
+}
+
+func beeperSendEphemeralEvent(ctx context.Context, cli *mautrix.Client, roomID id.RoomID, eventType event.Type, content any, txnID string) (resp *mautrix.RespSendEvent, err error) {
+	if txnID == "" {
+		txnID = cli.TxnID()
+	}
+	if cli.Crypto != nil && eventType != event.EventEncrypted {
+		encrypted, err := cli.StateStore.IsEncrypted(ctx, roomID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if room is encrypted: %w", err)
+		}
+		if encrypted {
+			content, err = cli.Crypto.Encrypt(ctx, roomID, eventType, content)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encrypt event: %w", err)
+			}
+			eventType = event.EventEncrypted
+		}
+	}
+	query := map[string]string{"ts": strconv.FormatInt(time.Now().UnixMilli(), 10)}
+	urlPath := cli.BuildURLWithQuery(mautrix.ClientURLPath{"unstable", "com.beeper.ephemeral", "rooms", roomID, "ephemeral", eventType.String(), txnID}, query)
+	_, err = cli.MakeRequest(ctx, http.MethodPut, urlPath, content, &resp)
+	return resp, err
 }
 
 type deleteReq struct {
@@ -497,4 +617,22 @@ func messageContent(body, formattedBody, msgType string, mentions *mentionsReq) 
 		}
 	}
 	return content
+}
+
+func messageContentMap(target any, extra OutboundEvent) map[string]any {
+	if len(extra) == 0 {
+		extra = nil
+	}
+	data, err := json.Marshal(target)
+	if err != nil {
+		return map[string]any{}
+	}
+	var merged map[string]any
+	if err := json.Unmarshal(data, &merged); err != nil {
+		return map[string]any{}
+	}
+	for key, value := range extra {
+		merged[key] = value
+	}
+	return merged
 }

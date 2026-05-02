@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/crypto"
 	"maunium.net/go/mautrix/crypto/backup"
 	"maunium.net/go/mautrix/crypto/cryptohelper"
@@ -19,6 +20,7 @@ type Core struct {
 	cryptoStore        crypto.Store
 	backupKey          *backup.MegolmBackupKey
 	backupVersion      id.KeyBackupVersion
+	beeperStream       *beeperstream.Helper
 	emit               func(OutboundEvent)
 	host               RuntimeHost
 	nextBatch          string
@@ -73,6 +75,14 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleAddReaction(ctx, payload)
 	case "remove_reaction":
 		return c.handleRemoveReaction(ctx, payload)
+	case "send_ephemeral_event":
+		return c.handleSendEphemeralEvent(ctx, payload)
+	case "create_beeper_stream":
+		return c.handleCreateBeeperStream(ctx, payload)
+	case "publish_beeper_stream":
+		return c.handlePublishBeeperStream(ctx, payload)
+	case "unsubscribe_beeper_stream":
+		return c.handleUnsubscribeBeeperStream(payload)
 	case "set_typing":
 		return c.handleSetTyping(ctx, payload)
 	case "fetch_message":
@@ -129,6 +139,10 @@ func (c *Core) handleClose() ([]byte, error) {
 	c.cryptoStore = nil
 	c.backupKey = nil
 	c.backupVersion = ""
+	if c.beeperStream != nil {
+		_ = c.beeperStream.Close()
+	}
+	c.beeperStream = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
 	c.messageEdits = make(map[id.EventID]OutboundEvent)
