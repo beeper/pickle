@@ -9,10 +9,11 @@ export type {
   MatrixMessages,
   MatrixReactions,
   MatrixRooms,
+  MatrixStreams,
   MatrixSync,
   MatrixTyping,
   MatrixUsers,
-} from "./client";
+} from "./client-types";
 export type {
   MatrixLogin,
   MatrixLoginOptions,
@@ -54,6 +55,7 @@ export type {
   MatrixRelation,
   MatrixSession,
   MatrixStore,
+  MatrixStream,
   MatrixSyncStatusEvent,
   MatrixThreadSummary,
   MatrixWhoami,
@@ -64,6 +66,8 @@ export type {
   RedactMessageOptions,
   RegisterBeeperStreamOptions,
   RoomInfo,
+  SendBeeperEphemeralOptions,
+  SendMatrixStreamOptions,
   SendMediaMessageOptions,
   SendMessageOptions,
   SentEvent,

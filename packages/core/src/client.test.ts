@@ -136,7 +136,106 @@ describe("createMatrixClient", () => {
     expect(calls.map((call) => call.operation)).toEqual(["init", "start_sync", "stop_sync"]);
     expect(calls[1]?.payload).toEqual({ retryDelayMs: 250, timeoutMs: 12_345 });
   });
+
+  it("streams with Matrix edits on non-Beeper homeservers", async () => {
+    const calls = installRuntime({
+      edit_message: { eventId: "$edit", raw: {}, roomId: "!room:example.com" },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      post_message: { eventId: "$message", raw: {}, roomId: "!room:example.com" },
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+    await client.connect();
+
+    await client.streams.send({
+      roomId: "!room:example.com",
+      stream: chunks("hel", "lo"),
+    });
+
+    expect(calls.map((call) => call.operation)).toEqual(["init", "post_message", "edit_message"]);
+    expect(calls[1]?.payload).toEqual({
+      body: "hel",
+      roomId: "!room:example.com",
+    });
+    expect(calls[2]?.payload).toEqual({
+      body: "hello",
+      messageId: "$message",
+      roomId: "!room:example.com",
+    });
+  });
+
+  it("streams with Beeper stream events on Beeper homeservers", async () => {
+    const calls = installRuntime({
+      create_beeper_stream: {
+        descriptor: {
+          device_id: "DEVICE",
+          type: "com.beeper.llm",
+          user_id: "@bot:example.com",
+        },
+      },
+      edit_message: { eventId: "$edit", raw: {}, roomId: "!room:example.com" },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      post_message: { eventId: "$message", raw: {}, roomId: "!room:example.com" },
+      publish_beeper_stream: {},
+      register_beeper_stream: {},
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.beeper.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+    await client.connect();
+
+    await client.streams.send({
+      roomId: "!room:example.com",
+      stream: chunks("hel", { text: "lo", type: "markdown_text" }),
+      threadRoot: "$thread",
+    });
+
+    expect(calls.map((call) => call.operation)).toEqual([
+      "init",
+      "create_beeper_stream",
+      "post_message",
+      "register_beeper_stream",
+      "publish_beeper_stream",
+      "publish_beeper_stream",
+      "publish_beeper_stream",
+      "publish_beeper_stream",
+      "publish_beeper_stream",
+      "publish_beeper_stream",
+      "edit_message",
+    ]);
+    expect(calls[2]?.payload).toMatchObject({
+      body: "...",
+      roomId: "!room:example.com",
+      threadRootEventId: "$thread",
+    });
+    expect(calls[3]?.payload).toMatchObject({
+      eventId: "$message",
+      roomId: "!room:example.com",
+    });
+    expect(calls[4]?.payload).toMatchObject({
+      eventId: "$message",
+      roomId: "!room:example.com",
+    });
+    expect(calls[10]?.payload).toMatchObject({
+      body: "hello",
+      messageId: "$message",
+      roomId: "!room:example.com",
+    });
+  });
 });
+
+async function* chunks(
+  ...values: Array<string | Record<string, unknown>>
+): AsyncIterable<string | Record<string, unknown>> {
+  for (const value of values) {
+    yield value;
+  }
+}
 
 function installRuntime(responses: Record<string, unknown>): RuntimeCall[] {
   const calls: RuntimeCall[] = [];

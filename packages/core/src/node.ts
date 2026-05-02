@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInThisContext } from "node:vm";
-import { createMatrixClient as createRuntimeMatrixClient, type MatrixClient } from "./client";
+import { createMatrixClient as createRuntimeMatrixClient } from "./client";
+import type { MatrixClient } from "./client-types";
 import type { MatrixClientOptions } from "./types";
 import { loadMatrixCore, type LoadMatrixCoreOptions, type MatrixWasmCore } from "./wasm";
 
@@ -68,6 +69,10 @@ class NodeMatrixClient implements MatrixClient {
 
   get rooms() {
     return this.#clientRequired().rooms;
+  }
+
+  get streams() {
+    return this.#clientRequired().streams;
   }
 
   get sync() {

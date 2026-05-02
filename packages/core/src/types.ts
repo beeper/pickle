@@ -17,7 +17,6 @@ export interface MatrixClientOptions {
   logger?: MatrixLogger;
   pickleKey?: string;
   randomBytes?: (length: number) => Uint8Array;
-  recoveryCode?: string;
   recoveryKey?: string;
   since?: string;
   store?: MatrixStore;
@@ -31,6 +30,17 @@ export interface MatrixClientOptions {
 
 export interface MatrixBeeperStreamDescriptor {
   descriptor: Record<string, unknown>;
+}
+
+export type MatrixStream = AsyncIterable<string | Record<string, unknown>>;
+
+export interface SendMatrixStreamOptions {
+  mode?: "auto" | "beeper" | "edits";
+  roomId: string;
+  stream: MatrixStream;
+  text?: string;
+  threadRoot?: string;
+  updateIntervalMs?: number;
 }
 
 export interface CreateBeeperStreamOptions {
@@ -48,6 +58,13 @@ export interface PublishBeeperStreamOptions {
   content?: Record<string, unknown>;
   eventId: string;
   roomId: string;
+}
+
+export interface SendBeeperEphemeralOptions {
+  content?: Record<string, unknown>;
+  eventType?: string;
+  roomId: string;
+  transactionId?: string;
 }
 
 export interface MatrixSession {

@@ -25,7 +25,6 @@ type MatrixCoreInitOptions struct {
 	InitialSyncMode       string `json:"initialSyncMode,omitempty" tstype:"\"persisted\" | \"latest\" | \"catch_up\""`
 	InitialSyncSince      string `json:"initialSyncSince,omitempty"`
 	PickleKey             string `json:"pickleKey,omitempty"`
-	RecoveryCode          string `json:"recoveryCode,omitempty"`
 	RecoveryKey           string `json:"recoveryKey,omitempty"`
 	UserID                string `json:"userId,omitempty"`
 	VerifyRecoveryOnStart bool   `json:"verifyRecoveryOnStart,omitempty"`
@@ -41,9 +40,6 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 	var req MatrixCoreInitOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
-	}
-	if req.RecoveryKey == "" {
-		req.RecoveryKey = req.RecoveryCode
 	}
 	c.emitInitStep("start", initStarted)
 	cli, err := mautrix.NewClient(req.HomeserverURL, "", req.AccessToken)

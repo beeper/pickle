@@ -24,7 +24,6 @@ export interface MatrixCoreInitOptions {
   initialSyncMode?: "persisted" | "latest" | "catch_up";
   initialSyncSince?: string;
   pickleKey?: string;
-  recoveryCode?: string;
   recoveryKey?: string;
   userId?: string;
   verifyRecoveryOnStart?: boolean;
