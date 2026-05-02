@@ -46,7 +46,7 @@ import {
   encodeMatrixChatThreadRef,
   matrixChannelIdFromChatThreadId,
 } from "./thread-id";
-import type { MatrixAdapterConfig, MatrixRawMessage, MatrixChatThreadRef } from "./types";
+import type { MatrixAdapterConfig, MatrixChatThreadRef } from "./types";
 
 interface RoomCacheEntry {
   isDM?: boolean;
@@ -101,8 +101,9 @@ const INVITE_JOIN_MAX_ATTEMPTS = 5;
 const INVITE_JOIN_RETRY_BASE_MS = 1000;
 const DEFAULT_HOMESERVER_URL = "https://matrix.beeper.com";
 type MatrixRoomInfo = RoomInfo;
+type MatrixMessageEventPatch = Partial<Omit<MatrixMessageEvent, "eventId" | "raw" | "roomId">>;
 
-export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMessage> {
+export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixMessageEvent> {
   readonly name = "matrix";
   readonly userName = "matrix";
 
@@ -199,14 +200,14 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     return Response.json({ ok: true });
   }
 
-  parseMessage(raw: MatrixRawMessage, overrideThreadId?: string): Message<MatrixRawMessage> {
-    const body = normalizeOptionalString(raw.body) ?? readString(raw.content, "body") ?? "";
+  parseMessage(raw: MatrixMessageEvent, overrideThreadId?: string): Message<MatrixMessageEvent> {
+    const body = normalizeOptionalString(raw.text) ?? readString(raw.content, "body") ?? "";
     const formattedBody =
-      normalizeOptionalString(raw.formattedBody) ?? readString(raw.content, "formatted_body");
+      normalizeOptionalString(raw.html) ?? readString(raw.content, "formatted_body");
     const relatesTo = readRecord(raw.content, "m.relates_to");
     const relationType = readString(relatesTo, "rel_type");
     const threadRoot =
-      raw.threadRootEventId ??
+      raw.threadRoot ??
       (relationType === "m.thread"
         ? readString(relatesTo, "event_id") ?? readString(relatesTo, "relates_to_event_id")
         : undefined);
@@ -225,18 +226,18 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     return new Message({
       attachments,
       author: {
-        fullName: raw.sender ?? "unknown",
+        fullName: raw.sender.userId,
         isBot: "unknown",
-        isMe: raw.isMe ?? raw.sender === this.#userId,
-        userId: raw.sender ?? "unknown",
-        userName: raw.sender ? matrixLocalpart(raw.sender) : "unknown",
+        isMe: raw.sender.isMe ?? raw.sender.userId === this.#userId,
+        userId: raw.sender.userId,
+        userName: matrixLocalpart(raw.sender.userId),
       },
       formatted,
       id: raw.eventId,
       isMention: this.#isMention(raw, text),
       metadata: {
-        dateSent: raw.originServerTs ? new Date(raw.originServerTs) : new Date(),
-        edited: raw.isEdited ?? Boolean(readRecord(raw.content, "m.new_content")),
+        dateSent: raw.timestamp ? new Date(raw.timestamp) : new Date(),
+        edited: raw.edited ?? Boolean(readRecord(raw.content, "m.new_content")),
       },
       raw,
       text,
@@ -247,7 +248,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
   async postMessage(
     threadId: string,
     message: AdapterPostableMessage
-  ): Promise<RawMessage<MatrixRawMessage>> {
+  ): Promise<RawMessage<MatrixMessageEvent>> {
     const client = this.#requireClient();
     const parsed = this.decodeThreadId(threadId);
     const rendered = this.#formatConverter.renderPostableMessage(message);
@@ -256,7 +257,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     const body = mergeTextAndLinks(rendered.body, linkLines);
     const formattedBody = appendFormattedLinkLines(rendered.formattedBody, linkLines);
     const replyToEventId = extractMatrixReplyToEventId(message);
-    let first: RawMessage<MatrixRawMessage> | null = null;
+    let first: RawMessage<MatrixMessageEvent> | null = null;
 
     if (body.length > 0) {
       const postOptions = {
@@ -276,7 +277,13 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
         Object.assign(postOptions, { threadRoot: parsed.eventId });
       }
       const raw = await client.messages.send(postOptions);
-      first = this.#rawMessage(raw.eventId, parsed.roomId, threadId, raw.raw);
+      const event: MatrixMessageEventPatch = {
+        content: matrixMessageContent(rendered),
+        text: body,
+      };
+      if (formattedBody !== undefined) event.html = formattedBody;
+      if (parsed.eventId !== undefined) event.threadRoot = parsed.eventId;
+      first = this.#rawMessage(raw.eventId, parsed.roomId, threadId, raw.raw, event);
     }
 
     for (const upload of uploads) {
@@ -289,7 +296,21 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
         Object.assign(postOptions, { threadRoot: parsed.eventId });
       }
       const raw = await client.messages.sendMedia(postOptions);
-      first ??= this.#rawMessage(raw.eventId, parsed.roomId, threadId, raw.raw);
+      const attachment: MatrixClientAttachment = {
+        filename: upload.filename,
+        kind: upload.kind,
+      };
+      if (upload.contentType !== undefined) attachment.contentType = upload.contentType;
+      if (upload.height !== undefined) attachment.height = upload.height;
+      if (upload.size !== undefined) attachment.size = upload.size;
+      if (upload.width !== undefined) attachment.width = upload.width;
+      const event: MatrixMessageEventPatch = {
+        attachments: [attachment],
+        messageType: `m.${upload.kind}`,
+        text: upload.filename,
+      };
+      if (parsed.eventId !== undefined) event.threadRoot = parsed.eventId;
+      first ??= this.#rawMessage(raw.eventId, parsed.roomId, threadId, raw.raw, event);
     }
 
     if (!first) {
@@ -302,7 +323,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     threadId: string,
     userId: string,
     message: AdapterPostableMessage
-  ): Promise<EphemeralMessage<MatrixRawMessage>> {
+  ): Promise<EphemeralMessage<MatrixMessageEvent>> {
     if (!this.#isBeeperHomeserver) {
       throw new Error("Matrix ephemeral messages require a Beeper homeserver");
     }
@@ -316,17 +337,24 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       eventType: "m.room.message",
       roomId: parsed.roomId,
     });
-    const rawMessage: MatrixRawMessage = {
-      body: rendered.body,
+    const rawMessage: MatrixMessageEvent = {
+      attachments: [],
+      class: "message",
       content,
+      edited: false,
+      encrypted: false,
       eventId: raw.eventId,
+      kind: "message",
+      messageType: "m.text",
       raw: raw.raw,
       roomId: parsed.roomId,
+      sender: {
+        isMe: true,
+        userId: this.#userId ?? "unknown",
+      },
+      text: rendered.body,
       type: "m.room.message",
     };
-    if (this.#userId !== null) {
-      rawMessage.sender = this.#userId;
-    }
     return {
       id: raw.eventId,
       raw: rawMessage,
@@ -339,7 +367,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     threadId: string,
     messageId: string,
     message: AdapterPostableMessage
-  ): Promise<RawMessage<MatrixRawMessage>> {
+  ): Promise<RawMessage<MatrixMessageEvent>> {
     const client = this.#requireClient();
     const parsed = this.decodeThreadId(threadId);
     const rendered = this.#formatConverter.renderPostableMessage(message);
@@ -360,18 +388,24 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       Object.assign(editOptions, { mentions: rendered.mentions });
     }
     const raw = await client.messages.edit(editOptions);
+    const event: MatrixMessageEventPatch = {
+      content: matrixMessageContent(rendered),
+      edited: true,
+      text: editOptions.text,
+    };
+    if (formattedBody !== undefined) event.html = formattedBody;
     return this.#rawMessage(messageId, parsed.roomId, threadId, {
       logicalEventId: messageId,
       replacementEventId: raw.eventId,
       raw: raw.raw,
-    });
+    }, event);
   }
 
   async stream(
     threadId: string,
     textStream: MatrixStream,
     options?: StreamOptions
-  ): Promise<RawMessage<MatrixRawMessage>> {
+  ): Promise<RawMessage<MatrixMessageEvent>> {
     const parsed = this.decodeThreadId(threadId);
     const client = this.#requireClient();
     const streamOptions: Parameters<MatrixClient["streams"]["send"]>[0] = {
@@ -393,7 +427,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     threadId: string,
     kind: string,
     data: unknown
-  ): Promise<RawMessage<MatrixRawMessage>> {
+  ): Promise<RawMessage<MatrixMessageEvent>> {
     return this.postMessage(threadId, { markdown: renderObjectMarkdown(kind, data) });
   }
 
@@ -402,7 +436,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     messageId: string,
     kind: string,
     data: unknown
-  ): Promise<RawMessage<MatrixRawMessage>> {
+  ): Promise<RawMessage<MatrixMessageEvent>> {
     return this.editMessage(threadId, messageId, { markdown: renderObjectMarkdown(kind, data) });
   }
 
@@ -448,7 +482,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
   async fetchMessages(
     threadId: string,
     options?: FetchOptions
-  ): Promise<FetchResult<MatrixRawMessage>> {
+  ): Promise<FetchResult<MatrixMessageEvent>> {
     const parsed = this.decodeThreadId(threadId);
     const request: {
       cursor?: string;
@@ -472,7 +506,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       Object.assign(request, { threadRoot: parsed.eventId });
     }
     const result = await this.#requireClient().messages.list(request);
-    const response: FetchResult<MatrixRawMessage> = {
+    const response: FetchResult<MatrixMessageEvent> = {
       messages: result.messages.map((event) =>
         this.#messageEventToMessage(event, parsed.eventId ? threadId : undefined)
       ),
@@ -483,7 +517,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     return response;
   }
 
-  async fetchMessage(threadId: string, messageId: string): Promise<Message<MatrixRawMessage> | null> {
+  async fetchMessage(threadId: string, messageId: string): Promise<Message<MatrixMessageEvent> | null> {
     const parsed = this.decodeThreadId(threadId);
     const result = await this.#requireClient().messages.get({
       eventId: messageId,
@@ -497,7 +531,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
   async fetchChannelMessages(
     channelId: string,
     options?: FetchOptions
-  ): Promise<FetchResult<MatrixRawMessage>> {
+  ): Promise<FetchResult<MatrixMessageEvent>> {
     return this.fetchMessages(this.#threadIdFromChannelId(channelId), options);
   }
 
@@ -563,7 +597,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
   async listThreads(
     channelId: string,
     options: ListThreadsOptions = {}
-  ): Promise<ListThreadsResult<MatrixRawMessage>> {
+  ): Promise<ListThreadsResult<MatrixMessageEvent>> {
     const roomId = this.#roomIdFromChannelId(channelId);
     const request = {
       roomId,
@@ -589,7 +623,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       }
       return thread;
     });
-    const response: ListThreadsResult<MatrixRawMessage> = {
+    const response: ListThreadsResult<MatrixMessageEvent> = {
       threads,
     };
     if (result.nextCursor !== undefined) {
@@ -637,7 +671,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
   async postChannelMessage(
     channelId: string,
     message: AdapterPostableMessage
-  ): Promise<RawMessage<MatrixRawMessage>> {
+  ): Promise<RawMessage<MatrixMessageEvent>> {
     return this.postMessage(this.#threadIdFromChannelId(channelId), message);
   }
 
@@ -717,28 +751,11 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
   #messageEventToMessage(
     event: MatrixMessageEvent,
     overrideThreadId?: string
-  ): Message<MatrixRawMessage> {
-    const raw: MatrixRawMessage = {
-      body: event.text,
-      content: event.content,
-      eventId: event.eventId,
-      msgtype: event.messageType,
-      raw: event.raw,
-      roomId: event.roomId,
-      sender: event.sender.userId,
-      type: event.type,
-      ...(event.attachments.length > 0 && { attachments: event.attachments }),
-      ...(event.html !== undefined && { formattedBody: event.html }),
-      ...(event.edited !== undefined && { isEdited: event.edited }),
-      ...(event.encrypted !== undefined && { isEncrypted: event.encrypted }),
-      ...(event.sender.isMe !== undefined && { isMe: event.sender.isMe }),
-      ...(event.timestamp !== undefined && { originServerTs: event.timestamp }),
-      ...(event.threadRoot !== undefined && { threadRootEventId: event.threadRoot }),
-    };
-    return this.parseMessage(raw, overrideThreadId);
+  ): Message<MatrixMessageEvent> {
+    return this.parseMessage(event, overrideThreadId);
   }
 
-  #asChatAdapter(): Adapter<MatrixChatThreadRef, MatrixRawMessage> {
+  #asChatAdapter(): Adapter<MatrixChatThreadRef, MatrixMessageEvent> {
     return this;
   }
 
@@ -746,14 +763,29 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     eventId: string,
     roomId: string,
     threadId: string,
-    raw: unknown
-  ): RawMessage<MatrixRawMessage> {
+    raw: unknown,
+    event?: MatrixMessageEventPatch
+  ): RawMessage<MatrixMessageEvent> {
     return {
       id: eventId,
       raw: {
+        attachments: [],
+        class: "message",
+        content: {},
+        edited: false,
+        encrypted: false,
         eventId,
+        kind: "message",
+        messageType: "m.text",
         raw,
         roomId,
+        sender: {
+          isMe: true,
+          userId: this.#userId ?? "unknown",
+        },
+        text: "",
+        type: "m.room.message",
+        ...event,
       },
       threadId,
     };
@@ -821,7 +853,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     threadId: string,
     markdown: string,
     content?: Record<string, unknown>
-  ): Promise<RawMessage<MatrixRawMessage>> {
+  ): Promise<RawMessage<MatrixMessageEvent>> {
     if (!content) {
       return this.postMessage(threadId, { markdown });
     }
@@ -840,7 +872,13 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       Object.assign(postOptions, { threadRoot: parsed.eventId });
     }
     const raw = await client.messages.send(postOptions);
-    return this.#rawMessage(raw.eventId, parsed.roomId, threadId, raw.raw);
+    const event: MatrixMessageEventPatch = {
+      content,
+      text: rendered.body,
+    };
+    if (rendered.formattedBody !== undefined) event.html = rendered.formattedBody;
+    if (parsed.eventId !== undefined) event.threadRoot = parsed.eventId;
+    return this.#rawMessage(raw.eventId, parsed.roomId, threadId, raw.raw, event);
   }
 
   async #editMessageWithContent(
@@ -848,7 +886,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     messageId: string,
     markdown: string,
     content: Record<string, unknown>
-  ): Promise<RawMessage<MatrixRawMessage>> {
+  ): Promise<RawMessage<MatrixMessageEvent>> {
     const client = this.#requireClient();
     const parsed = this.decodeThreadId(threadId);
     const rendered = this.#formatConverter.renderPostableMessage({ markdown });
@@ -865,11 +903,17 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       Object.assign(editOptions, { html: rendered.formattedBody });
     }
     const raw = await client.messages.edit(editOptions);
+    const event: MatrixMessageEventPatch = {
+      content: editOptions.content,
+      edited: true,
+      text: rendered.body,
+    };
+    if (rendered.formattedBody !== undefined) event.html = rendered.formattedBody;
     return this.#rawMessage(messageId, parsed.roomId, threadId, {
       logicalEventId: messageId,
       replacementEventId: raw.eventId,
       raw: raw.raw,
-    });
+    }, event);
   }
 
   async #collectUploads(message: AdapterPostableMessage): Promise<OutboundUpload[]> {
@@ -896,7 +940,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       .filter((line) => line.length > 0);
   }
 
-  #attachmentsFromRaw(raw: MatrixRawMessage): Attachment[] {
+  #attachmentsFromRaw(raw: MatrixMessageEvent): Attachment[] {
     const attachments =
       raw.attachments && raw.attachments.length > 0
         ? raw.attachments
@@ -904,7 +948,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     return attachments.map((attachment) => this.#attachmentFromMatrix(raw, attachment));
   }
 
-  #attachmentFromMatrix(raw: MatrixRawMessage, attachment: MatrixClientAttachment): Attachment {
+  #attachmentFromMatrix(raw: MatrixMessageEvent, attachment: MatrixClientAttachment): Attachment {
     const metadata: MatrixAttachmentFetchMetadata = {
       matrixEventId: raw.eventId,
       matrixRoomId: raw.roomId,
@@ -943,9 +987,9 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     return chatAttachment;
   }
 
-  #matrixAttachmentsFromContent(raw: MatrixRawMessage): MatrixClientAttachment[] {
+  #matrixAttachmentsFromContent(raw: MatrixMessageEvent): MatrixClientAttachment[] {
     const content = raw.content;
-    const kind = attachmentKindFromMsgtype(raw.msgtype ?? readString(content, "msgtype"));
+    const kind = attachmentKindFromMsgtype(raw.messageType ?? readString(content, "msgtype"));
     if (!kind) {
       return [];
     }
@@ -961,7 +1005,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       attachment.encryptedFile = encryptedFile;
     }
     const filename =
-      readString(content, "filename") ?? normalizeOptionalString(raw.body) ?? readString(content, "body");
+      readString(content, "filename") ?? normalizeOptionalString(raw.text) ?? readString(content, "body");
     if (filename !== undefined) {
       attachment.filename = filename;
     }
@@ -985,7 +1029,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     return downloaded.bytes;
   }
 
-  #isMention(raw: MatrixRawMessage, text: string): boolean {
+  #isMention(raw: MatrixMessageEvent, text: string): boolean {
     const mentions = readRecord(raw.content, "m.mentions");
     if (readBoolean(mentions, "room")) {
       return true;

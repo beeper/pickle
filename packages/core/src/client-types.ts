@@ -7,6 +7,7 @@ import type {
   DownloadEncryptedMediaOptions,
   DownloadMediaOptions,
   DownloadMediaResult,
+  DownloadMediaThumbnailOptions,
   EditMessageOptions,
   FetchMessageOptions,
   FetchMessageResult,
@@ -20,6 +21,8 @@ import type {
   JoinRoomOptions,
   JoinRoomResult,
   KickUserOptions,
+  ListPublicRoomsOptions,
+  ListPublicRoomsResult,
   ListThreadsOptions,
   ListThreadsResult,
   MarkReadOptions,
@@ -36,6 +39,8 @@ import type {
   ReactionOptions,
   RedactMessageOptions,
   RegisterBeeperStreamOptions,
+  ResolveRoomAliasOptions,
+  ResolveRoomAliasResult,
   RoomInfo,
   RoomStateEvent,
   SendBeeperEphemeralOptions,
@@ -122,10 +127,12 @@ export interface MatrixRooms {
   invite(options: { reason?: string; roomId: string; userId: string }): Promise<void>;
   join(options: JoinRoomOptions): Promise<JoinRoomResult>;
   kick(options: KickUserOptions): Promise<void>;
+  listPublic(options?: ListPublicRoomsOptions): Promise<ListPublicRoomsResult>;
   leave(options: { reason?: string; roomId: string }): Promise<void>;
   listMembers(options: FetchRoomMembersOptions): Promise<FetchRoomMembersResult>;
   listJoined(): Promise<{ raw: unknown; roomIds: string[] }>;
   openDM(options: OpenDMOptions): Promise<OpenDMResult>;
+  resolveAlias(options: ResolveRoomAliasOptions): Promise<ResolveRoomAliasResult>;
   sendStateEvent(options: SendRoomStateEventOptions): Promise<SentEvent>;
   threads: {
     list(options: ListThreadsOptions): Promise<ListThreadsResult>;
@@ -135,6 +142,7 @@ export interface MatrixRooms {
 
 export interface MatrixMedia {
   download(options: DownloadMediaOptions): Promise<DownloadMediaResult>;
+  downloadThumbnail(options: DownloadMediaThumbnailOptions): Promise<DownloadMediaResult>;
   downloadEncrypted(options: DownloadEncryptedMediaOptions): Promise<DownloadMediaResult>;
   upload(options: UploadMediaOptions): Promise<UploadMediaResult>;
   uploadEncrypted(options: UploadMediaOptions): Promise<UploadEncryptedMediaResult>;

@@ -7,4 +7,5 @@ export {
   encodeMatrixChatThreadRef,
   matrixChannelIdFromChatThreadId,
 } from "./thread-id";
-export type { MatrixAdapterConfig, MatrixRawMessage, MatrixChatThreadRef } from "./types";
+export type { MatrixMessageEvent } from "better-matrix-js";
+export type { MatrixAdapterConfig, MatrixChatThreadRef } from "./types";

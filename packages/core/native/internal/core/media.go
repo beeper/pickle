@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"strings"
 
 	"maunium.net/go/mautrix"
@@ -168,6 +169,14 @@ type MatrixDownloadMediaOptions struct {
 	ContentURI string `json:"contentUri"`
 }
 
+type MatrixDownloadMediaThumbnailOptions struct {
+	Animated   bool   `json:"animated,omitempty"`
+	ContentURI string `json:"contentUri"`
+	Height     int    `json:"height"`
+	Method     string `json:"method,omitempty" tstype:"\"crop\" | \"scale\" | string"`
+	Width      int    `json:"width"`
+}
+
 func (c *Core) handleDownloadMedia(ctx context.Context, payload []byte) ([]byte, error) {
 	data, err := c.downloadMedia(ctx, payload)
 	if err != nil {
@@ -195,6 +204,48 @@ func (c *Core) downloadMedia(ctx context.Context, payload []byte) ([]byte, error
 	}
 	data, err := retryMatrix(ctx, func() ([]byte, error) {
 		return cli.DownloadBytes(ctx, parsed)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (c *Core) handleDownloadMediaThumbnail(ctx context.Context, payload []byte) ([]byte, error) {
+	data, err := c.downloadMediaThumbnail(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(OutboundEvent{"bytesBase64": base64.StdEncoding.EncodeToString(data)})
+}
+
+func (c *Core) handleDownloadMediaThumbnailBytes(ctx context.Context, payload []byte) ([]byte, error) {
+	return c.downloadMediaThumbnail(ctx, payload)
+}
+
+func (c *Core) downloadMediaThumbnail(ctx context.Context, payload []byte) ([]byte, error) {
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	var req MatrixDownloadMediaThumbnailOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	parsed, err := id.ParseContentURI(req.ContentURI)
+	if err != nil {
+		return nil, err
+	}
+	data, err := retryMatrix(ctx, func() ([]byte, error) {
+		httpResp, err := cli.DownloadThumbnail(ctx, parsed, req.Height, req.Width, mautrix.DownloadThumbnailExtra{
+			Animated: req.Animated,
+			Method:   req.Method,
+		})
+		if err != nil {
+			return nil, err
+		}
+		defer httpResp.Body.Close()
+		return io.ReadAll(httpResp.Body)
 	})
 	if err != nil {
 		return nil, err

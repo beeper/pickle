@@ -328,6 +328,14 @@ export interface DownloadMediaOptions {
   contentUri: string;
 }
 
+export interface DownloadMediaThumbnailOptions {
+  animated?: boolean;
+  contentUri: string;
+  height: number;
+  method?: "crop" | "scale" | string;
+  width: number;
+}
+
 export interface DownloadMediaResult {
   bytes: Uint8Array;
 }
@@ -370,6 +378,7 @@ export interface CreateRoomResult {
 }
 
 export interface RoomInfo {
+  directUserId?: string;
   encrypted: boolean;
   id: string;
   isDM?: boolean;
@@ -379,6 +388,47 @@ export interface RoomInfo {
   raw?: Record<string, unknown>;
   topic?: string;
   visibility?: "private" | "workspace" | "external" | "unknown";
+}
+
+export interface ResolveRoomAliasOptions {
+  alias: string;
+}
+
+export interface ResolveRoomAliasResult {
+  raw: unknown;
+  roomId: string;
+  servers: string[];
+}
+
+export interface ListPublicRoomsOptions {
+  includeAllNetworks?: boolean;
+  limit?: number;
+  since?: string;
+  thirdPartyInstanceId?: string;
+}
+
+export interface PublicRoom {
+  allowedRoomIds?: string[];
+  avatarUrl?: string;
+  canonicalAlias?: string;
+  encryption?: string;
+  guestCanJoin: boolean;
+  joinRule?: string;
+  name?: string;
+  numJoinedMembers: number;
+  roomId: string;
+  roomType?: string;
+  roomVersion?: string;
+  topic?: string;
+  worldReadable: boolean;
+}
+
+export interface ListPublicRoomsResult {
+  nextBatch?: string;
+  prevBatch?: string;
+  raw: unknown;
+  rooms: PublicRoom[];
+  totalRoomCountEstimate: number;
 }
 
 export interface RoomStateEvent {
@@ -464,6 +514,7 @@ export interface JoinRoomResult {
 }
 
 export interface OpenDMOptions {
+  forceCreate?: boolean;
   userId: string;
 }
 

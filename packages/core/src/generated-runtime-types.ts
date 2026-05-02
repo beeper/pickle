@@ -62,6 +62,13 @@ export interface MatrixSendMediaMessageOptions {
 export interface MatrixDownloadMediaOptions {
   contentUri: string;
 }
+export interface MatrixDownloadMediaThumbnailOptions {
+  animated?: boolean;
+  contentUri: string;
+  height: number /* int */;
+  method?: "crop" | "scale" | string;
+  width: number /* int */;
+}
 export interface MatrixDownloadEncryptedMediaOptions {
   file: MatrixEncryptedFile;
 }
@@ -198,8 +205,45 @@ export interface MatrixSendRoomStateEventOptions {
   roomId: string;
   stateKey?: string;
 }
+export interface MatrixResolveRoomAliasOptions {
+  alias: string;
+}
+export interface MatrixResolveRoomAliasResult {
+  raw: unknown;
+  roomId: string;
+  servers: string[];
+}
+export interface MatrixListPublicRoomsOptions {
+  includeAllNetworks?: boolean;
+  limit?: number /* int */;
+  since?: string;
+  thirdPartyInstanceId?: string;
+}
+export interface MatrixPublicRoom {
+  avatarUrl?: string;
+  canonicalAlias?: string;
+  guestCanJoin: boolean;
+  joinRule?: string;
+  name?: string;
+  numJoinedMembers: number /* int */;
+  roomId: string;
+  roomType?: string;
+  topic?: string;
+  worldReadable: boolean;
+  roomVersion?: string;
+  encryption?: string;
+  allowedRoomIds?: string[];
+}
+export interface MatrixListPublicRoomsResult {
+  nextBatch?: string;
+  prevBatch?: string;
+  raw: unknown;
+  rooms: MatrixPublicRoom[];
+  totalRoomCountEstimate: number /* int */;
+}
 export interface MatrixRoomInfo {
   encrypted: boolean;
+  directUserId?: string;
   id: string;
   isDM?: boolean;
   joinRule?: string;
@@ -210,6 +254,7 @@ export interface MatrixRoomInfo {
   visibility?: "private" | "workspace" | "external" | "unknown";
 }
 export interface MatrixOpenDMOptions {
+  forceCreate?: boolean;
   userId: string;
 }
 export interface MatrixJoinRoomOptions {

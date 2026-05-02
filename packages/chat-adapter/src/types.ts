@@ -1,5 +1,4 @@
 import type {
-  MatrixAttachment,
   MatrixClient,
   MatrixStore,
 } from "better-matrix-js";
@@ -53,21 +52,3 @@ export type MatrixAdapterConfig =
       createClient?: never;
       token: string;
     });
-
-export interface MatrixRawMessage {
-  attachments?: MatrixAttachment[];
-  body?: string;
-  content?: Record<string, unknown>;
-  eventId: string;
-  formattedBody?: string;
-  isEncrypted?: boolean;
-  isEdited?: boolean;
-  isMe?: boolean;
-  msgtype?: string;
-  originServerTs?: number;
-  raw?: unknown;
-  roomId: string;
-  sender?: string;
-  threadRootEventId?: string;
-  type?: string;
-}

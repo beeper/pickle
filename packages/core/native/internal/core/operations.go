@@ -49,6 +49,8 @@ const (
 	opUploadMedia = "upload_media"
 	// ts:operation downloadMedia download_media MatrixDownloadMediaOptions MatrixDownloadMediaResult
 	opDownloadMedia = "download_media"
+	// ts:operation downloadMediaThumbnail download_media_thumbnail MatrixDownloadMediaThumbnailOptions MatrixDownloadMediaResult
+	opDownloadMediaThumbnail = "download_media_thumbnail"
 	// ts:operation uploadEncryptedMedia upload_encrypted_media MatrixUploadMediaOptions MatrixUploadEncryptedMediaResult
 	opUploadEncryptedMedia = "upload_encrypted_media"
 	// ts:operation downloadEncryptedMedia download_encrypted_media MatrixDownloadEncryptedMediaOptions MatrixDownloadMediaResult
@@ -63,6 +65,10 @@ const (
 	opFetchRoomStateEvent = "fetch_room_state_event"
 	// ts:operation sendRoomStateEvent send_room_state_event MatrixSendRoomStateEventOptions MatrixRawMessage
 	opSendRoomStateEvent = "send_room_state_event"
+	// ts:operation resolveRoomAlias resolve_room_alias MatrixResolveRoomAliasOptions MatrixResolveRoomAliasResult
+	opResolveRoomAlias = "resolve_room_alias"
+	// ts:operation listPublicRooms list_public_rooms MatrixListPublicRoomsOptions MatrixListPublicRoomsResult
+	opListPublicRooms = "list_public_rooms"
 	// ts:operation openDM open_dm MatrixOpenDMOptions MatrixOpenDMResult
 	opOpenDM = "open_dm"
 	// ts:operation joinRoom join_room MatrixJoinRoomOptions MatrixJoinRoomResult

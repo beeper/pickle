@@ -74,6 +74,47 @@ type MatrixSendRoomStateEventOptions struct {
 	StateKey  string        `json:"stateKey,omitempty"`
 }
 
+type MatrixResolveRoomAliasOptions struct {
+	Alias string `json:"alias"`
+}
+
+type MatrixResolveRoomAliasResult struct {
+	Raw     any      `json:"raw"`
+	RoomID  string   `json:"roomId"`
+	Servers []string `json:"servers"`
+}
+
+type MatrixListPublicRoomsOptions struct {
+	IncludeAllNetworks   bool   `json:"includeAllNetworks,omitempty"`
+	Limit                int    `json:"limit,omitempty"`
+	Since                string `json:"since,omitempty"`
+	ThirdPartyInstanceID string `json:"thirdPartyInstanceId,omitempty"`
+}
+
+type MatrixPublicRoom struct {
+	AvatarURL        string   `json:"avatarUrl,omitempty"`
+	CanonicalAlias   string   `json:"canonicalAlias,omitempty"`
+	GuestCanJoin     bool     `json:"guestCanJoin"`
+	JoinRule         string   `json:"joinRule,omitempty"`
+	Name             string   `json:"name,omitempty"`
+	NumJoinedMembers int      `json:"numJoinedMembers"`
+	RoomID           string   `json:"roomId"`
+	RoomType         string   `json:"roomType,omitempty"`
+	Topic            string   `json:"topic,omitempty"`
+	WorldReadable    bool     `json:"worldReadable"`
+	RoomVersion      string   `json:"roomVersion,omitempty"`
+	Encryption       string   `json:"encryption,omitempty"`
+	AllowedRoomIDs   []string `json:"allowedRoomIds,omitempty"`
+}
+
+type MatrixListPublicRoomsResult struct {
+	NextBatch              string             `json:"nextBatch,omitempty"`
+	PrevBatch              string             `json:"prevBatch,omitempty"`
+	Raw                    any                `json:"raw"`
+	Rooms                  []MatrixPublicRoom `json:"rooms"`
+	TotalRoomCountEstimate int                `json:"totalRoomCountEstimate"`
+}
+
 func (c *Core) handleCreateRoom(ctx context.Context, payload []byte) ([]byte, error) {
 	cli, err := c.requireClient()
 	if err != nil {
@@ -117,15 +158,16 @@ func (c *Core) handleCreateRoom(ctx context.Context, payload []byte) ([]byte, er
 }
 
 type MatrixRoomInfo struct {
-	Encrypted   bool           `json:"encrypted"`
-	ID          string         `json:"id"`
-	IsDM        bool           `json:"isDM,omitempty"`
-	JoinRule    string         `json:"joinRule,omitempty"`
-	MemberCount int            `json:"memberCount,omitempty"`
-	Name        string         `json:"name,omitempty"`
-	Topic       string         `json:"topic,omitempty"`
-	Raw         map[string]any `json:"raw,omitempty"`
-	Visibility  string         `json:"visibility,omitempty" tstype:"\"private\" | \"workspace\" | \"external\" | \"unknown\""`
+	Encrypted    bool           `json:"encrypted"`
+	DirectUserID string         `json:"directUserId,omitempty"`
+	ID           string         `json:"id"`
+	IsDM         bool           `json:"isDM,omitempty"`
+	JoinRule     string         `json:"joinRule,omitempty"`
+	MemberCount  int            `json:"memberCount,omitempty"`
+	Name         string         `json:"name,omitempty"`
+	Topic        string         `json:"topic,omitempty"`
+	Raw          map[string]any `json:"raw,omitempty"`
+	Visibility   string         `json:"visibility,omitempty" tstype:"\"private\" | \"workspace\" | \"external\" | \"unknown\""`
 }
 
 func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, error) {
@@ -181,12 +223,22 @@ func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, err
 	} else if !errors.Is(err, mautrix.MNotFound) {
 		return nil, err
 	}
+	if directChats, err := c.fetchDirectChats(ctx, cli); err == nil {
+		if userID, ok := directUserForRoom(directChats, id.RoomID(req.RoomID)); ok {
+			info.IsDM = true
+			info.DirectUserID = userID.String()
+		}
+	} else if !errors.Is(err, mautrix.MNotFound) && c.emit != nil {
+		c.emit(OutboundEvent{"type": "error", "error": fmt.Sprintf("failed to fetch m.direct account data: %v", err)})
+	}
 	members, err := retryMatrix(ctx, func() (*mautrix.RespJoinedMembers, error) {
 		return cli.JoinedMembers(ctx, id.RoomID(req.RoomID))
 	})
 	if err == nil {
 		info.MemberCount = len(members.Joined)
-		info.IsDM = info.MemberCount == 2
+		if !info.IsDM {
+			info.IsDM = info.MemberCount == 2
+		}
 		info.Raw["joinedMembers"] = members.Joined
 	} else if !errors.Is(err, mautrix.MNotFound) && !errors.Is(err, mautrix.MForbidden) {
 		return nil, err
@@ -258,8 +310,85 @@ func (c *Core) handleSendRoomStateEvent(ctx context.Context, payload []byte) ([]
 	return json.Marshal(MatrixRawMessage{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
 }
 
+func (c *Core) handleResolveRoomAlias(ctx context.Context, payload []byte) ([]byte, error) {
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	var req MatrixResolveRoomAliasOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespAliasResolve, error) {
+		return cli.ResolveAlias(ctx, id.RoomAlias(req.Alias))
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(MatrixResolveRoomAliasResult{
+		Raw:     resp,
+		RoomID:  resp.RoomID.String(),
+		Servers: resp.Servers,
+	})
+}
+
+func (c *Core) handleListPublicRooms(ctx context.Context, payload []byte) ([]byte, error) {
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	var req MatrixListPublicRoomsOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespPublicRooms, error) {
+		return cli.PublicRooms(ctx, &mautrix.ReqPublicRooms{
+			IncludeAllNetworks:   req.IncludeAllNetworks,
+			Limit:                req.Limit,
+			Since:                req.Since,
+			ThirdPartyInstanceID: req.ThirdPartyInstanceID,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	rooms := make([]MatrixPublicRoom, 0, len(resp.Chunk))
+	for _, room := range resp.Chunk {
+		if room == nil {
+			continue
+		}
+		allowed := make([]string, 0, len(room.AllowedRoomIDs))
+		for _, roomID := range room.AllowedRoomIDs {
+			allowed = append(allowed, roomID.String())
+		}
+		rooms = append(rooms, MatrixPublicRoom{
+			AllowedRoomIDs:   allowed,
+			AvatarURL:        string(room.AvatarURL),
+			CanonicalAlias:   room.CanonicalAlias.String(),
+			Encryption:       string(room.Encryption),
+			GuestCanJoin:     room.GuestCanJoin,
+			JoinRule:         string(room.JoinRule),
+			Name:             room.Name,
+			NumJoinedMembers: room.NumJoinedMembers,
+			RoomID:           room.RoomID.String(),
+			RoomType:         string(room.RoomType),
+			RoomVersion:      string(room.RoomVersion),
+			Topic:            room.Topic,
+			WorldReadable:    room.WorldReadable,
+		})
+	}
+	return json.Marshal(MatrixListPublicRoomsResult{
+		NextBatch:              resp.NextBatch,
+		PrevBatch:              resp.PrevBatch,
+		Raw:                    resp,
+		Rooms:                  rooms,
+		TotalRoomCountEstimate: resp.TotalRoomCountEstimate,
+	})
+}
+
 type MatrixOpenDMOptions struct {
-	UserID string `json:"userId"`
+	ForceCreate bool   `json:"forceCreate,omitempty"`
+	UserID      string `json:"userId"`
 }
 
 func (c *Core) handleOpenDM(ctx context.Context, payload []byte) ([]byte, error) {
@@ -270,6 +399,17 @@ func (c *Core) handleOpenDM(ctx context.Context, payload []byte) ([]byte, error)
 	var req MatrixOpenDMOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
+	}
+	directChats, err := c.fetchDirectChats(ctx, cli)
+	if err != nil && !errors.Is(err, mautrix.MNotFound) {
+		return nil, err
+	}
+	if !req.ForceCreate {
+		for _, roomID := range directChats[id.UserID(req.UserID)] {
+			if roomID != "" {
+				return json.Marshal(MatrixOpenDMResult{Raw: OutboundEvent{"reused": true}, RoomID: roomID.String()})
+			}
+		}
 	}
 	stateKey := ""
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespCreateRoom, error) {
@@ -298,7 +438,7 @@ func (c *Core) handleOpenDM(ctx context.Context, payload []byte) ([]byte, error)
 		return nil, err
 	}
 	c.updateDirectChats(ctx, cli, id.UserID(req.UserID), resp.RoomID)
-	return json.Marshal(OutboundEvent{"roomId": resp.RoomID.String(), "raw": resp})
+	return json.Marshal(MatrixOpenDMResult{Raw: resp, RoomID: resp.RoomID.String()})
 }
 
 type MatrixJoinRoomOptions struct {
@@ -560,7 +700,9 @@ func (c *Core) updateDirectChats(ctx context.Context, cli *mautrix.Client, userI
 	if err := retryMatrixVoid(ctx, func() error {
 		return cli.GetAccountData(ctx, event.AccountDataDirectChats.Type, &directChats)
 	}); err != nil && !errors.Is(err, mautrix.MNotFound) {
-		c.emit(OutboundEvent{"type": "error", "error": fmt.Sprintf("failed to fetch m.direct account data: %v", err)})
+		if c.emit != nil {
+			c.emit(OutboundEvent{"type": "error", "error": fmt.Sprintf("failed to fetch m.direct account data: %v", err)})
+		}
 		return
 	}
 	for _, existingRoomID := range directChats[userID] {
@@ -572,6 +714,30 @@ func (c *Core) updateDirectChats(ctx context.Context, cli *mautrix.Client, userI
 	if err := retryMatrixVoid(ctx, func() error {
 		return cli.SetAccountData(ctx, event.AccountDataDirectChats.Type, directChats)
 	}); err != nil {
-		c.emit(OutboundEvent{"type": "error", "error": fmt.Sprintf("failed to update m.direct account data: %v", err)})
+		if c.emit != nil {
+			c.emit(OutboundEvent{"type": "error", "error": fmt.Sprintf("failed to update m.direct account data: %v", err)})
+		}
 	}
+}
+
+func (c *Core) fetchDirectChats(ctx context.Context, cli *mautrix.Client) (event.DirectChatsEventContent, error) {
+	directChats := event.DirectChatsEventContent{}
+	err := retryMatrixVoid(ctx, func() error {
+		return cli.GetAccountData(ctx, event.AccountDataDirectChats.Type, &directChats)
+	})
+	if errors.Is(err, mautrix.MNotFound) {
+		return directChats, nil
+	}
+	return directChats, err
+}
+
+func directUserForRoom(directChats event.DirectChatsEventContent, roomID id.RoomID) (id.UserID, bool) {
+	for userID, roomIDs := range directChats {
+		for _, directRoomID := range roomIDs {
+			if directRoomID == roomID {
+				return userID, true
+			}
+		}
+	}
+	return "", false
 }

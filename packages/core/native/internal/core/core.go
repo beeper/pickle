@@ -112,6 +112,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleUploadMedia(ctx, payload)
 	case opDownloadMedia:
 		return c.handleDownloadMedia(ctx, payload)
+	case opDownloadMediaThumbnail:
+		return c.handleDownloadMediaThumbnail(ctx, payload)
 	case opUploadEncryptedMedia:
 		return c.handleUploadEncryptedMedia(ctx, payload)
 	case opDownloadEncryptedMedia:
@@ -126,6 +128,10 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleFetchRoomStateEvent(ctx, payload)
 	case opSendRoomStateEvent:
 		return c.handleSendRoomStateEvent(ctx, payload)
+	case opResolveRoomAlias:
+		return c.handleResolveRoomAlias(ctx, payload)
+	case opListPublicRooms:
+		return c.handleListPublicRooms(ctx, payload)
 	case opOpenDM:
 		return c.handleOpenDM(ctx, payload)
 	case opJoinRoom:
@@ -176,6 +182,8 @@ func (c *Core) HandleBytes(ctx context.Context, op string, payload []byte, data 
 		return string(resp), err
 	case "download_media_bytes":
 		return c.handleDownloadMediaBytes(ctx, payload)
+	case "download_media_thumbnail_bytes":
+		return c.handleDownloadMediaThumbnailBytes(ctx, payload)
 	case "upload_encrypted_media_bytes":
 		resp, err := c.handleUploadEncryptedMediaBytes(ctx, payload, data)
 		return string(resp), err

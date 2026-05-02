@@ -154,6 +154,14 @@ class DefaultMatrixClient implements MatrixClient {
         const result = await core.downloadMedia(opts);
         return { bytes: base64ToBytes(result.bytesBase64) };
       },
+      downloadThumbnail: async (opts) => {
+        const core = this.#coreRequired();
+        if (core.callBytesResult && core.supportsByteCalls?.()) {
+          return { bytes: await core.callBytesResult("download_media_thumbnail_bytes", opts) };
+        }
+        const result = await core.downloadMediaThumbnail(opts);
+        return { bytes: base64ToBytes(result.bytesBase64) };
+      },
       downloadEncrypted: async (opts) => {
         const core = this.#coreRequired();
         if (core.callBytesResult && core.supportsByteCalls?.()) {
@@ -194,10 +202,12 @@ class DefaultMatrixClient implements MatrixClient {
       invite: (opts) => this.#coreRequired().inviteUser(opts),
       join: (opts) => this.#coreRequired().joinRoom(opts),
       kick: (opts) => this.#coreRequired().kickUser(opts),
+      listPublic: (opts = {}) => this.#coreRequired().listPublicRooms(stripUndefined(opts)),
       leave: (opts) => this.#coreRequired().leaveRoom(opts),
       listMembers: (opts) => this.#coreRequired().fetchRoomMembers(stripUndefined(opts)),
       listJoined: () => this.#coreRequired().fetchJoinedRooms(),
       openDM: (opts) => this.#coreRequired().openDM(opts),
+      resolveAlias: (opts) => this.#coreRequired().resolveRoomAlias(opts),
       sendStateEvent: (opts) => this.#coreRequired().sendRoomStateEvent(stripUndefined({
         content: opts.content,
         eventType: opts.eventType,

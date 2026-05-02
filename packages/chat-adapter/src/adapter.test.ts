@@ -397,7 +397,7 @@ describe("MatrixAdapter", () => {
     });
     await adapter.initialize(makeChat());
 
-    const message = adapter.parseMessage({
+    const message = adapter.parseMessage(testMessageEvent({
       body: "Hello Alice",
       content: {
         "m.mentions": { user_ids: ["@bot:example.com"] },
@@ -413,7 +413,7 @@ describe("MatrixAdapter", () => {
       roomId: "!room:example.com",
       sender: "@alice:example.com",
       type: "m.room.message",
-    });
+    }));
 
     expect(message.text).toBe("Hello Alice");
     expect(message.isMention).toBe(true);
@@ -430,7 +430,7 @@ describe("MatrixAdapter", () => {
     });
     await adapter.initialize(makeChat());
 
-    const edit = adapter.parseMessage({
+    const edit = adapter.parseMessage(testMessageEvent({
       body: "Edited",
       content: {
         "m.relates_to": {
@@ -446,9 +446,9 @@ describe("MatrixAdapter", () => {
       roomId: "!room:example.com",
       sender: "@alice:example.com",
       type: "m.room.message",
-    });
+    }));
 
-    const threadReply = adapter.parseMessage({
+    const threadReply = adapter.parseMessage(testMessageEvent({
       body: "Reply",
       content: {
         "m.relates_to": {
@@ -464,7 +464,7 @@ describe("MatrixAdapter", () => {
       roomId: "!room:example.com",
       sender: "@alice:example.com",
       type: "m.room.message",
-    });
+    }));
 
     expect(edit.threadId).toBe(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }));
     expect(threadReply.threadId).toBe(

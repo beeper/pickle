@@ -14,6 +14,7 @@ import type {
   MatrixDownloadEncryptedMediaOptions,
   MatrixDownloadMediaOptions,
   MatrixDownloadMediaResult,
+  MatrixDownloadMediaThumbnailOptions,
   MatrixEditMessageOptions,
   MatrixFetchMessageOptions,
   MatrixFetchMessageResult,
@@ -31,6 +32,8 @@ import type {
   MatrixJoinedRoomsResult,
   MatrixKickUserOptions,
   MatrixLeaveRoomOptions,
+  MatrixListPublicRoomsOptions,
+  MatrixListPublicRoomsResult,
   MatrixListRoomThreadsOptions,
   MatrixListRoomThreadsResult,
   MatrixMarkReadOptions,
@@ -41,6 +44,8 @@ import type {
   MatrixRawMessage,
   MatrixReactionOptions,
   MatrixRegisterBeeperStreamOptions,
+  MatrixResolveRoomAliasOptions,
+  MatrixResolveRoomAliasResult,
   MatrixRoomInfo,
   MatrixRoomMembersResult,
   MatrixRoomStateEvent,
@@ -86,6 +91,7 @@ export interface MatrixCoreOperations {
   markRead(options: MatrixMarkReadOptions): Promise<void>;
   uploadMedia(options: MatrixUploadMediaOptions): Promise<MatrixUploadMediaResult>;
   downloadMedia(options: MatrixDownloadMediaOptions): Promise<MatrixDownloadMediaResult>;
+  downloadMediaThumbnail(options: MatrixDownloadMediaThumbnailOptions): Promise<MatrixDownloadMediaResult>;
   uploadEncryptedMedia(options: MatrixUploadMediaOptions): Promise<MatrixUploadEncryptedMediaResult>;
   downloadEncryptedMedia(options: MatrixDownloadEncryptedMediaOptions): Promise<MatrixDownloadMediaResult>;
   createRoom(options: MatrixCreateRoomOptions): Promise<MatrixCreateRoomResult>;
@@ -93,6 +99,8 @@ export interface MatrixCoreOperations {
   fetchRoomState(options: MatrixFetchRoomStateOptions): Promise<MatrixFetchRoomStateResult>;
   fetchRoomStateEvent(options: MatrixFetchRoomStateEventOptions): Promise<MatrixRoomStateEvent>;
   sendRoomStateEvent(options: MatrixSendRoomStateEventOptions): Promise<MatrixRawMessage>;
+  resolveRoomAlias(options: MatrixResolveRoomAliasOptions): Promise<MatrixResolveRoomAliasResult>;
+  listPublicRooms(options: MatrixListPublicRoomsOptions): Promise<MatrixListPublicRoomsResult>;
   openDM(options: MatrixOpenDMOptions): Promise<MatrixOpenDMResult>;
   joinRoom(options: MatrixJoinRoomOptions): Promise<MatrixJoinRoomResult>;
   leaveRoom(options: MatrixLeaveRoomOptions): Promise<void>;
@@ -210,6 +218,10 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
     return this.call<MatrixDownloadMediaResult>("download_media", options);
   }
 
+  downloadMediaThumbnail(options: MatrixDownloadMediaThumbnailOptions): Promise<MatrixDownloadMediaResult> {
+    return this.call<MatrixDownloadMediaResult>("download_media_thumbnail", options);
+  }
+
   uploadEncryptedMedia(options: MatrixUploadMediaOptions): Promise<MatrixUploadEncryptedMediaResult> {
     return this.call<MatrixUploadEncryptedMediaResult>("upload_encrypted_media", options);
   }
@@ -236,6 +248,14 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   sendRoomStateEvent(options: MatrixSendRoomStateEventOptions): Promise<MatrixRawMessage> {
     return this.call<MatrixRawMessage>("send_room_state_event", options);
+  }
+
+  resolveRoomAlias(options: MatrixResolveRoomAliasOptions): Promise<MatrixResolveRoomAliasResult> {
+    return this.call<MatrixResolveRoomAliasResult>("resolve_room_alias", options);
+  }
+
+  listPublicRooms(options: MatrixListPublicRoomsOptions): Promise<MatrixListPublicRoomsResult> {
+    return this.call<MatrixListPublicRoomsResult>("list_public_rooms", options);
   }
 
   openDM(options: MatrixOpenDMOptions): Promise<MatrixOpenDMResult> {
