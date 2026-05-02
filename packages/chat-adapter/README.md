@@ -26,3 +26,17 @@ const adapter = createMatrixAdapter({
   recoveryCode,
 });
 ```
+
+## Sync responses
+
+For serverless bots, run Matrix `/sync` elsewhere and pass the sync response to
+`adapter.handleSyncResponse()`:
+
+```json
+{ "response": { "next_batch": "..." }, "since": "previous_batch" }
+```
+
+If your transport receives encrypted payloads, decrypt and authenticate them at
+the edge before calling `handleSyncResponse()`. Matrix event E2EE is handled by
+the mautrix/go core after the sync response is applied, so use durable core
+storage for crypto state.

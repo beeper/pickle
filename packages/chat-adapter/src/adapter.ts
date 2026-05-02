@@ -97,16 +97,15 @@ interface MatrixChatUserInfo {
   userName: string;
 }
 
-interface MatrixSyncWebhookPayload {
+interface MatrixSyncResponsePayload {
   response?: unknown;
   since?: string;
-  sync?: unknown;
 }
 
 const INVITE_JOIN_MAX_ATTEMPTS = 5;
 const INVITE_JOIN_RETRY_BASE_MS = 1000;
 
-export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMessage> {
+export class MatrixAdapter {
   readonly name = "matrix";
   readonly userName: string;
 
@@ -195,24 +194,21 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
     return encodeMatrixChatThreadRef(platformData);
   }
 
-  async handleWebhook(request: Request, options?: WebhookOptions): Promise<Response> {
-    if (request.method !== "POST") {
-      return Response.json({ error: "Method not allowed" }, { status: 405 });
-    }
-
-    const body = (await request.json()) as MatrixSyncWebhookPayload;
-    const response = body.response ?? body.sync ?? body;
-    const applyOptions = { response };
-    if (typeof body.since === "string") {
-      Object.assign(applyOptions, { since: body.since });
-    }
+  async handleSyncResponse(
+    payload: MatrixSyncResponsePayload,
+    options?: WebhookOptions
+  ): Promise<void> {
     this.#webhookOptions = options;
     try {
+      const response = payload.response ?? payload;
+      const applyOptions = { response };
+      if (typeof payload.since === "string") {
+        Object.assign(applyOptions, { since: payload.since });
+      }
       await this.#requireCore().applySyncResponse(applyOptions);
     } finally {
       this.#webhookOptions = undefined;
     }
-    return Response.json({ ok: true });
   }
 
   parseMessage(raw: MatrixRawMessage, overrideThreadId?: string): Message<MatrixRawMessage> {
@@ -629,12 +625,12 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       }
       const message = this.#messageEventToMessage(event.event);
       this.#messageThreadIds.set(message.id, message.threadId);
-      this.#chat.processMessage(this, message.threadId, message, this.#webhookOptions);
+      this.#chat.processMessage(this.#asChatAdapter(), message.threadId, message, this.#webhookOptions);
       const slash = this.#parseSlashCommand(message.text);
       if (slash) {
         this.#chat.processSlashCommand(
           {
-            adapter: this,
+            adapter: this.#asChatAdapter(),
             channelId: this.channelIdFromThreadId(message.threadId),
             command: slash.command,
             raw: event.event,
@@ -650,7 +646,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
         return;
       }
       this.#chat.processReaction({
-        adapter: this,
+        adapter: this.#asChatAdapter(),
         added: event.event.added ?? true,
         emoji: defaultEmojiResolver.fromGChat(event.event.key),
         messageId: event.event.relatesToEventId,
@@ -700,6 +696,10 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixRawMess
       ...(event.threadRootEventId !== undefined && { threadRootEventId: event.threadRootEventId }),
     };
     return this.parseMessage(raw, overrideThreadId);
+  }
+
+  #asChatAdapter(): Adapter<MatrixChatThreadRef, MatrixRawMessage> {
+    return this as unknown as Adapter<MatrixChatThreadRef, MatrixRawMessage>;
   }
 
   #rawMessage(
