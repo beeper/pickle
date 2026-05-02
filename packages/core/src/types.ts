@@ -85,6 +85,16 @@ export type MatrixCoreEvent =
   | { event: MatrixReactionEvent; type: "reaction" }
   | { event: MatrixInviteEvent; type: "invite" }
   | {
+      event: {
+        content?: Record<string, unknown>;
+        eventId: string;
+        raw: unknown;
+        roomId: string;
+        sender?: string;
+      };
+      type: "beeper_stream_update";
+    }
+  | {
       error?: string;
       keyBackupVersion?: string;
       keyId?: string;
@@ -105,6 +115,7 @@ export type MatrixCoreEvent =
 
 export interface MatrixSendMessageOptions {
   body: string;
+  content?: Record<string, unknown>;
   formattedBody?: string;
   mentions?: MatrixMentions;
   msgtype?: "m.text" | "m.notice" | "m.emote";
@@ -115,6 +126,7 @@ export interface MatrixSendMessageOptions {
 
 export interface MatrixEditMessageOptions {
   body: string;
+  content?: Record<string, unknown>;
   formattedBody?: string;
   mentions?: MatrixMentions;
   messageId: string;
@@ -323,10 +335,33 @@ export interface MatrixApplySyncResponseOptions {
   since?: string;
 }
 
+export interface MatrixSendEphemeralEventOptions {
+  content: Record<string, unknown>;
+  eventType: string;
+  roomId: string;
+  transactionId?: string;
+}
+
+export interface MatrixCreateBeeperStreamOptions {
+  roomId: string;
+  streamType?: string;
+}
+
+export interface MatrixCreateBeeperStreamResult {
+  descriptor: Record<string, unknown>;
+}
+
+export interface MatrixBeeperStreamOptions {
+  content?: Record<string, unknown>;
+  eventId: string;
+  roomId: string;
+}
+
 export interface MatrixCore {
   addReaction(options: MatrixReactionOptions): Promise<MatrixRawMessage>;
   applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void>;
   close(): Promise<void>;
+  createBeeperStream(options: MatrixCreateBeeperStreamOptions): Promise<MatrixCreateBeeperStreamResult>;
   deleteMessage(options: MatrixDeleteMessageOptions): Promise<void>;
   downloadEncryptedMedia(
     options: MatrixDownloadEncryptedMediaOptions
@@ -348,11 +383,14 @@ export interface MatrixCore {
   openDM(options: MatrixOpenDMOptions): Promise<MatrixOpenDMResult>;
   postMediaMessage(options: MatrixSendMediaMessageOptions): Promise<MatrixRawMessage>;
   postMessage(options: MatrixSendMessageOptions): Promise<MatrixRawMessage>;
+  publishBeeperStream(options: MatrixBeeperStreamOptions): Promise<void>;
   removeReaction(options: MatrixReactionOptions): Promise<void>;
+  sendEphemeralEvent(options: MatrixSendEphemeralEventOptions): Promise<MatrixRawMessage>;
   setTyping(options: MatrixTypingOptions): Promise<void>;
   syncOnce(options?: MatrixSyncOnceOptions): Promise<void>;
   uploadEncryptedMedia(options: MatrixUploadMediaOptions): Promise<MatrixUploadEncryptedMediaResult>;
   uploadMedia(options: MatrixUploadMediaOptions): Promise<MatrixUploadMediaResult>;
+  unsubscribeBeeperStream(options: MatrixBeeperStreamOptions): Promise<void>;
   whoami(): Promise<MatrixWhoami>;
 }
 

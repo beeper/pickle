@@ -82,6 +82,7 @@ func (c *Core) processSyncResponse(ctx context.Context, resp *mautrix.RespSync, 
 		return err
 	}
 	c.processInvites(resp)
+	c.processBeeperStreamSync(ctx, resp)
 	if cli.Syncer != nil {
 		return cli.Syncer.ProcessResponse(ctx, resp, since)
 	}
@@ -94,6 +95,36 @@ func (c *Core) processSyncResponse(ctx context.Context, resp *mautrix.RespSync, 
 		}
 	}
 	return nil
+}
+
+func (c *Core) processBeeperStreamSync(ctx context.Context, resp *mautrix.RespSync) {
+	if c.beeperStream == nil || resp == nil {
+		return
+	}
+	for _, evt := range c.beeperStream.HandleSyncResponse(ctx, resp) {
+		c.processBeeperStreamUpdate(evt)
+	}
+}
+
+func (c *Core) processBeeperStreamUpdate(evt *event.Event) {
+	if evt == nil || evt.Type != event.ToDeviceBeeperStreamUpdate {
+		return
+	}
+	update := evt.Content.AsBeeperStreamUpdate()
+	raw := evt.Content.Raw
+	if raw == nil && len(evt.Content.VeryRaw) > 0 {
+		_ = json.Unmarshal(evt.Content.VeryRaw, &raw)
+	}
+	c.emit(OutboundEvent{
+		"type": "beeper_stream_update",
+		"event": OutboundEvent{
+			"content": raw,
+			"eventId": update.EventID.String(),
+			"raw":     evt,
+			"roomId":  update.RoomID.String(),
+			"sender":  evt.Sender.String(),
+		},
+	})
 }
 
 func (c *Core) processInvites(resp *mautrix.RespSync) {

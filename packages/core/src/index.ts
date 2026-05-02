@@ -3,7 +3,10 @@ export { startMatrixPolling } from "./polling";
 export type { MatrixPollingHandle, MatrixPollingOptions } from "./polling";
 export type {
   MatrixApplySyncResponseOptions,
+  MatrixBeeperStreamOptions,
   MatrixCore,
+  MatrixCreateBeeperStreamOptions,
+  MatrixCreateBeeperStreamResult,
   MatrixCoreEvent,
   MatrixCoreHost,
   MatrixCoreInitOptions,
@@ -45,6 +48,7 @@ export type {
   MatrixRoomThreadSummary,
   MatrixSendMediaMessageOptions,
   MatrixSendMessageOptions,
+  MatrixSendEphemeralEventOptions,
   MatrixSyncOnceOptions,
   MatrixTokenLoginOptions,
   MatrixTypingOptions,

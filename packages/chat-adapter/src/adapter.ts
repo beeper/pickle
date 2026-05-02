@@ -29,9 +29,12 @@ import type {
   ListThreadsOptions,
   ListThreadsResult,
   RawMessage,
+  StreamOptions,
   ThreadInfo,
   WebhookOptions,
 } from "chat";
+import type { MatrixStream } from "./beeper-streaming";
+import { createMatrixStreamDriver, isBeeperHomeserver } from "./beeper-streaming";
 import {
   ConsoleLogger,
   Message,
@@ -121,12 +124,14 @@ export class MatrixAdapter {
   #unsubscribeCore: (() => void) | null = null;
   #userId: string | null = null;
   #webhookOptions: WebhookOptions | undefined;
+  #isBeeperHomeserver: boolean;
 
   constructor(config: MatrixAdapterConfig) {
     this.#config = config;
     this.userName = config.userName ?? "matrix-bot";
     this.#logger = new ConsoleLogger();
     this.#roomAllowlist = config.roomAllowlist ? new Set(config.roomAllowlist) : null;
+    this.#isBeeperHomeserver = isBeeperHomeserver(config.homeserverUrl);
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -317,6 +322,9 @@ export class MatrixAdapter {
       messageId,
       roomId: parsed.roomId,
     };
+    if (this.#isBeeperHomeserver) {
+      Object.assign(editOptions, { content: { "com.beeper.dont_render_edited": true } });
+    }
     const formattedBody = appendFormattedLinkLines(rendered.formattedBody, linkLines);
     if (formattedBody !== undefined) {
       Object.assign(editOptions, { formattedBody });
@@ -330,6 +338,40 @@ export class MatrixAdapter {
       replacementEventId: raw.eventId,
       raw: raw.raw,
     });
+  }
+
+  async stream(
+    threadId: string,
+    textStream: MatrixStream,
+    options?: StreamOptions
+  ): Promise<RawMessage<MatrixRawMessage>> {
+    const parsed = this.decodeThreadId(threadId);
+    return createMatrixStreamDriver({
+      core: this.#requireCore(),
+      editMessage: (targetThreadId, messageId, markdown) =>
+        this.editMessage(targetThreadId, messageId, { markdown }),
+      homeserverUrl: this.#config.homeserverUrl,
+      postMessage: (targetThreadId, markdown, content) =>
+        this.#postMessageWithContent(targetThreadId, markdown, content),
+      roomId: parsed.roomId,
+    }).stream(threadId, textStream, options);
+  }
+
+  async postObject(
+    threadId: string,
+    kind: string,
+    data: unknown
+  ): Promise<RawMessage<MatrixRawMessage>> {
+    return this.postMessage(threadId, { markdown: renderObjectMarkdown(kind, data) });
+  }
+
+  async editObject(
+    threadId: string,
+    messageId: string,
+    kind: string,
+    data: unknown
+  ): Promise<RawMessage<MatrixRawMessage>> {
+    return this.editMessage(threadId, messageId, { markdown: renderObjectMarkdown(kind, data) });
   }
 
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
@@ -716,6 +758,32 @@ export class MatrixAdapter {
     return this.#core;
   }
 
+  async #postMessageWithContent(
+    threadId: string,
+    markdown: string,
+    content?: Record<string, unknown>
+  ): Promise<RawMessage<MatrixRawMessage>> {
+    if (!content) {
+      return this.postMessage(threadId, { markdown });
+    }
+    const core = this.#requireCore();
+    const parsed = this.decodeThreadId(threadId);
+    const rendered = this.#formatConverter.renderPostableMessage({ markdown });
+    const postOptions: MatrixSendMessageOptions = {
+      body: rendered.body,
+      content,
+      roomId: parsed.roomId,
+    };
+    if (rendered.formattedBody !== undefined) {
+      postOptions.formattedBody = rendered.formattedBody;
+    }
+    if (parsed.eventId !== undefined) {
+      postOptions.threadRootEventId = parsed.eventId;
+    }
+    const raw = await core.postMessage(postOptions);
+    return this.#rawMessage(raw.eventId, parsed.roomId, threadId, raw.raw);
+  }
+
   async #collectUploads(message: AdapterPostableMessage): Promise<OutboundUpload[]> {
     const uploads: OutboundUpload[] = [];
     for (const file of extractFilesFromMessage(message)) {
@@ -947,6 +1015,42 @@ function isTransientMatrixError(error: unknown): boolean {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function renderObjectMarkdown(kind: string, data: unknown): string {
+  if (kind !== "plan" || !isRecord(data)) {
+    return `[${kind}]`;
+  }
+  const title = normalizeOptionalString(readString(data, "title")) ?? "Plan";
+  const tasks = Array.isArray(data.tasks) ? data.tasks.filter(isRecord) : [];
+  const lines = [`**${title}**`];
+  for (const task of tasks) {
+    const taskTitle = normalizeOptionalString(readString(task, "title")) ?? "Task";
+    const status = normalizeOptionalString(readString(task, "status")) ?? "pending";
+    lines.push(`- [${status === "complete" ? "x" : " "}] ${taskTitle}`);
+    const details = renderPlanContent(task.details);
+    if (details) {
+      lines.push(`  ${details.replace(/\n/g, "\n  ")}`);
+    }
+    const output = renderPlanContent(task.output);
+    if (output) {
+      lines.push(`  ${output.replace(/\n/g, "\n  ")}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function renderPlanContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  if (Array.isArray(content)) {
+    return content.filter((item): item is string => typeof item === "string").join(" ").trim();
+  }
+  if (isRecord(content) && typeof content.markdown === "string") {
+    return content.markdown.trim();
+  }
+  return "";
 }
 
 function extractFilesFromMessage(message: AdapterPostableMessage): FileUpload[] {

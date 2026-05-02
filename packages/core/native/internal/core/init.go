@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/crypto"
 	"maunium.net/go/mautrix/crypto/backup"
 	"maunium.net/go/mautrix/crypto/cryptohelper"
@@ -60,6 +61,10 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 	c.cryptoStore = stores.CryptoStore
 	c.backupKey = nil
 	c.backupVersion = ""
+	if c.beeperStream != nil {
+		_ = c.beeperStream.Close()
+	}
+	c.beeperStream = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
 	c.reactions = make(map[id.EventID]reactionSnapshot)
@@ -77,9 +82,28 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 	if err := c.setupCrypto(ctx, req); err != nil {
 		return nil, err
 	}
+	if err := c.setupBeeperStream(); err != nil {
+		return nil, err
+	}
 
 	c.emit(OutboundEvent{"type": "sync_status", "status": "initialized"})
 	return json.Marshal(whoamiResp{UserID: resp.UserID.String(), DeviceID: resp.DeviceID.String()})
+}
+
+func (c *Core) setupBeeperStream() error {
+	cli, err := c.requireClient()
+	if err != nil {
+		return err
+	}
+	helper, err := beeperstream.New(cli)
+	if err != nil {
+		return err
+	}
+	if err := helper.Init(); err != nil {
+		return err
+	}
+	c.beeperStream = helper
+	return nil
 }
 
 func (c *Core) handleWhoami(ctx context.Context) ([]byte, error) {
