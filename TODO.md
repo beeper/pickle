@@ -8,7 +8,7 @@
 - [x] Do not add a Matrix-client `applyEnvelope`; encrypted webhook envelopes belong to app/transport helpers.
 - [x] Make `MatrixAdapter` explicitly satisfy Chat SDK adapter requirements.
 - [x] Delete duplicated `MatrixRawMessage` in the Chat adapter; use the core `MatrixMessageEvent` as raw data.
-- [ ] Collapse duplicated public/runtime/generated Matrix event types where possible.
+- [x] Collapse duplicated public/runtime/generated Matrix event types where possible; keep generated runtime and public client event types separate because they model different wire/client shapes.
 - [x] Keep package public entrypoints, but stop internal imports from convenience barrels.
 - [x] Normalize option naming to one public spelling for each concern.
 - [x] Make Beeper-specific features explicit under `client.beeper`.
@@ -90,7 +90,7 @@
 - [x] Require or strongly recommend explicit `pickleKey` for durable E2EE bot deployments.
 - [x] Reconsider access-token fallback as pickle key before release.
 - [x] Provide a clear bot onboarding flow: login, device ID, store persistence, recovery key restore.
-- [ ] Test fresh-device historical decryption via recovery key.
+- [ ] Test fresh-device historical decryption via recovery key. Requires live Matrix credentials that can create a fresh device and access a real key backup.
 - [x] Test missing backup/recovery status behavior.
 - [x] Test encrypted media upload/download roundtrip.
 - [x] Test decryption retry and pending queue persistence.
@@ -102,11 +102,11 @@
 - [x] Add Go redaction/edit normalization tests.
 - [x] Add reaction removal after cold start test.
 - [x] Add `openDM` reuse test.
-- [ ] Add serverless encrypted-room `applyResponse` test.
+- [ ] Add serverless encrypted-room `applyResponse` test. Requires a captured encrypted `/sync` fixture plus matching durable crypto store, or live Matrix credentials.
 - [x] Add serverless replay/idempotency test.
 - [x] Add core streaming tests for Beeper-native and edit-fallback modes.
 - [x] Add Cloudflare Worker smoke with Durable Object store and WASM.
-- [ ] Add browser smoke with IndexedDB and WASM.
+- [ ] Add browser smoke with IndexedDB and WASM. Requires a browser harness that can load the packaged WASM asset and IndexedDB store.
 - [x] Add Node smoke with file/sqlite store and E2EE.
 - [x] Run `pnpm typecheck`.
 - [x] Run `pnpm test`.
