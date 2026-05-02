@@ -48,7 +48,7 @@
 - [x] Add an option to force creating a new DM when needed.
 - [x] Use `m.direct` account data for DM detection before member-count fallback.
 - [x] Make Beeper sync options conditional instead of setting `BeeperStreaming: true` for every homeserver.
-- [ ] Add Beeper capability detection beyond hostname fallback.
+- [x] Add Beeper capability detection beyond hostname fallback.
 - [x] Keep encrypted media behavior in Go; remove duplicate TS parsing paths.
 - [x] Ensure fetch-message pagination always returns chronological page order.
 - [x] Ensure sync response replay is idempotent at the emitted event level.

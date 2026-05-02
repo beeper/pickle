@@ -21,7 +21,7 @@ async function sendStream(
   opts: SendMatrixStreamOptions
 ): Promise<SentEvent> {
   const mode = opts.mode ?? "auto";
-  if (mode !== "edits" && (mode === "beeper" || isBeeperHomeserver(client.clientOptions.homeserver))) {
+  if (mode !== "edits" && (mode === "beeper" || supportsBeeperFeatures(client.clientOptions))) {
     return sendBeeperStream(client, opts);
   }
   return sendEditStream(client.messages, opts);
@@ -191,6 +191,10 @@ function isBeeperHomeserver(homeserverUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+function supportsBeeperFeatures(options: MatrixClientOptions): boolean {
+  return options.beeperStreaming ?? isBeeperHomeserver(options.homeserver);
 }
 
 function streamChunkText(chunk: string | Record<string, unknown>): string {

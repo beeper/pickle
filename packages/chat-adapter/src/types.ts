@@ -9,6 +9,7 @@ export interface MatrixChatThreadRef {
 }
 
 interface MatrixAdapterBaseConfig {
+  beeper?: boolean;
   commandPrefix?: string;
   deviceId?: string;
   homeserver?: string;

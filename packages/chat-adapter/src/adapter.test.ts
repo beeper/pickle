@@ -766,6 +766,31 @@ describe("MatrixAdapter", () => {
     ]);
   });
 
+  it("uses explicit Beeper capability for custom homeservers", async () => {
+    const { client, sendStream } = makeCore();
+    const adapter = new MatrixAdapter({
+      beeper: true,
+      token: "token",
+      client,
+      homeserver: "https://matrix.example.com",
+      sync: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    await adapter.stream(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }), chunks("hello"));
+
+    expect(sendStream).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "beeper",
+      roomId: "!room:example.com",
+    }));
+  });
+
+  async function* chunks(...values: string[]): AsyncIterable<string> {
+    for (const value of values) {
+      yield value;
+    }
+  }
+
   it("delegates non-Beeper streams to core edit fallback mode", async () => {
     const { client, sendStream } = makeCore();
     const adapter = new MatrixAdapter({

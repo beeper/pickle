@@ -128,7 +128,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixMessage
     this.#homeserverUrl = config.homeserver ?? DEFAULT_HOMESERVER_URL;
     this.#logger = new ConsoleLogger();
     this.#roomAllowlist = config.roomAllowlist ? new Set(config.roomAllowlist) : null;
-    this.#isBeeperHomeserver = isBeeperHomeserver(this.#homeserverUrl);
+    this.#isBeeperHomeserver = config.beeper ?? isBeeperHomeserver(this.#homeserverUrl);
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -804,6 +804,7 @@ export class MatrixAdapter implements Adapter<MatrixChatThreadRef, MatrixMessage
       store: this.#config.store ?? this.#chatStateStore(),
       token: this.#config.token,
     };
+    if (this.#config.beeper !== undefined) Object.assign(options, { beeperStreaming: this.#config.beeper });
     if (this.#config.deviceId !== undefined) Object.assign(options, { deviceId: this.#config.deviceId });
     if (this.#config.initialSync !== undefined) Object.assign(options, { initialSync: this.#config.initialSync });
     if (this.#config.pickleKey !== undefined) Object.assign(options, { pickleKey: this.#config.pickleKey });

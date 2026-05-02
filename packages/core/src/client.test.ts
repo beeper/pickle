@@ -292,6 +292,38 @@ describe("createMatrixClient", () => {
       roomId: "!room:example.com",
     });
   });
+
+  it("uses explicit Beeper capability for non-Beeper hostnames", async () => {
+    const calls = installRuntime({
+      create_beeper_stream: {
+        descriptor: {
+          device_id: "DEVICE",
+          type: "com.beeper.llm",
+          user_id: "@bot:example.com",
+        },
+      },
+      edit_message: { eventId: "$edit", raw: {}, roomId: "!room:example.com" },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      post_message: { eventId: "$message", raw: {}, roomId: "!room:example.com" },
+      publish_beeper_stream: {},
+      register_beeper_stream: {},
+    });
+    const client = createMatrixClient({
+      beeperStreaming: true,
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+    await client.connect();
+
+    await client.streams.send({
+      roomId: "!room:example.com",
+      stream: chunks("hello"),
+    });
+
+    expect(calls.map((call) => call.operation)).toContain("create_beeper_stream");
+    expect(calls.map((call) => call.operation)).toContain("publish_beeper_stream");
+  });
 });
 
 async function* chunks(
