@@ -70,11 +70,26 @@ Your webhook receives `{ response, since }`. Apply it to a `MatrixClient` runnin
 await client.sync.applyResponse({ response: body.response, since: body.since });
 ```
 
+If the sync Durable Object and webhook do not share a private boundary, encrypt the webhook body outside the Matrix client API:
+
+```ts
+import {
+  decryptMatrixSyncWebhookEnvelope,
+  encryptMatrixSyncWebhookPayload,
+} from "@better-matrix-js/cloudflare";
+
+const envelope = await encryptMatrixSyncWebhookPayload({ response, since }, env.WEBHOOK_SECRET);
+const payload = await decryptMatrixSyncWebhookEnvelope(envelope, env.WEBHOOK_SECRET);
+await client.sync.applyResponse(payload);
+```
+
 ## Cursor ownership
 
 Use one `MatrixSyncDurableObject` per Matrix account. It owns the `/sync` cursor and is the only component that should call Matrix `/sync` for that account. Your account Durable Object should own the `MatrixClient`, durable crypto store, bot state, and webhook handler, then apply each sync payload with `applyResponse`.
 
 This split keeps serverless workers from racing cursors. If you choose not to use `MatrixSyncDurableObject`, keep the same rule: exactly one durable actor advances the cursor, and every consumer processes responses from that actor.
+
+Include a stable event ID or Matrix `next_batch` cursor in your own webhook idempotency keys. Retrying the same webhook is expected; consumers should treat already-seen sync responses as no-ops.
 
 ## Config
 

@@ -71,6 +71,57 @@ export interface MatrixSyncDurableObjectStatus {
   since?: string;
 }
 
+export interface MatrixSyncWebhookPayload {
+  response: unknown;
+  since?: string;
+}
+
+export interface MatrixEncryptedSyncWebhookEnvelope {
+  alg: "AES-GCM-256";
+  ciphertext: string;
+  iv: string;
+  v: 1;
+}
+
+export async function encryptMatrixSyncWebhookPayload(
+  payload: MatrixSyncWebhookPayload,
+  secret: string
+): Promise<MatrixEncryptedSyncWebhookEnvelope> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await webhookCryptoKey(secret);
+  const plaintext = new TextEncoder().encode(JSON.stringify(stripUndefined({
+    response: payload.response,
+    since: payload.since,
+  })));
+  const ciphertext = await crypto.subtle.encrypt({ iv, name: "AES-GCM" }, key, plaintext);
+  return {
+    alg: "AES-GCM-256",
+    ciphertext: base64UrlEncode(new Uint8Array(ciphertext)),
+    iv: base64UrlEncode(iv),
+    v: 1,
+  };
+}
+
+export async function decryptMatrixSyncWebhookEnvelope(
+  envelope: MatrixEncryptedSyncWebhookEnvelope,
+  secret: string
+): Promise<MatrixSyncWebhookPayload> {
+  if (envelope.alg !== "AES-GCM-256" || envelope.v !== 1) {
+    throw new Error("Unsupported Matrix sync webhook envelope");
+  }
+  const key = await webhookCryptoKey(secret);
+  const plaintext = await crypto.subtle.decrypt(
+    { iv: toArrayBuffer(base64UrlDecode(envelope.iv)), name: "AES-GCM" },
+    key,
+    toArrayBuffer(base64UrlDecode(envelope.ciphertext))
+  );
+  const decoded = JSON.parse(new TextDecoder().decode(plaintext)) as MatrixSyncWebhookPayload;
+  if (!decoded || typeof decoded !== "object" || !("response" in decoded)) {
+    throw new Error("Invalid Matrix sync webhook payload");
+  }
+  return decoded;
+}
+
 export function createCloudflareKVMatrixStore(
   namespace: CloudflareKVNamespaceLike,
   options: CloudflareStoreOptions = {}
@@ -402,4 +453,39 @@ function syncNextBatch(response: unknown): string | undefined {
   }
   const nextBatch = (response as { next_batch?: unknown }).next_batch;
   return typeof nextBatch === "string" && nextBatch.length > 0 ? nextBatch : undefined;
+}
+
+async function webhookCryptoKey(secret: string): Promise<CryptoKey> {
+  if (!secret) {
+    throw new Error("Matrix sync webhook encryption secret is required");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["decrypt", "encrypt"]);
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+function base64UrlDecode(value: string): Uint8Array {
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(
+    Math.ceil(value.length / 4) * 4,
+    "="
+  );
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }

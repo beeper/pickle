@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createDurableObjectMatrixStore,
+  decryptMatrixSyncWebhookEnvelope,
+  encryptMatrixSyncWebhookPayload,
   MatrixSyncDurableObject,
   type DurableObjectStorageLike,
 } from "./index";
@@ -51,6 +53,23 @@ describe("createDurableObjectMatrixStore", () => {
 
     expect([...(await store.get("a"))!]).toEqual([1, 2, 3]);
     expect(await store.list("")).toEqual(["a"]);
+  });
+});
+
+describe("Matrix sync webhook encryption", () => {
+  it("round-trips encrypted sync webhook envelopes", async () => {
+    const envelope = await encryptMatrixSyncWebhookPayload({
+      response: { next_batch: "batch", rooms: { join: {} } },
+      since: "old",
+    }, "secret");
+
+    expect(envelope.alg).toBe("AES-GCM-256");
+    expect(envelope.ciphertext).not.toContain("batch");
+    await expect(decryptMatrixSyncWebhookEnvelope(envelope, "secret")).resolves.toEqual({
+      response: { next_batch: "batch", rooms: { join: {} } },
+      since: "old",
+    });
+    await expect(decryptMatrixSyncWebhookEnvelope(envelope, "wrong")).rejects.toThrow();
   });
 });
 

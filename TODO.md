@@ -61,8 +61,8 @@
 - [x] Add a single-writer story for E2EE stores.
 - [x] Recommend Durable Objects or other serialized storage for encrypted bots.
 - [x] Warn against concurrent KV writes for active E2EE devices.
-- [ ] Add optional Cloudflare encrypted webhook helper outside the Matrix client sync API.
-- [ ] Add webhook replay/idempotency guidance.
+- [x] Add optional Cloudflare encrypted webhook helper outside the Matrix client sync API.
+- [x] Add webhook replay/idempotency guidance.
 
 ## Chat SDK Adapter
 
