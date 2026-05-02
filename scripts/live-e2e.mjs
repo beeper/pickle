@@ -23,8 +23,7 @@ function optionalEnv(name) {
 async function createAccount(role, runDir) {
   const homeserverUrl = requireEnv("MATRIX_HOMESERVER_URL");
   const accessToken = requireEnv(`MATRIX_${role}_ACCESS_TOKEN`);
-  const recoveryKey =
-    optionalEnv(`MATRIX_${role}_RECOVERY_KEY`) ?? optionalEnv(`MATRIX_${role}_RECOVERY_CODE`);
+  const recoveryKey = optionalEnv(`MATRIX_${role}_RECOVERY_KEY`);
   const events = [];
   const client = createMatrixClient({
     homeserver: homeserverUrl,

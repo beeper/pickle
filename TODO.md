@@ -91,8 +91,8 @@
 - [x] Reconsider access-token fallback as pickle key before release.
 - [x] Provide a clear bot onboarding flow: login, device ID, store persistence, recovery key restore.
 - [ ] Test fresh-device historical decryption via recovery key.
-- [ ] Test missing backup/recovery status behavior.
-- [ ] Test encrypted media upload/download roundtrip.
+- [x] Test missing backup/recovery status behavior.
+- [x] Test encrypted media upload/download roundtrip.
 - [x] Test decryption retry and pending queue persistence.
 
 ## Tests And Verification
@@ -105,9 +105,9 @@
 - [ ] Add serverless encrypted-room `applyResponse` test.
 - [x] Add serverless replay/idempotency test.
 - [x] Add core streaming tests for Beeper-native and edit-fallback modes.
-- [ ] Add Cloudflare Worker smoke with Durable Object store and WASM.
+- [x] Add Cloudflare Worker smoke with Durable Object store and WASM.
 - [ ] Add browser smoke with IndexedDB and WASM.
-- [ ] Add Node smoke with file/sqlite store and E2EE.
+- [x] Add Node smoke with file/sqlite store and E2EE.
 - [x] Run `pnpm typecheck`.
 - [x] Run `pnpm test`.
 - [x] Run `pnpm test:go`.
