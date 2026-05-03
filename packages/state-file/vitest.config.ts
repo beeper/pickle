@@ -3,7 +3,7 @@ import { defineProject } from "vitest/config";
 export default defineProject({
   resolve: {
     alias: {
-      "pickle": new URL("../pickle/src/index.ts", import.meta.url).pathname,
+      "@beeper/pickle": new URL("../pickle/src/index.ts", import.meta.url).pathname,
     },
   },
   test: {

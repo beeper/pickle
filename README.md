@@ -6,7 +6,7 @@ A TypeScript Matrix SDK that runs anywhere. Built on `mautrix-go` + `goolm` comp
 
 | Package | What it does |
 | --- | --- |
-| [`pickle`](packages/pickle) | Matrix SDK: login, sync, rooms, messages, reactions, threads, media, E2EE. |
+| [`@beeper/pickle`](packages/pickle) | Matrix SDK: login, sync, rooms, messages, reactions, threads, media, E2EE. |
 | [`@beeper/pickle-chat-adapter`](packages/chat-adapter) | Build Matrix bots using the [Chat SDK](https://www.npmjs.com/package/chat). |
 | [`@beeper/pickle-ai-sdk`](packages/ai-sdk) | Pipe AI SDK streams into Matrix messages. |
 | [`@beeper/pickle-state-file`](packages/state-file) · [`-sqlite`](packages/state-sqlite) · [`-indexeddb`](packages/state-indexeddb) · [`-memory`](packages/state-memory) · [`-simple`](packages/state-simple) | State adapters for Node, browsers, and custom backends. |
@@ -14,13 +14,13 @@ A TypeScript Matrix SDK that runs anywhere. Built on `mautrix-go` + `goolm` comp
 ## Install
 
 ```sh
-npm install pickle @beeper/pickle-state-sqlite
+npm install @beeper/pickle @beeper/pickle-state-sqlite
 ```
 
 ## A Node bot in 20 lines
 
 ```ts
-import { createMatrixClient, onMessage } from "pickle/node";
+import { createMatrixClient, onMessage } from "@beeper/pickle/node";
 import { createSQLiteMatrixStore } from "@beeper/pickle-state-sqlite";
 
 const client = createMatrixClient({
@@ -47,7 +47,7 @@ That's a working E2EE-capable Matrix bot. The first awaited method boots WASM, s
 Same bot, written as a [Chat SDK](https://www.npmjs.com/package/chat) adapter — gets you Slack/Discord/Teams parity and shared bot logic across platforms:
 
 ```sh
-npm install chat pickle @beeper/pickle-chat-adapter
+npm install chat @beeper/pickle @beeper/pickle-chat-adapter
 ```
 
 ```ts

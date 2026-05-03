@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.25.0",
   "scripts": {
     "build": "pnpm -r build",
-    "build:wasm": "pnpm --filter pickle build:wasm",
+    "build:wasm": "pnpm --filter @beeper/pickle build:wasm",
     "audit:surface": "node scripts/audit-package-surface.mjs",
     "check": "pnpm audit:surface && pnpm typecheck && pnpm test && pnpm test:go && pnpm build && pnpm pack:packages && pnpm smoke:consumer && pnpm smoke:cloudflare",
     "clean": "pnpm -r clean",

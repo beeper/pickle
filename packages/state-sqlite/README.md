@@ -1,13 +1,13 @@
 # @beeper/pickle-state-sqlite
 
-SQLite `MatrixStore` for `pickle`. Uses Node's built-in `node:sqlite` — no native deps.
+SQLite `MatrixStore` for `@beeper/pickle`. Uses Node's built-in `node:sqlite` — no native deps.
 
 ```sh
 npm install @beeper/pickle-state-sqlite
 ```
 
 ```ts
-import { createMatrixClient } from "pickle/node";
+import { createMatrixClient } from "@beeper/pickle/node";
 import { createSQLiteMatrixStore } from "@beeper/pickle-state-sqlite";
 
 const client = createMatrixClient({

@@ -3,13 +3,13 @@
 A TypeScript Matrix SDK that runs in Node, browsers, and any WASM runtime. Built on `mautrix-go` + `goolm`. E2EE included.
 
 ```sh
-npm install pickle
+npm install @beeper/pickle
 ```
 
 ## Node
 
 ```ts
-import { createMatrixClient, onMessage } from "pickle/node";
+import { createMatrixClient, onMessage } from "@beeper/pickle/node";
 import { createSQLiteMatrixStore } from "@beeper/pickle-state-sqlite";
 
 const client = createMatrixClient({
@@ -36,7 +36,7 @@ The first awaited call boots WASM, store, and crypto. Call `await client.boot()`
 Serve `pickle.wasm` with your static assets and persist state in IndexedDB:
 
 ```ts
-import { createMatrixClient } from "pickle";
+import { createMatrixClient } from "@beeper/pickle";
 import { createIndexedDBMatrixStore } from "@beeper/pickle-state-indexeddb";
 
 const client = createMatrixClient({
@@ -64,7 +64,7 @@ await client.typing.set({ roomId, typing: true, timeoutMs: 5000 });
 ## Listening
 
 ```ts
-import { onMessage, onReaction, onInvite, onRawEvent } from "pickle";
+import { onMessage, onReaction, onInvite, onRawEvent } from "@beeper/pickle";
 
 await onMessage(client, { roomId }, async (event) => { /* ... */ });
 await onReaction(client, { relationEventId: "$event" }, async (event) => { /* ... */ });
@@ -84,7 +84,7 @@ await sub.stop();
 ## Login
 
 ```ts
-import { createMatrixLogin } from "pickle";
+import { createMatrixLogin } from "@beeper/pickle";
 
 const login = createMatrixLogin({ homeserver: "https://matrix.example.org" });
 const session = await login.password({ username: "bot", password: "..." });

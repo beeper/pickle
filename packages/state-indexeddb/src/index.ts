@@ -1,4 +1,4 @@
-import { copyBytes, type MatrixStore } from "pickle";
+import { copyBytes, type MatrixStore } from "@beeper/pickle";
 
 export interface IndexedDBMatrixStoreOptions {
   databaseName?: string;

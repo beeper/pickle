@@ -1,4 +1,4 @@
-import { copyBytes, type MatrixStore } from "pickle";
+import { copyBytes, type MatrixStore } from "@beeper/pickle";
 
 export type MaybePromise<T> = T | Promise<T>;
 

@@ -35,24 +35,24 @@ importers:
 
   examples/beeper-streaming-smoke:
     dependencies:
+      '@beeper/pickle':
+        specifier: workspace:*
+        version: link:../../packages/pickle
       '@beeper/pickle-chat-adapter':
         specifier: workspace:*
         version: link:../../packages/chat-adapter
       chat:
         specifier: ^4.26.0
         version: 4.26.0
-      pickle:
-        specifier: workspace:*
-        version: link:../../packages/pickle
 
   examples/cloudflare-worker:
     dependencies:
+      '@beeper/pickle':
+        specifier: workspace:*
+        version: link:../../packages/pickle
       '@beeper/pickle-cloudflare':
         specifier: workspace:*
         version: link:../../packages/cloudflare
-      pickle:
-        specifier: workspace:*
-        version: link:../../packages/pickle
     devDependencies:
       wrangler:
         specifier: ^4.85.0
@@ -60,12 +60,12 @@ importers:
 
   examples/dummybridge-bot:
     dependencies:
+      '@beeper/pickle':
+        specifier: workspace:*
+        version: link:../../packages/pickle
       '@beeper/pickle-state-file':
         specifier: workspace:*
         version: link:../../packages/state-file
-      pickle:
-        specifier: workspace:*
-        version: link:../../packages/pickle
 
   packages/ai-sdk:
     devDependencies:
@@ -87,15 +87,15 @@ importers:
 
   packages/chat-adapter:
     dependencies:
+      '@beeper/pickle':
+        specifier: workspace:*
+        version: link:../pickle
       marked:
         specifier: ^18.0.2
         version: 18.0.2
       node-html-parser:
         specifier: ^7.1.0
         version: 7.1.0
-      pickle:
-        specifier: workspace:*
-        version: link:../pickle
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -115,7 +115,7 @@ importers:
 
   packages/cloudflare:
     dependencies:
-      pickle:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../pickle
     devDependencies:
@@ -149,7 +149,7 @@ importers:
 
   packages/state-file:
     dependencies:
-      pickle:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../pickle
     devDependencies:
@@ -171,7 +171,7 @@ importers:
 
   packages/state-indexeddb:
     dependencies:
-      pickle:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../pickle
     devDependencies:
@@ -193,7 +193,7 @@ importers:
 
   packages/state-memory:
     dependencies:
-      pickle:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../pickle
     devDependencies:
@@ -215,7 +215,7 @@ importers:
 
   packages/state-simple:
     dependencies:
-      pickle:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../pickle
     devDependencies:
@@ -237,7 +237,7 @@ importers:
 
   packages/state-sqlite:
     dependencies:
-      pickle:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../pickle
     devDependencies:

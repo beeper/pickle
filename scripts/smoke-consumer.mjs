@@ -18,11 +18,11 @@ await execFileAsync("pnpm", ["-r", "--filter", "./packages/*", "pack", "--pack-d
 });
 await execFileAsync("npm", ["init", "-y"], { cwd: await mkdirp(consumerDir) });
 
-const coreTarball = join(packDir, "beeper-pickle-0.1.0.tgz");
+const pickleTarball = join(packDir, "beeper-pickle-0.1.0.tgz");
 const cloudflareTarball = join(packDir, "beeper-pickle-cloudflare-0.1.0.tgz");
 const adapterTarball = join(packDir, "beeper-pickle-chat-adapter-0.1.0.tgz");
 
-await execFileAsync("npm", ["install", coreTarball, cloudflareTarball, adapterTarball, "chat@4.26.0"], {
+await execFileAsync("npm", ["install", pickleTarball, cloudflareTarball, adapterTarball, "chat@4.26.0"], {
   cwd: consumerDir,
 });
 
@@ -32,12 +32,12 @@ const { stdout } = await execFileAsync(
     "--input-type=module",
     "--eval",
     `
-      import * as core from "pickle";
-      import * as node from "pickle/node";
+      import * as pickle from "@beeper/pickle";
+      import * as node from "@beeper/pickle/node";
       import * as cf from "@beeper/pickle-cloudflare";
       import * as adapter from "@beeper/pickle-chat-adapter";
       const checks = {
-        core: ["createMatrixClient", "createMatrixLogin"].every((key) => key in core),
+        pickle: ["createMatrixClient", "createMatrixLogin"].every((key) => key in pickle),
         node: ["createMatrixClient"].every((key) => key in node),
         cloudflare: ["createCloudflareKVMatrixStore", "createDurableObjectMatrixStore", "MatrixSyncDurableObject"].every((key) => key in cf),
         adapter: ["createMatrixAdapter"].every((key) => key in adapter),

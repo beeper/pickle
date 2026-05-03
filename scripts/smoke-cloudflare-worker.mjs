@@ -15,7 +15,7 @@ const srcDir = join(workerDir, "src");
 await mkdir(packDir, { recursive: true });
 await execFileAsync(
   "pnpm",
-  ["-r", "--filter", "pickle", "--filter", "@beeper/pickle-cloudflare", "pack", "--pack-destination", packDir],
+  ["-r", "--filter", "@beeper/pickle", "--filter", "@beeper/pickle-cloudflare", "pack", "--pack-destination", packDir],
   { cwd: rootPath }
 );
 await mkdir(srcDir, { recursive: true });
@@ -29,9 +29,9 @@ await execFileAsync("npm", [
 await writeFile(
   join(srcDir, "index.js"),
   `
-import "pickle/wasm_exec.js";
-import wasmModule from "pickle/pickle.wasm";
-import { createMatrixClient } from "pickle";
+import "@beeper/pickle/wasm_exec.js";
+import wasmModule from "@beeper/pickle/pickle.wasm";
+import { createMatrixClient } from "@beeper/pickle";
 import {
   createDurableObjectMatrixStore,
   MatrixSyncDurableObject,
@@ -40,11 +40,11 @@ import {
 export class MatrixClientObject {
   constructor(state) {
     this.state = state;
-    this.corePromise = null;
+    this.clientPromise = null;
   }
 
   async fetch() {
-    this.corePromise ??= Promise.resolve(createMatrixClient({
+    this.clientPromise ??= Promise.resolve(createMatrixClient({
       homeserver: "https://matrix.example.org",
       token: "smoke-token",
       store: createDurableObjectMatrixStore(this.state.storage, {
@@ -52,8 +52,8 @@ export class MatrixClientObject {
       }),
       wasmModule,
     }));
-    const core = await this.corePromise;
-    return Response.json({ ok: Boolean(core) });
+    const client = await this.clientPromise;
+    return Response.json({ ok: Boolean(client) });
   }
 }
 

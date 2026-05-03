@@ -1,6 +1,6 @@
-import "pickle/wasm_exec.js";
-import wasmModule from "pickle/pickle.wasm";
-import { createMatrixClient } from "pickle";
+import "@beeper/pickle/wasm_exec.js";
+import wasmModule from "@beeper/pickle/pickle.wasm";
+import { createMatrixClient } from "@beeper/pickle";
 import {
   createDurableObjectMatrixStore,
   MatrixSyncDurableObject,
@@ -10,7 +10,7 @@ export class MatrixClientObject {
   constructor(state, env) {
     this.state = state;
     this.env = env;
-    this.corePromise = null;
+    this.clientPromise = null;
     this.initPromise = null;
   }
 
@@ -19,8 +19,8 @@ export class MatrixClientObject {
       return this.handleWebhook(request);
     }
 
-    const core = await this.loadCore();
-    return Response.json({ ok: Boolean(core) });
+    const client = await this.loadClient();
+    return Response.json({ ok: Boolean(client) });
   }
 
   async handleWebhook(request) {
@@ -29,16 +29,16 @@ export class MatrixClientObject {
     }
 
     const body = await request.json();
-    const core = await this.loadCore();
-    await core.sync.applyResponse({
+    const client = await this.loadClient();
+    await client.sync.applyResponse({
       response: body.response ?? body.sync ?? body,
       since: typeof body.since === "string" ? body.since : undefined,
     });
     return Response.json({ ok: true });
   }
 
-  async loadCore() {
-    this.corePromise ??= Promise.resolve(createMatrixClient({
+  async loadClient() {
+    this.clientPromise ??= Promise.resolve(createMatrixClient({
       homeserver: this.env.MATRIX_HOMESERVER_URL ?? "https://matrix.example.org",
       token: this.env.MATRIX_ACCESS_TOKEN ?? "missing-token",
       recoveryKey: this.env.MATRIX_RECOVERY_KEY,
@@ -47,12 +47,12 @@ export class MatrixClientObject {
       }),
       wasmModule,
     }));
-    const core = await this.corePromise;
+    const client = await this.clientPromise;
     if (this.env.MATRIX_ACCESS_TOKEN && this.env.MATRIX_HOMESERVER_URL) {
-      this.initPromise ??= core.boot();
+      this.initPromise ??= client.boot();
       await this.initPromise;
     }
-    return core;
+    return client;
   }
 }
 

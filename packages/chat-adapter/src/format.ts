@@ -9,7 +9,7 @@ import type { AdapterPostableMessage } from "chat";
 import type { Root } from "mdast";
 import { HTMLElement, NodeType, parse as parseHTML, type Node as HTMLNode } from "node-html-parser";
 import { marked } from "marked";
-import type { MatrixMentions } from "pickle";
+import type { MatrixMentions } from "@beeper/pickle";
 
 export interface RenderedMatrixMessage {
   body: string;

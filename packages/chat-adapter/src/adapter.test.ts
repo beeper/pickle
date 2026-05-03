@@ -1,4 +1,4 @@
-import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent } from "pickle";
+import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent } from "@beeper/pickle";
 import type { MatrixCore, MatrixCoreEvent } from "../../pickle/src/runtime-types";
 import type { Adapter, ChatInstance, Logger, StateAdapter } from "chat";
 import { describe, expect, it, vi } from "vitest";

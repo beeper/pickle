@@ -2,7 +2,7 @@ import type {
   MatrixAccount,
   MatrixClient,
   MatrixStore,
-} from "pickle";
+} from "@beeper/pickle";
 
 export interface MatrixChatThreadRef {
   eventId?: string;

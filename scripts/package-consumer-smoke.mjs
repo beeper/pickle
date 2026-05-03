@@ -22,26 +22,26 @@ try {
   await mkdir(packDir, { recursive: true });
   await mkdir(consumerDir, { recursive: true });
 
-  const corePackage = await readPackage(join(rootPath, "packages/pickle/package.json"));
+  const picklePackage = await readPackage(join(rootPath, "packages/pickle/package.json"));
   const cloudflarePackage = await readPackage(join(rootPath, "packages/cloudflare/package.json"));
   const adapterPackage = await readPackage(join(rootPath, "packages/chat-adapter/package.json"));
 
   const cloudflareTarball = await packPackage(cloudflarePackage.name, packDir);
-  const coreTarball = await packPackage(corePackage.name, packDir);
+  const pickleTarball = await packPackage(picklePackage.name, packDir);
   const adapterTarball = await packPackage(adapterPackage.name, packDir);
 
   const dependencies = {
     [cloudflarePackage.name]: `file:${cloudflareTarball}`,
-    [corePackage.name]: `file:${coreTarball}`,
+    [picklePackage.name]: `file:${pickleTarball}`,
     [adapterPackage.name]: `file:${adapterTarball}`,
   };
   const overrides = {
     [cloudflarePackage.name]: `file:${cloudflareTarball}`,
-    [corePackage.name]: `file:${coreTarball}`,
+    [picklePackage.name]: `file:${pickleTarball}`,
   };
 
   for (const dependencyName of Object.keys(adapterPackage.dependencies ?? {})) {
-    if (dependencyName !== corePackage.name) {
+    if (dependencyName !== picklePackage.name) {
       const spec = await installedPackageLink("packages/chat-adapter", dependencyName);
       dependencies[dependencyName] = spec;
       overrides[dependencyName] = spec;
@@ -81,16 +81,16 @@ try {
       "--input-type=module",
       "--eval",
       `
-        import * as core from "pickle";
-        import * as beeperLogin from "pickle/beeper-login";
-        import * as helpers from "pickle/helpers";
-        import * as login from "pickle/login";
-        import * as node from "pickle/node";
+        import * as pickle from "@beeper/pickle";
+        import * as beeperLogin from "@beeper/pickle/beeper-login";
+        import * as helpers from "@beeper/pickle/helpers";
+        import * as login from "@beeper/pickle/login";
+        import * as node from "@beeper/pickle/node";
         import * as cloudflare from "@beeper/pickle-cloudflare";
         import * as adapter from "@beeper/pickle-chat-adapter";
 
         const checks = {
-          core: ["createMatrixClient", "createMatrixLogin"].every((key) => key in core),
+          pickle: ["createMatrixClient", "createMatrixLogin"].every((key) => key in pickle),
           beeperLogin: ["createBeeperLogin"].every((key) => key in beeperLogin),
           helpers: ["onMessage", "onReaction", "onInvite", "onRawEvent"].every((key) => key in helpers),
           login: ["createMatrixLogin"].every((key) => key in login),

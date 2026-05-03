@@ -1,6 +1,6 @@
 # @beeper/pickle-state-memory
 
-In-memory `MatrixStore` for `pickle`. Tests and local experiments only.
+In-memory `MatrixStore` for `@beeper/pickle`. Tests and local experiments only.
 
 ```sh
 npm install @beeper/pickle-state-memory

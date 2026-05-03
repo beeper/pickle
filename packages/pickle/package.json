@@ -1,5 +1,5 @@
 {
-  "name": "pickle",
+  "name": "@beeper/pickle",
   "version": "0.1.0",
   "description": "WASM-backed TypeScript Matrix SDK built on mautrix-go",
   "type": "module",
