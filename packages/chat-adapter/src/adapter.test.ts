@@ -695,6 +695,35 @@ describe("MatrixAdapter", () => {
     );
   });
 
+  it("does not subscribe or dispatch live events when sync is disabled", async () => {
+    const { client, emit } = makeCore();
+    const chat = makeChat();
+    const adapter = new MatrixAdapter({
+      token: "token",
+      client,
+      homeserver: "https://matrix.example.com",
+      sync: { enabled: false },
+    });
+    await adapter.initialize(chat);
+
+    emit({
+      event: {
+        body: "live",
+        content: { body: "live", msgtype: "m.text" },
+        eventId: "$live",
+        isMe: false,
+        msgtype: "m.text",
+        raw: {},
+        roomId: "!room:example.com",
+        sender: "@alice:example.com",
+        type: "m.room.message",
+      },
+      type: "message",
+    });
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
   it("applies sync responses directly through the Matrix core", async () => {
     const { client, core } = makeCore();
     const adapter = new MatrixAdapter({
@@ -720,6 +749,55 @@ describe("MatrixAdapter", () => {
       },
       since: "prev",
     });
+  });
+
+  it("posts non-interactive cards as text fallback only", async () => {
+    const { client, core } = makeCore();
+    const adapter = new MatrixAdapter({
+      token: "token",
+      client,
+      homeserver: "https://matrix.example.com",
+      sync: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    await adapter.postMessage(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }), {
+      card: {
+        children: [{ content: "Body", type: "text" }],
+        title: "Status",
+        type: "card",
+      },
+    } as never);
+
+    expect(core.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      body: "Status\nBody",
+      roomId: "!room:example.com",
+    }));
+  });
+
+  it("throws clearly for unsupported interactive cards/actions", async () => {
+    const { client } = makeCore();
+    const adapter = new MatrixAdapter({
+      token: "token",
+      client,
+      homeserver: "https://matrix.example.com",
+      sync: { enabled: false },
+    });
+    await adapter.initialize(makeChat());
+
+    await expect(adapter.postMessage(encodeMatrixChatThreadRef({ roomId: "!room:example.com" }), {
+      card: {
+        children: [
+          {
+            children: [{ id: "approve", label: "Approve", type: "button" }],
+            type: "actions",
+          },
+        ],
+        title: "Approval",
+        type: "card",
+      },
+      fallbackText: "Approval requested",
+    } as never)).rejects.toThrow("interactive Chat SDK cards/actions");
   });
 
   it("delegates Beeper homeserver streams to the core stream API", async () => {

@@ -40,6 +40,7 @@ export class MatrixFormatConverter extends BaseFormatConverter {
       return this.renderPlainText(message);
     }
     if (isCardElement(message)) {
+      assertMatrixSafeCard(message);
       return this.renderMarkdown(this.cardToFallbackText(message));
     }
     if ("raw" in message) {
@@ -52,6 +53,7 @@ export class MatrixFormatConverter extends BaseFormatConverter {
       return this.renderMarkdown(stringifyMarkdown(message.ast));
     }
     if ("card" in message) {
+      assertMatrixSafeCard(message.card);
       return this.renderMarkdown(message.fallbackText ?? this.cardToFallbackText(message.card));
     }
     throw new Error("Invalid Matrix postable message");
@@ -84,6 +86,30 @@ export class MatrixFormatConverter extends BaseFormatConverter {
     }
     return result;
   }
+}
+
+function assertMatrixSafeCard(card: unknown): void {
+  if (hasUnsupportedCardInteractivity(card)) {
+    throw new Error("Matrix adapter does not support interactive Chat SDK cards/actions. Send plain text or a non-interactive card fallback.");
+  }
+}
+
+function hasUnsupportedCardInteractivity(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const type = value.type;
+  if (
+    type === "actions" ||
+    type === "button" ||
+    type === "link-button" ||
+    type === "select" ||
+    type === "radio_select" ||
+    type === "text_input"
+  ) {
+    return true;
+  }
+  return Array.isArray(value.children) && value.children.some(hasUnsupportedCardInteractivity);
 }
 
 function markdownToMatrixHTML(markdown: string): string {
@@ -227,6 +253,10 @@ function escapeMarkdownText(text: string): string {
 
 function escapeMarkdownLinkText(text: string): string {
   return text.replace(/[[\]\\]/gu, "\\$&");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export function matrixLocalpart(userId: string): string {

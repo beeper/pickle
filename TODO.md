@@ -188,13 +188,13 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
   - [ ] relation/thread mapping
   - [ ] Beeper content primitives
 - [ ] Audit cards/actions behavior:
-  - [ ] text fallback only when no unsupported interactivity is implied
-  - [ ] throw clearly for unsupported interactive cards/actions
-  - [ ] tests for unsupported behavior
-- [ ] Add tests for live subscription mode.
-- [ ] Add tests for sync-disabled CLI/request mode.
-- [ ] Add tests for webhook/apply mode with raw JSON payloads.
-- [ ] Confirm adapter does not keep parallel Matrix event systems or stores.
+  - [x] text fallback only when no unsupported interactivity is implied
+  - [x] throw clearly for unsupported interactive cards/actions
+  - [x] tests for unsupported behavior
+- [x] Add tests for live subscription mode.
+- [x] Add tests for sync-disabled CLI/request mode.
+- [x] Add tests for webhook/apply mode with raw JSON payloads.
+- [x] Confirm adapter does not keep parallel Matrix event systems or stores.
 
 ## Serverless
 
