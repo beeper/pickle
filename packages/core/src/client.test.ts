@@ -718,6 +718,55 @@ describe("createMatrixClient", () => {
     expect(calls.map((call) => call.operation)).toContain("create_beeper_stream");
     expect(calls.map((call) => call.operation)).toContain("publish_beeper_stream");
   });
+
+  it("normalizes generic stream chunk shapes", async () => {
+    const calls = installRuntime({
+      edit_message: { eventId: "$edit", raw: {}, roomId: "!room:example.com" },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      post_message: { eventId: "$message", raw: {}, roomId: "!room:example.com" },
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+
+    await client.streams.send({
+      roomId: "!room:example.com",
+      stream: chunks({ delta: "hel" }, { markdown: "lo" }, { ignored: true }),
+    });
+
+    expect(calls.map((call) => call.operation)).toEqual(["init", "post_message", "edit_message"]);
+    expect(calls[1]?.payload).toEqual({
+      body: "hel",
+      roomId: "!room:example.com",
+    });
+    expect(calls[2]?.payload).toEqual({
+      body: "hello",
+      messageId: "$message",
+      roomId: "!room:example.com",
+    });
+  });
+
+  it("sends placeholder text for empty streams", async () => {
+    const calls = installRuntime({
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      post_message: { eventId: "$message", raw: {}, roomId: "!room:example.com" },
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+
+    await client.streams.send({ roomId: "!room:example.com", stream: chunks() });
+
+    expect(calls.map((call) => call.operation)).toEqual(["init", "post_message"]);
+    expect(calls[1]?.payload).toEqual({
+      body: "...",
+      roomId: "!room:example.com",
+    });
+  });
 });
 
 async function* chunks(
