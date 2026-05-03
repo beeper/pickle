@@ -1,0 +1,15 @@
+{
+  "name": "@better-matrix-js/example-dummybridge-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "@better-matrix-js/state-file": "workspace:*",
+    "better-matrix-js": "workspace:*"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

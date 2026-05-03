@@ -52,6 +52,15 @@ importers:
         specifier: ^4.85.0
         version: 4.87.0
 
+  examples/dummybridge-bot:
+    dependencies:
+      '@better-matrix-js/state-file':
+        specifier: workspace:*
+        version: link:../../packages/state-file
+      better-matrix-js:
+        specifier: workspace:*
+        version: link:../../packages/core
+
   packages/ai-sdk:
     devDependencies:
       '@better-matrix-js/chat-adapter':
