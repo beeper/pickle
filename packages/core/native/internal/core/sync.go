@@ -243,6 +243,7 @@ func (c *Core) processSyncResponse(ctx context.Context, resp *mautrix.RespSync, 
 	if err != nil {
 		return err
 	}
+	c.processSyncMetadata(resp, since)
 	c.processInvites(resp)
 	c.processBeeperStreamSync(ctx, resp)
 	if cli.Syncer != nil {
@@ -257,6 +258,120 @@ func (c *Core) processSyncResponse(ctx context.Context, resp *mautrix.RespSync, 
 		}
 	}
 	return nil
+}
+
+func (c *Core) processSyncMetadata(resp *mautrix.RespSync, since string) {
+	if resp == nil {
+		return
+	}
+	for _, evt := range resp.AccountData.Events {
+		c.emitSyncEvent("account_data", "accountData", "", evt, since)
+	}
+	for _, evt := range resp.ToDevice.Events {
+		c.emitSyncEvent("to_device", "toDevice", "", evt, since)
+	}
+	for roomID, room := range resp.Rooms.Join {
+		for _, evt := range room.State.Events {
+			c.emitClassifiedRoomEvent("room_state", roomID, evt, since)
+		}
+		if room.StateAfter != nil {
+			for _, evt := range room.StateAfter.Events {
+				c.emitClassifiedRoomEvent("room_state_after", roomID, evt, since)
+			}
+		}
+		for _, evt := range room.Ephemeral.Events {
+			class := "ephemeral"
+			if evt != nil && evt.Type == event.EphemeralEventReceipt {
+				class = "receipt"
+			}
+			c.emitSyncEvent("room_ephemeral", class, roomID, evt, since)
+		}
+		for _, evt := range room.AccountData.Events {
+			c.emitSyncEvent("room_account_data", "accountData", roomID, evt, since)
+		}
+	}
+	for roomID, room := range resp.Rooms.Leave {
+		for _, evt := range room.State.Events {
+			c.emitClassifiedRoomEvent("left_room_state", roomID, evt, since)
+		}
+		for _, evt := range room.Timeline.Events {
+			c.emitClassifiedRoomEvent("left_room_timeline", roomID, evt, since)
+		}
+	}
+}
+
+func (c *Core) emitClassifiedRoomEvent(section string, roomID id.RoomID, evt *event.Event, since string) {
+	class := "state"
+	if evt != nil {
+		switch evt.Type {
+		case event.StateMember:
+			class = "membership"
+		case event.EventRedaction:
+			class = "redaction"
+		}
+	}
+	c.emitSyncEvent(section, class, roomID, evt, since)
+}
+
+func (c *Core) emitSyncEvent(section string, class string, roomID id.RoomID, evt *event.Event, since string) {
+	if evt == nil {
+		return
+	}
+	if roomID != "" && evt.RoomID == "" {
+		evt.RoomID = roomID
+	}
+	syncEvent := c.toMatrixSyncEvent(section, class, evt)
+	c.emit(OutboundEvent{
+		"type":  "raw_event",
+		"event": syncEvent,
+		"since": since,
+	})
+	switch class {
+	case "accountData":
+		c.emit(OutboundEvent{"type": "account_data", "event": syncEvent})
+	case "toDevice":
+		c.emit(OutboundEvent{"type": "to_device", "event": syncEvent})
+	case "receipt":
+		c.emit(OutboundEvent{"type": "receipt", "event": syncEvent})
+	case "ephemeral":
+		c.emit(OutboundEvent{"type": "ephemeral", "event": syncEvent})
+	case "membership":
+		c.emit(OutboundEvent{"type": "membership", "event": syncEvent})
+	case "redaction":
+		c.emit(OutboundEvent{"type": "redaction", "event": syncEvent})
+	case "state":
+		c.emit(OutboundEvent{"type": "room_state", "event": syncEvent})
+	}
+}
+
+func (c *Core) toMatrixSyncEvent(section string, class string, evt *event.Event) MatrixSyncEvent {
+	content := evt.Content.Raw
+	if content == nil && len(evt.Content.VeryRaw) > 0 {
+		_ = json.Unmarshal(evt.Content.VeryRaw, &content)
+	}
+	if content == nil {
+		content = map[string]any{}
+	}
+	eventID := optionalString(evt.ID.String())
+	roomID := optionalString(evt.RoomID.String())
+	sender := optionalString(evt.Sender.String())
+	stateKey := optionalString(evt.GetStateKey())
+	var originServerTS *int64
+	if evt.Timestamp != 0 {
+		originServerTS = &evt.Timestamp
+	}
+	return MatrixSyncEvent{
+		Class:          class,
+		Content:        content,
+		EventID:        eventID,
+		OriginServerTS: originServerTS,
+		Raw:            evt,
+		RoomID:         roomID,
+		Section:        section,
+		Sender:         sender,
+		StateKey:       stateKey,
+		Type:           evt.Type.Type,
+	}
 }
 
 func (c *Core) processBeeperStreamSync(ctx context.Context, resp *mautrix.RespSync) {

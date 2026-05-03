@@ -176,6 +176,20 @@ export interface MatrixInviteEvent {
   roomId: string;
 }
 
+export interface MatrixGenericEvent extends MatrixBaseEvent {
+  kind:
+    | "accountData"
+    | "ephemeral"
+    | "membership"
+    | "raw"
+    | "receipt"
+    | "redaction"
+    | "roomState"
+    | "toDevice";
+  section?: string;
+  since?: string;
+}
+
 export interface MatrixSyncStatusEvent {
   durationMs?: number;
   error?: string;
@@ -292,6 +306,7 @@ export type MatrixClientEvent =
   | MatrixMessageEvent
   | MatrixReactionEvent
   | MatrixInviteEvent
+  | MatrixGenericEvent
   | MatrixSyncStatusEvent
   | MatrixCryptoStatusEvent
   | MatrixDecryptionErrorEvent
@@ -312,7 +327,7 @@ export interface MatrixSubscription {
 }
 
 export interface MatrixRawEventEnvelope {
-  event: MatrixClientEvent;
+  event: MatrixGenericEvent;
   kind: "raw";
   raw: unknown;
   source: {

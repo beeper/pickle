@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMatrixClient } from "./client";
+import { onRawEvent } from "./helpers";
 
 interface RuntimeCall {
   coreId: string;
@@ -114,6 +115,71 @@ describe("createMatrixClient", () => {
       })
     );
     await sub.stop();
+  });
+
+  it("maps raw and generic sync events through subscriptions", async () => {
+    installRuntime({ init: { deviceId: "DEVICE", userId: "@bot:example.com" }, start_sync: {}, stop_sync: {} });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+    const accountData = vi.fn();
+    const raw = vi.fn();
+    const accountSub = await client.subscribe({ kind: "accountData" }, accountData);
+    const rawSub = await onRawEvent(client, { roomId: "!room:example.com" }, raw);
+
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          class: "accountData",
+          content: { direct: {} },
+          raw: { content: { direct: {} } },
+          type: "m.direct",
+        },
+        type: "account_data",
+      })
+    );
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          class: "raw",
+          content: { body: "hello" },
+          eventId: "$event",
+          raw: { event_id: "$event" },
+          roomId: "!room:example.com",
+          section: "room_timeline",
+          sender: "@alice:example.com",
+          type: "m.room.message",
+        },
+        since: "s123",
+        type: "raw_event",
+      })
+    );
+
+    expect(accountData).toHaveBeenCalledWith(expect.objectContaining({
+      content: { direct: {} },
+      kind: "accountData",
+      type: "m.direct",
+    }));
+    expect(raw).toHaveBeenCalledWith(expect.objectContaining({
+      event: expect.objectContaining({
+        eventId: "$event",
+        kind: "raw",
+        roomId: "!room:example.com",
+        since: "s123",
+      }),
+      raw: { event_id: "$event" },
+      source: {
+        kind: "raw",
+        roomId: "!room:example.com",
+        type: "m.room.message",
+      },
+    }));
+    await accountSub.stop();
+    await rawSub.stop();
   });
 
   it("delegates subscription lifetime to the runtime", async () => {

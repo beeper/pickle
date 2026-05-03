@@ -9,6 +9,7 @@ import type {
   MatrixClientEvent,
   MatrixCryptoStatus,
   MatrixCryptoStatusEvent,
+  MatrixGenericEvent,
   MatrixMessageEvent,
   MatrixReactionEvent,
   MatrixSyncStatusEvent,
@@ -18,6 +19,14 @@ export function toClientEvent(event: MatrixCoreEvent): MatrixClientEvent | null 
   if (event.type === "message") return toMessageEvent(event.event);
   if (event.type === "reaction") return toReactionEvent(event.event);
   if (event.type === "invite") return { kind: "invite", ...event.event };
+  if (event.type === "raw_event") return toGenericEvent(event.event, "raw", event.since);
+  if (event.type === "account_data") return toGenericEvent(event.event, "accountData");
+  if (event.type === "to_device") return toGenericEvent(event.event, "toDevice");
+  if (event.type === "receipt") return toGenericEvent(event.event, "receipt");
+  if (event.type === "ephemeral") return toGenericEvent(event.event, "ephemeral");
+  if (event.type === "membership") return toGenericEvent(event.event, "membership");
+  if (event.type === "redaction") return toGenericEvent(event.event, "redaction");
+  if (event.type === "room_state") return toGenericEvent(event.event, "roomState");
   if (event.type === "sync_status") return toSyncEvent(event);
   if (event.type === "crypto_status") return toCryptoEvent(event);
   if (event.type === "decryption_error") {
@@ -31,6 +40,27 @@ export function toClientEvent(event: MatrixCoreEvent): MatrixClientEvent | null 
   }
   if (event.type === "error") return { error: event.error, kind: "error" };
   return null;
+}
+
+function toGenericEvent(
+  event: import("./runtime-types").MatrixSyncEvent,
+  kind: MatrixGenericEvent["kind"],
+  since?: string
+): MatrixGenericEvent {
+  return stripUndefined({
+    class: event.class === "raw" ? "unknown" : event.class,
+    content: event.content,
+    eventId: event.eventId,
+    kind,
+    raw: event.raw,
+    roomId: event.roomId,
+    section: event.section,
+    sender: event.sender ? { isMe: false, userId: event.sender } : undefined,
+    since,
+    stateKey: event.stateKey,
+    timestamp: event.originServerTs,
+    type: event.type,
+  }) as MatrixGenericEvent;
 }
 
 export function toMessageEvent(event: RuntimeMessageEvent): MatrixMessageEvent {

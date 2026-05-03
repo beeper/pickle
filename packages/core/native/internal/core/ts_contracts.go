@@ -96,6 +96,19 @@ type MatrixInviteEvent struct {
 	RoomID  string  `json:"roomId"`
 }
 
+type MatrixSyncEvent struct {
+	Class          string         `json:"class" tstype:"\"state\" | \"ephemeral\" | \"accountData\" | \"toDevice\" | \"membership\" | \"redaction\" | \"raw\" | string"`
+	Content        map[string]any `json:"content"`
+	EventID        *string        `json:"eventId,omitempty"`
+	OriginServerTS *int64         `json:"originServerTs,omitempty"`
+	Raw            any            `json:"raw"`
+	RoomID         *string        `json:"roomId,omitempty"`
+	Section        string         `json:"section,omitempty"`
+	Sender         *string        `json:"sender,omitempty"`
+	StateKey       *string        `json:"stateKey,omitempty"`
+	Type           string         `json:"type"`
+}
+
 type MatrixRoomThreadSummary struct {
 	LastReplyTS *int64             `json:"lastReplyTs,omitempty"`
 	ReplyCount  *int               `json:"replyCount,omitempty"`

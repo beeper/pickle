@@ -3,6 +3,7 @@ import type {
   MatrixMessageEvent,
   MatrixRawEvent,
   MatrixReactionEvent,
+  MatrixSyncEvent,
 } from "./generated-runtime-types";
 import type { MatrixCoreOperations } from "./generated-runtime-operations";
 
@@ -84,6 +85,7 @@ export type {
   MatrixSetAccountDataOptions,
   MatrixSetRoomAccountDataOptions,
   MatrixSyncOnceOptions,
+  MatrixSyncEvent,
   MatrixSyncStartOptions,
   MatrixTypingOptions,
   MatrixUnbanUserOptions,
@@ -98,6 +100,19 @@ export type MatrixCoreEvent =
   | { event: MatrixMessageEvent; type: "message" }
   | { event: MatrixReactionEvent; type: "reaction" }
   | { event: MatrixInviteEvent; type: "invite" }
+  | {
+      event: MatrixSyncEvent;
+      since?: string;
+      type:
+        | "account_data"
+        | "ephemeral"
+        | "membership"
+        | "raw_event"
+        | "receipt"
+        | "redaction"
+        | "room_state"
+        | "to_device";
+    }
   | {
       event: {
         content?: Record<string, unknown>;

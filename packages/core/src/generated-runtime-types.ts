@@ -428,6 +428,18 @@ export interface MatrixInviteEvent {
   raw: unknown;
   roomId: string;
 }
+export interface MatrixSyncEvent {
+  class: "state" | "ephemeral" | "accountData" | "toDevice" | "membership" | "redaction" | "raw" | string;
+  content: { [key: string]: unknown};
+  eventId?: string;
+  originServerTs?: number /* int64 */;
+  raw: unknown;
+  roomId?: string;
+  section?: string;
+  sender?: string;
+  stateKey?: string;
+  type: string;
+}
 export interface MatrixRoomThreadSummary {
   lastReplyTs?: number /* int64 */;
   replyCount?: number /* int */;

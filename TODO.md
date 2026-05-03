@@ -67,22 +67,22 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [ ] Implement true granular raw Matrix sync events from Go for:
   - [ ] joined room timeline events
   - [ ] invited room state
-  - [ ] left room timeline/state
-  - [ ] room state events
-  - [ ] ephemeral room events
-  - [ ] account data events
-  - [ ] to-device events
+  - [x] left room timeline/state
+  - [x] room state events
+  - [x] ephemeral room events
+  - [x] account data events
+  - [x] to-device events
   - [ ] device list changes
   - [ ] presence events if supported
 - [ ] Raw events must include unmodified Matrix payload and source metadata:
-  - [ ] sync cursor `since`
+  - [x] sync cursor `since`
   - [ ] next batch when available
-  - [ ] room id if applicable
-  - [ ] event class/source section
-  - [ ] event type
+  - [x] room id if applicable
+  - [x] event class/source section
+  - [x] event type
   - [ ] encrypted/decrypted status where applicable
-- [ ] Ensure raw event delivery shares the same subscription runner and filter path.
-- [ ] Add unit tests for raw event filtering and metadata.
+- [x] Ensure raw event delivery shares the same subscription runner and filter path.
+- [x] Add unit tests for raw event filtering and metadata.
 - [ ] Add e2e coverage for raw encrypted timeline events.
 
 ## Normalized Event Model
@@ -93,13 +93,13 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Sync status events.
 - [x] Crypto status events.
 - [x] Decryption error events.
-- [ ] Redaction events as first-class normalized events.
-- [ ] Membership events as first-class normalized events.
-- [ ] Room state events as first-class normalized events.
-- [ ] Account data events as first-class normalized events.
-- [ ] To-device events as first-class normalized events.
-- [ ] Ephemeral events as first-class normalized events.
-- [ ] Receipt events as first-class normalized events.
+- [x] Redaction events as first-class normalized events.
+- [x] Membership events as first-class normalized events.
+- [x] Room state events as first-class normalized events.
+- [x] Account data events as first-class normalized events.
+- [x] To-device events as first-class normalized events.
+- [x] Ephemeral events as first-class normalized events.
+- [x] Receipt events as first-class normalized events.
 - [ ] Typing events as first-class normalized events.
 - [ ] Room summary/update events if needed for client UIs.
 - [ ] Decryption lifecycle events for pending, retried, failed, and recovered decryptions.

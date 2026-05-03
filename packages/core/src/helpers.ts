@@ -41,16 +41,16 @@ export function onRawEvent(
   options: MatrixSubscribeFilter,
   handler: Handler<MatrixRawEventEnvelope>
 ): Promise<MatrixSubscription> {
-  return client.subscribe(options, (event) => {
-    const raw = "raw" in event ? event.raw : event;
+  return client.subscribe({ ...options, kind: "raw" }, (event) => {
+    if (event.kind !== "raw") return;
     return handler({
       event,
       kind: "raw",
-      raw,
+      raw: event.raw,
       source: stripUndefined({
         kind: event.kind,
-        roomId: "roomId" in event ? event.roomId : undefined,
-        type: "type" in event ? event.type : undefined,
+        roomId: event.roomId,
+        type: event.type,
       }),
     });
   });
