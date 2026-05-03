@@ -53,9 +53,9 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Stopping the last subscription stops the internal sync runner.
 - [ ] Make `sub.done` reject on unrecoverable sync loop errors from Go, not only subscription handler errors.
 - [ ] Add subscription options for runtime sync tuning if needed without exposing `sync.start`.
-- [ ] Add tests for multiple subscribers sharing one sync runner.
-- [ ] Add tests for stopping one subscriber while another remains active.
-- [ ] Add tests for handler failures and `done` rejection behavior.
+- [x] Add tests for multiple subscribers sharing one sync runner.
+- [x] Add tests for stopping one subscriber while another remains active.
+- [x] Add tests for handler failures and `done` rejection behavior.
 - [ ] Add tests that `boot()` does not emit app events.
 - [ ] Add tests that default subscription is future-only with a reused stored cursor.
 - [ ] Add tests that `catchUp()` emits missed events and only through that subscription.
@@ -279,8 +279,8 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Core lazy boot behavior.
 - [x] Subscription controller lifecycle basics.
 - [x] Chat adapter type conformance.
-- [ ] Subscription multi-subscriber lifecycle.
-- [ ] Subscription handler error behavior.
+- [x] Subscription multi-subscriber lifecycle.
+- [x] Subscription handler error behavior.
 - [x] Pure helper behavior for `onMessage`, `onReaction`, `onInvite`, `onRawEvent`.
 - [ ] Normalized event mapping for every event kind.
 - [ ] Raw event path.

@@ -247,6 +247,65 @@ describe("createMatrixClient", () => {
     await inviteSub.stop();
   });
 
+  it("shares one sync runner across multiple subscribers", async () => {
+    const calls = installRuntime({
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      start_sync: {},
+      stop_sync: {},
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+
+    const first = await client.subscribe({ kind: "message" }, () => undefined);
+    const second = await client.subscribe({ kind: "reaction" }, () => undefined);
+    await first.stop();
+    await second.stop();
+
+    expect(calls.map((call) => call.operation)).toEqual(["init", "start_sync", "stop_sync"]);
+    await expect(first.done).resolves.toBeUndefined();
+    await expect(second.done).resolves.toBeUndefined();
+  });
+
+  it("rejects subscription done when a handler fails", async () => {
+    installRuntime({
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      start_sync: {},
+      stop_sync: {},
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+    const failure = new Error("handler failed");
+    const sub = await client.subscribe({ kind: "message" }, () => {
+      throw failure;
+    });
+
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          body: "Hello",
+          content: { body: "Hello", msgtype: "m.text" },
+          eventId: "$message",
+          msgtype: "m.text",
+          raw: {},
+          roomId: "!room:example.com",
+          sender: "@alice:example.com",
+          type: "m.room.message",
+        },
+        type: "message",
+      })
+    );
+
+    await expect(sub.done).rejects.toThrow("handler failed");
+    await sub.stop();
+  });
+
   it("delegates subscription lifetime to the runtime", async () => {
     const calls = installRuntime({
       init: { deviceId: "DEVICE", userId: "@bot:example.com" },
