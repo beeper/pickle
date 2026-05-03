@@ -106,12 +106,15 @@ export type MatrixCoreEvent =
       since?: string;
       type:
         | "account_data"
+        | "device_list"
         | "ephemeral"
         | "membership"
+        | "presence"
         | "raw_event"
         | "receipt"
         | "redaction"
         | "room_state"
+        | "typing"
         | "to_device";
     }
   | {

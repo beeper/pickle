@@ -23,6 +23,9 @@ export function toClientEvent(event: MatrixCoreEvent): MatrixClientEvent | null 
   if (event.type === "account_data") return toGenericEvent(event.event, "accountData");
   if (event.type === "to_device") return toGenericEvent(event.event, "toDevice");
   if (event.type === "receipt") return toGenericEvent(event.event, "receipt");
+  if (event.type === "typing") return toGenericEvent(event.event, "typing");
+  if (event.type === "presence") return toGenericEvent(event.event, "presence");
+  if (event.type === "device_list") return toGenericEvent(event.event, "deviceList");
   if (event.type === "ephemeral") return toGenericEvent(event.event, "ephemeral");
   if (event.type === "membership") return toGenericEvent(event.event, "membership");
   if (event.type === "redaction") return toGenericEvent(event.event, "redaction");

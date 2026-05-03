@@ -72,8 +72,8 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
   - [x] ephemeral room events
   - [x] account data events
   - [x] to-device events
-  - [ ] device list changes
-  - [ ] presence events if supported
+  - [x] device list changes
+  - [x] presence events if supported
 - [ ] Raw events must include unmodified Matrix payload and source metadata:
   - [x] sync cursor `since`
   - [x] next batch when available
@@ -100,12 +100,12 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] To-device events as first-class normalized events.
 - [x] Ephemeral events as first-class normalized events.
 - [x] Receipt events as first-class normalized events.
-- [ ] Typing events as first-class normalized events.
+- [x] Typing events as first-class normalized events.
 - [ ] Room summary/update events if needed for client UIs.
 - [ ] Decryption lifecycle events for pending, retried, failed, and recovered decryptions.
 - [x] Make event filter matching work consistently across `kind`, `roomId`, `type`, sender, relation, and thread root where available.
 - [ ] Add unit tests for every normalized event mapper.
-- [ ] Add Go tests for every event emitted from `/sync`.
+- [x] Add Go tests for every event emitted from `/sync`.
 
 ## Core Matrix Capabilities
 

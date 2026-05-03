@@ -267,8 +267,14 @@ func (c *Core) processSyncMetadata(resp *mautrix.RespSync, since string) {
 	for _, evt := range resp.AccountData.Events {
 		c.emitSyncEvent("account_data", "accountData", "", evt, since, resp.NextBatch)
 	}
+	for _, evt := range resp.Presence.Events {
+		c.emitSyncEvent("presence", "presence", "", evt, since, resp.NextBatch)
+	}
 	for _, evt := range resp.ToDevice.Events {
 		c.emitSyncEvent("to_device", "toDevice", "", evt, since, resp.NextBatch)
+	}
+	if len(resp.DeviceLists.Changed) > 0 || len(resp.DeviceLists.Left) > 0 {
+		c.emitDeviceListEvent(resp.DeviceLists, since, resp.NextBatch)
 	}
 	for roomID, room := range resp.Rooms.Invite {
 		for _, evt := range room.State.Events {
@@ -294,8 +300,13 @@ func (c *Core) processSyncMetadata(resp *mautrix.RespSync, since string) {
 		}
 		for _, evt := range room.Ephemeral.Events {
 			class := "ephemeral"
-			if evt != nil && evt.Type == event.EphemeralEventReceipt {
-				class = "receipt"
+			if evt != nil {
+				switch evt.Type {
+				case event.EphemeralEventReceipt:
+					class = "receipt"
+				case event.EphemeralEventTyping:
+					class = "typing"
+				}
 			}
 			c.emitSyncEvent("room_ephemeral", class, roomID, evt, since, resp.NextBatch)
 		}
@@ -347,6 +358,10 @@ func (c *Core) emitSyncEvent(section string, class string, roomID id.RoomID, evt
 		c.emit(OutboundEvent{"type": "to_device", "event": syncEvent})
 	case "receipt":
 		c.emit(OutboundEvent{"type": "receipt", "event": syncEvent})
+	case "typing":
+		c.emit(OutboundEvent{"type": "typing", "event": syncEvent})
+	case "presence":
+		c.emit(OutboundEvent{"type": "presence", "event": syncEvent})
 	case "ephemeral":
 		c.emit(OutboundEvent{"type": "ephemeral", "event": syncEvent})
 	case "membership":
@@ -356,6 +371,36 @@ func (c *Core) emitSyncEvent(section string, class string, roomID id.RoomID, evt
 	case "state":
 		c.emit(OutboundEvent{"type": "room_state", "event": syncEvent})
 	}
+}
+
+func (c *Core) emitDeviceListEvent(lists mautrix.DeviceLists, since string, nextBatch string) {
+	changed := make([]string, 0, len(lists.Changed))
+	for _, userID := range lists.Changed {
+		changed = append(changed, userID.String())
+	}
+	left := make([]string, 0, len(lists.Left))
+	for _, userID := range lists.Left {
+		left = append(left, userID.String())
+	}
+	content := map[string]any{
+		"changed": changed,
+		"left":    left,
+	}
+	syncEvent := MatrixSyncEvent{
+		Class:     "deviceList",
+		Content:   content,
+		NextBatch: optionalString(nextBatch),
+		Raw:       lists,
+		Section:   "device_lists",
+		Type:      "m.device_list",
+	}
+	c.emit(OutboundEvent{
+		"type":      "raw_event",
+		"event":     syncEvent,
+		"since":     since,
+		"nextBatch": nextBatch,
+	})
+	c.emit(OutboundEvent{"type": "device_list", "event": syncEvent})
 }
 
 func (c *Core) toMatrixSyncEvent(section string, class string, evt *event.Event, nextBatch string) MatrixSyncEvent {

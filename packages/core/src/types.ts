@@ -179,12 +179,15 @@ export interface MatrixInviteEvent {
 export interface MatrixGenericEvent extends MatrixBaseEvent {
   kind:
     | "accountData"
+    | "deviceList"
     | "ephemeral"
     | "membership"
+    | "presence"
     | "raw"
     | "receipt"
     | "redaction"
     | "roomState"
+    | "typing"
       | "toDevice";
   nextBatch?: string;
   section?: string;

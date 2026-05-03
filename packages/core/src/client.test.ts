@@ -125,9 +125,15 @@ describe("createMatrixClient", () => {
       wasmModule: {} as WebAssembly.Module,
     });
     const accountData = vi.fn();
+    const deviceList = vi.fn();
+    const presence = vi.fn();
     const raw = vi.fn();
+    const typing = vi.fn();
     const accountSub = await client.subscribe({ kind: "accountData" }, accountData);
+    const deviceSub = await client.subscribe({ kind: "deviceList" }, deviceList);
+    const presenceSub = await client.subscribe({ kind: "presence" }, presence);
     const rawSub = await onRawEvent(client, { roomId: "!room:example.com" }, raw);
+    const typingSub = await client.subscribe({ kind: "typing" }, typing);
 
     globalThis.__matrixCoreEmit?.(
       "core-1",
@@ -160,11 +166,69 @@ describe("createMatrixClient", () => {
         type: "raw_event",
       })
     );
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          class: "typing",
+          content: { user_ids: ["@alice:example.com"] },
+          raw: { content: { user_ids: ["@alice:example.com"] } },
+          roomId: "!room:example.com",
+          section: "room_ephemeral",
+          type: "m.typing",
+        },
+        type: "typing",
+      })
+    );
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          class: "presence",
+          content: { presence: "online" },
+          raw: { content: { presence: "online" } },
+          section: "presence",
+          sender: "@alice:example.com",
+          type: "m.presence",
+        },
+        type: "presence",
+      })
+    );
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          class: "deviceList",
+          content: { changed: ["@alice:example.com"], left: [] },
+          raw: { changed: ["@alice:example.com"], left: [] },
+          section: "device_lists",
+          type: "m.device_list",
+        },
+        type: "device_list",
+      })
+    );
 
     expect(accountData).toHaveBeenCalledWith(expect.objectContaining({
       content: { direct: {} },
       kind: "accountData",
       type: "m.direct",
+    }));
+    expect(typing).toHaveBeenCalledWith(expect.objectContaining({
+      content: { user_ids: ["@alice:example.com"] },
+      kind: "typing",
+      roomId: "!room:example.com",
+      type: "m.typing",
+    }));
+    expect(presence).toHaveBeenCalledWith(expect.objectContaining({
+      content: { presence: "online" },
+      kind: "presence",
+      sender: { isMe: false, userId: "@alice:example.com" },
+      type: "m.presence",
+    }));
+    expect(deviceList).toHaveBeenCalledWith(expect.objectContaining({
+      content: { changed: ["@alice:example.com"], left: [] },
+      kind: "deviceList",
+      type: "m.device_list",
     }));
     expect(raw).toHaveBeenCalledWith(expect.objectContaining({
       event: expect.objectContaining({
@@ -182,7 +246,10 @@ describe("createMatrixClient", () => {
       },
     }));
     await accountSub.stop();
+    await deviceSub.stop();
+    await presenceSub.stop();
     await rawSub.stop();
+    await typingSub.stop();
   });
 
   it("keeps pure event helpers as thin subscription filters", async () => {
