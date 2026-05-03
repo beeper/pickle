@@ -152,15 +152,15 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 
 - [x] Keep separate storage packages: memory, file, sqlite, indexeddb, cloudflare.
 - [x] Store fast-boot state: crypto, cursor, pending decryptions, reaction summaries.
-- [ ] Audit all stores against the new lazy lifecycle.
-- [ ] Add shared conformance tests for all storage adapters.
+- [x] Audit all stores against the new lazy lifecycle.
+- [x] Add shared conformance tests for all storage adapters.
 - [ ] Confirm no store tries to model a full gomuks timeline DB.
 - [ ] Persist room summaries needed for bot/client startup.
 - [ ] Persist relation summaries needed for reactions/threads.
 - [ ] Add bounded recent event cache and eviction tests.
 - [ ] Document single-writer requirements per store.
-- [ ] Cloudflare Durable Object store smoke after subscription API change.
-- [ ] IndexedDB smoke after subscription API change.
+- [x] Cloudflare Durable Object store smoke after subscription API change.
+- [x] IndexedDB smoke after subscription API change.
 
 ## Beeper
 

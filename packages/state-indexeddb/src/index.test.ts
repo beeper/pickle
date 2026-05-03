@@ -1,8 +1,14 @@
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
+import { testMatrixStoreConformance } from "../../core/test/store-conformance";
 import { createIndexedDBMatrixStore } from "./index";
 
 describe("IndexedDBMatrixStore", () => {
+  testMatrixStoreConformance("IndexedDBMatrixStore", () => createIndexedDBMatrixStore({
+    databaseName: `matrix-store-conformance-${crypto.randomUUID()}`,
+    indexedDB: new IDBFactory(),
+  }));
+
   it("round-trips bytes and lists by prefix", async () => {
     const store = createIndexedDBMatrixStore({
       databaseName: `matrix-store-${crypto.randomUUID()}`,

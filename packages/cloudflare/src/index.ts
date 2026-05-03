@@ -133,7 +133,7 @@ export function createCloudflareKVMatrixStore(
     },
     async get(key) {
       const value = await namespace.get(prefix + key, "arrayBuffer");
-      return value ? new Uint8Array(value) : null;
+      return value ? copyBytes(new Uint8Array(value)) : null;
     },
     async list(keyPrefix) {
       const keys: string[] = [];
@@ -169,12 +169,12 @@ export function createDurableObjectMatrixStore(
     async get(key) {
       const value = await storage.get<ArrayBuffer | Uint8Array | number[]>(prefix + key);
       if (value instanceof Uint8Array) {
-        return new Uint8Array(value);
+        return copyBytes(value);
       }
       if (value instanceof ArrayBuffer) {
-        return new Uint8Array(value);
+        return copyBytes(new Uint8Array(value));
       }
-      return Array.isArray(value) ? new Uint8Array(value) : null;
+      return Array.isArray(value) ? copyBytes(new Uint8Array(value)) : null;
     },
     async list(keyPrefix) {
       const values = await storage.list({ prefix: prefix + keyPrefix });
@@ -432,9 +432,15 @@ export class MatrixSyncDurableObject {
 }
 
 function copyToArrayBuffer(value: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(value.byteLength);
+  new Uint8Array(buffer).set(value);
+  return buffer;
+}
+
+function copyBytes(value: Uint8Array): Uint8Array {
   const copy = new Uint8Array(value.byteLength);
   copy.set(value);
-  return copy.buffer;
+  return copy;
 }
 
 function errorMessage(error: unknown): string {

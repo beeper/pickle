@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { testMatrixStoreConformance } from "../../core/test/store-conformance";
 import {
   createDurableObjectMatrixStore,
   decryptMatrixSyncWebhookEnvelope,
@@ -43,6 +44,10 @@ class FakeDurableObjectStorage implements DurableObjectStorageLike {
 }
 
 describe("createDurableObjectMatrixStore", () => {
+  testMatrixStoreConformance("DurableObjectMatrixStore", () =>
+    createDurableObjectMatrixStore(new FakeDurableObjectStorage(), { prefix: "matrix/" })
+  );
+
   it("round-trips bytes through Durable Object storage", async () => {
     const storage = new FakeDurableObjectStorage();
     const store = createDurableObjectMatrixStore(storage, { prefix: "matrix/" });

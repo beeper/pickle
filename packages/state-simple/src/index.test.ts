@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
+import { testMatrixStoreConformance } from "../../core/test/store-conformance";
 import { createMatrixStore } from "./index";
 
 describe("createMatrixStore", () => {
+  testMatrixStoreConformance("SimpleMatrixStore", () => {
+    const values = new Map<string, Uint8Array>();
+    return createMatrixStore({
+      async delete(key) {
+        values.delete(key);
+      },
+      async get(key) {
+        return values.get(key) ?? null;
+      },
+      async set(key, value) {
+        values.set(key, value);
+      },
+    });
+  });
+
   it("adapts simple get/set stores and maintains an index for list()", async () => {
     const values = new Map<string, Uint8Array>();
     const store = createMatrixStore({
