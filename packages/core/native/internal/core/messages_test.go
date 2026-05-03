@@ -93,6 +93,45 @@ func TestProcessEventSkipsDuplicateTimelineEvents(t *testing.T) {
 	}
 }
 
+func TestProcessEncryptedEventEmitsDecryptionError(t *testing.T) {
+	ctx := context.Background()
+	var emitted []OutboundEvent
+	core := New(func(event OutboundEvent) {
+		emitted = append(emitted, event)
+	})
+	content := map[string]any{
+		"algorithm":  "m.megolm.v1.aes-sha2",
+		"ciphertext": "ciphertext",
+		"device_id":  "DEVICE",
+		"sender_key": "sender-key",
+		"session_id": "session",
+	}
+	raw, _ := json.Marshal(content)
+	evt := &event.Event{
+		Content: event.Content{Raw: content, VeryRaw: raw},
+		ID:      id.EventID("$event"),
+		RoomID:  id.RoomID("!room:example"),
+		Sender:  id.UserID("@alice:example"),
+		Type:    event.EventEncrypted,
+	}
+
+	core.processEvent(ctx, evt)
+
+	if len(emitted) != 1 {
+		t.Fatalf("expected one emitted event, got %d", len(emitted))
+	}
+	if emitted[0]["type"] != "decryption_error" {
+		t.Fatalf("expected decryption error, got %#v", emitted[0])
+	}
+	eventData, ok := emitted[0]["event"].(OutboundEvent)
+	if !ok {
+		t.Fatalf("expected event details, got %#v", emitted[0]["event"])
+	}
+	if eventData["eventId"] != "$event" || eventData["roomId"] != "!room:example" {
+		t.Fatalf("unexpected event details: %#v", eventData)
+	}
+}
+
 func TestConvertEditEventNormalizesReplacement(t *testing.T) {
 	core := New(nil)
 	content := map[string]any{

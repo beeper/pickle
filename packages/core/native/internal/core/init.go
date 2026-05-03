@@ -275,6 +275,10 @@ func (c *Core) setupCrypto(ctx context.Context, req MatrixCoreInitOptions) error
 	if err := helper.Init(ctx); err != nil {
 		return fmt.Errorf("failed to initialize Matrix E2EE; if this access token belongs to an existing encrypted device, the matching local crypto store is required. Logging in as a fresh device or adding durable crypto storage fixes this: %w", err)
 	}
+	if err := helper.Machine().ShareKeys(ctx, -1); err != nil {
+		return fmt.Errorf("failed to upload Matrix E2EE device keys: %w", err)
+	}
+	syncer.OnEventType(event.ToDeviceEncrypted, helper.Machine().HandleToDeviceEvent)
 	cli.Crypto = helper
 	c.crypto = helper
 	c.cryptoStatus = "enabled"
@@ -301,9 +305,9 @@ func (c *Core) setupCrypto(ctx context.Context, req MatrixCoreInitOptions) error
 		}
 	}
 
-	syncer.OnEvent(func(ctx context.Context, evt *event.Event) {
-		c.processEvent(ctx, evt)
-	})
+	syncer.OnEventType(event.EventMessage, c.processEvent)
+	syncer.OnEventType(event.EventReaction, c.processEvent)
+	syncer.OnEventType(event.EventRedaction, c.processEvent)
 	return nil
 }
 

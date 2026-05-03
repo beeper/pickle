@@ -74,11 +74,20 @@ async function sendEditStream(messages: MatrixMessages, opts: SendMatrixStreamOp
     }));
   }
   if (accumulated !== lastFlushed) {
-    return messages.edit({
+    const replacement = await messages.edit({
       eventId: message.eventId,
       roomId: opts.roomId,
       text: accumulated,
     });
+    return {
+      ...replacement,
+      eventId: message.eventId,
+      raw: {
+        logicalEventId: message.eventId,
+        raw: replacement.raw,
+        replacementEventId: replacement.eventId,
+      },
+    };
   }
   return message;
 }
@@ -140,7 +149,7 @@ async function sendBeeperStream(
     messageMetadata: { finish_reason: "stop", turn_id: turnId },
     type: "finish",
   });
-  return client.messages.edit({
+  const replacement = await client.messages.edit({
     content: {
       "com.beeper.ai": {
         messages: [{ id: turnId, parts: [{ text: accumulated, type: "text" }], role: "assistant" }],
@@ -151,6 +160,15 @@ async function sendBeeperStream(
     roomId: opts.roomId,
     text: accumulated || opts.text || "...",
   });
+  return {
+    ...replacement,
+    eventId: target.eventId,
+    raw: {
+      logicalEventId: target.eventId,
+      raw: replacement.raw,
+      replacementEventId: replacement.eventId,
+    },
+  };
 }
 
 async function publishBeeperStreamPart(
