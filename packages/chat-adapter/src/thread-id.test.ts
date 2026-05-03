@@ -4,6 +4,7 @@ import { decodeMatrixChatThreadRef, encodeMatrixChatThreadRef, matrixChannelIdFr
 describe("Matrix thread IDs", () => {
   it("round-trips room IDs", () => {
     const threadId = encodeMatrixChatThreadRef({ roomId: "!abc:example.com" });
+    expect(threadId).toBe("matrix:!abc%3Aexample.com");
     expect(decodeMatrixChatThreadRef(threadId)).toEqual({ roomId: "!abc:example.com" });
   });
 
@@ -12,6 +13,7 @@ describe("Matrix thread IDs", () => {
       eventId: "$event:example.com",
       roomId: "!abc:example.com",
     });
+    expect(threadId).toBe("matrix:!abc%3Aexample.com:%24event%3Aexample.com");
     expect(decodeMatrixChatThreadRef(threadId)).toEqual({
       eventId: "$event:example.com",
       roomId: "!abc:example.com",
@@ -28,4 +30,3 @@ describe("Matrix thread IDs", () => {
     );
   });
 });
-
