@@ -292,14 +292,14 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 
 ## Release Readiness
 
-- [ ] `pnpm typecheck`
-- [ ] `pnpm test`
-- [ ] `pnpm test:go`
-- [ ] `pnpm build`
-- [ ] Package consumer smoke.
+- [x] `pnpm typecheck`
+- [x] `pnpm test`
+- [x] `pnpm test:go`
+- [x] `pnpm build`
+- [x] Package consumer smoke.
 - [x] Cloudflare smoke.
 - [ ] Browser smoke.
 - [ ] Node live e2e with cached accounts.
-- [ ] Review public exports for duplicate or fake layers.
+- [x] Review public exports for duplicate or fake layers.
 - [ ] Review code for duplicate types and adapters owning core logic.
-- [ ] Review docs for stale old API references.
+- [x] Review docs for stale old API references.
