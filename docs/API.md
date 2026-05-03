@@ -10,6 +10,10 @@
 
 There is no public `connect()`, `events`, `sync.start()`, `sync.once()`, or `sync.stop()`.
 
+## Migration Stance
+
+This SDK has not had a stable public release. The v1 API intentionally deletes old generated shapes instead of preserving aliases. Treat stale examples that mention `connect()`, root `events`, or public `sync.start()` as obsolete.
+
 ## Account Objects
 
 Use `MatrixAccount` as the serializable account/session shape:
@@ -112,6 +116,8 @@ await client.sync.applyResponse({ response, since });
 
 Only one writer should advance an encrypted Matrix device cursor and crypto store at a time. In serverless deployments, serialize work through a Durable Object, a lock, or another single-writer mechanism.
 
+Live mode owns the cursor inside `client.subscribe(...)`. Webhook mode owns the cursor in the external sync producer and applies the payload to the account client. Cloudflare mode should use one sync Durable Object to poll Matrix and one account Durable Object to apply responses and run bot code.
+
 ## Raw Requests
 
 Use `client.raw.request` for advanced Matrix endpoints without adding throwaway wrappers:
@@ -144,3 +150,7 @@ const client = createMatrixClient({
 ## Unsupported Chat SDK Features
 
 Matrix has no native portable equivalent for Chat SDK modals, scheduled messages, or interactive cards/actions. The adapter may render plain text only when that does not imply unsupported interactivity; otherwise it should throw clearly.
+
+## Beeper
+
+Beeper is first-class, but non-standard behavior stays explicit. Native stream events and ephemeral sends live under `client.beeper.*`, and the Chat SDK adapter only uses them when the homeserver is Beeper or `beeper: true` is configured. Standard Matrix homeservers use Matrix edit-based streaming and reject Beeper-only ephemeral sends.

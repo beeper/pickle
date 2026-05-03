@@ -33,7 +33,7 @@ bot.onNewMention(async (thread, message) => {
 await bot.initialize();
 ```
 
-That's it. The adapter starts long-sync `/sync` automatically and forwards Matrix events into Chat SDK threads.
+That's it. The adapter subscribes automatically and forwards future Matrix events into Chat SDK threads.
 
 For E2EE bots, keep both Chat SDK state and Matrix client state durable. `recoveryKey` lets the bot restore backed-up room keys, while `pickleKey` protects the local crypto pickles; keep `pickleKey` stable for the lifetime of the Matrix device.
 
@@ -91,6 +91,8 @@ await matrix.handleSyncResponse({ response, since });
 
 In this mode the external sync runner owns the cursor. Do not also let the adapter run live sync for the same Matrix account.
 
+For encrypted rooms, keep webhook application single-writer for each Matrix device. The external sync runner should deliver raw Matrix JSON to `handleSyncResponse`; the adapter does not decrypt or unwrap custom webhook envelopes itself.
+
 ## Thread IDs
 
 Chat SDK thread IDs encode `{ roomId, eventId? }`. Use the helpers when you need to cross between Matrix room IDs and Chat SDK thread IDs:
@@ -111,7 +113,7 @@ createMatrixAdapter({
   recoveryKey | pickleKey,                      // optional, for E2EE
   inviteAutoJoin: { inviterAllowlist },         // optional
   roomAllowlist,                                // optional
-  sync: { enabled, retryDelayMs, timeoutMs },
+  sync: { enabled },
   typingTimeoutMs,
   commandPrefix,
 });
@@ -124,7 +126,7 @@ createMatrixAdapter({
 | Messages, replies, reactions, threads | Supported. |
 | Streaming responses | Beeper native streaming on Beeper homeservers; Matrix edit fallback elsewhere. |
 | Ephemeral messages | Beeper-only. Non-Beeper homeservers reject this operation. |
-| Cards and actions | Fallback text only; interactive Matrix/Beeper UI is not exposed. |
+| Cards and actions | Non-interactive cards can be rendered as text; interactive cards/actions throw clearly. |
 | Native modals | Unsupported because Matrix has no equivalent native surface. |
 | Scheduled messages | Unsupported; schedule work in your app and send later. |
 | URL previews | Unsupported by design; send explicit text or rendered content instead. |

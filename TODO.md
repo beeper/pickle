@@ -64,7 +64,7 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 
 - [x] `onRawEvent(...)` helper exists.
 - [x] Raw helper currently exposes mapped events plus available raw payload.
-- [ ] Implement true granular raw Matrix sync events from Go for:
+- [x] Implement true granular raw Matrix sync events from Go for:
   - [x] joined room timeline events
   - [x] invited room state
   - [x] left room timeline/state
@@ -154,7 +154,7 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Store fast-boot state: crypto, cursor, pending decryptions, reaction summaries.
 - [x] Audit all stores against the new lazy lifecycle.
 - [x] Add shared conformance tests for all storage adapters.
-- [ ] Confirm no store tries to model a full gomuks timeline DB.
+- [x] Confirm no store tries to model a full gomuks timeline DB.
 - [ ] Persist room summaries needed for bot/client startup.
 - [ ] Persist relation summaries needed for reactions/threads.
 - [ ] Add bounded recent event cache and eviction tests.
@@ -187,7 +187,7 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
   - [ ] media normalization
   - [ ] relation/thread mapping
   - [ ] Beeper content primitives
-- [ ] Audit cards/actions behavior:
+- [x] Audit cards/actions behavior:
   - [x] text fallback only when no unsupported interactivity is implied
   - [x] throw clearly for unsupported interactive cards/actions
   - [x] tests for unsupported behavior
@@ -200,12 +200,12 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 
 - [x] `client.sync.applyResponse({ response, since })` accepts externally supplied raw `/sync`.
 - [x] Serverless encrypted sync payload decryption is intentionally outside core sync API.
-- [ ] Add optional stateless helper in adapter or companion package for encrypted webhook payloads.
+- [x] Add optional stateless helper in adapter or companion package for encrypted webhook payloads.
 - [ ] Add replay/idempotency tests for serverless apply.
 - [ ] Add encrypted-room `applyResponse` fixture test with matching crypto store.
-- [ ] Document cursor ownership in live, webhook, and Durable Object modes.
-- [ ] Document how to avoid concurrent writers for encrypted devices.
-- [ ] Cloudflare Worker smoke using current subscription/apply APIs.
+- [x] Document cursor ownership in live, webhook, and Durable Object modes.
+- [x] Document how to avoid concurrent writers for encrypted devices.
+- [x] Cloudflare Worker smoke using current subscription/apply APIs.
 
 ## Node, Browser, Cloudflare Compatibility
 
@@ -213,8 +213,8 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Generic entrypoint still accepts `wasmBytes`, `wasmModule`, or `wasmUrl`.
 - [x] Node smoke against packaged build after API migration.
 - [ ] Browser smoke with IndexedDB and WASM asset.
-- [ ] Cloudflare Worker smoke with Durable Object store and WASM.
-- [ ] Confirm no Node-only imports leak into browser/core entrypoint.
+- [x] Cloudflare Worker smoke with Durable Object store and WASM.
+- [x] Confirm no Node-only imports leak into browser/core entrypoint.
 - [x] Confirm Node helper exports are available from `better-matrix-js/node`.
 - [x] Confirm package exports support direct helper imports if needed.
 
@@ -239,9 +239,9 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
   - [x] serverless `applyResponse`
   - [x] raw event helper
   - [x] E2EE store/recovery guidance
-- [ ] Add migration note stating no backward compatibility is intended pre-release.
-- [ ] Add Chat SDK adapter usage docs for live, disabled-sync, and webhook modes.
-- [ ] Add Beeper-specific docs.
+- [x] Add migration note stating no backward compatibility is intended pre-release.
+- [x] Add Chat SDK adapter usage docs for live, disabled-sync, and webhook modes.
+- [x] Add Beeper-specific docs.
 - [x] Add unsupported features docs for cards/actions/modals/scheduled messages.
 - [x] Add e2e README explaining external Beeper setup and cached account reuse.
 
@@ -283,9 +283,9 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Subscription handler error behavior.
 - [x] Pure helper behavior for `onMessage`, `onReaction`, `onInvite`, `onRawEvent`.
 - [ ] Normalized event mapping for every event kind.
-- [ ] Raw event path.
-- [ ] Storage adapter conformance.
-- [ ] Unsupported Chat SDK card/action behavior.
+- [x] Raw event path.
+- [x] Storage adapter conformance.
+- [x] Unsupported Chat SDK card/action behavior.
 - [ ] `raw.request` request construction and error handling.
 - [x] Account data/to-device/receipt helper tests.
 - [x] Raw request helper tests.
@@ -297,7 +297,7 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [ ] `pnpm test:go`
 - [ ] `pnpm build`
 - [ ] Package consumer smoke.
-- [ ] Cloudflare smoke.
+- [x] Cloudflare smoke.
 - [ ] Browser smoke.
 - [ ] Node live e2e with cached accounts.
 - [ ] Review public exports for duplicate or fake layers.
