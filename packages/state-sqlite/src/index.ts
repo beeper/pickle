@@ -1,4 +1,4 @@
-import { copyBytes, type MatrixStore } from "better-matrix-js";
+import { copyBytes, type MatrixStore } from "easymatrix";
 
 export interface SQLiteDatabaseLike {
   exec(sql: string): unknown;

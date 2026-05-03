@@ -1,4 +1,4 @@
-better-matrix-js is a monorepo with package-level licenses:
+EasyMatrix is a monorepo with package-level licenses:
 
 - packages/core: MPL-2.0
 - packages/chat-adapter: MIT

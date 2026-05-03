@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { copyBytes, type MatrixStore } from "better-matrix-js";
+import { copyBytes, type MatrixStore } from "easymatrix";
 
 export class FileMatrixStore implements MatrixStore {
   readonly #dir: string;

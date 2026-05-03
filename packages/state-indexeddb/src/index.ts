@@ -1,4 +1,4 @@
-import { copyBytes, type MatrixStore } from "better-matrix-js";
+import { copyBytes, type MatrixStore } from "easymatrix";
 
 export interface IndexedDBMatrixStoreOptions {
   databaseName?: string;
@@ -17,7 +17,7 @@ export class IndexedDBMatrixStore implements MatrixStore {
     if (!factory) {
       throw new Error("IndexedDB is not available. Pass options.indexedDB or use another store.");
     }
-    this.#databaseName = options.databaseName ?? "better-matrix-js";
+    this.#databaseName = options.databaseName ?? "easymatrix";
     this.#factory = factory;
     this.#objectStoreName = options.objectStoreName ?? "matrix-store";
   }

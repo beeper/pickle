@@ -29,22 +29,22 @@ importers:
 
   examples/beeper-streaming-smoke:
     dependencies:
-      '@better-matrix-js/chat-adapter':
+      '@beeper/easymatrix-chat-adapter':
         specifier: workspace:*
         version: link:../../packages/chat-adapter
-      better-matrix-js:
-        specifier: workspace:*
-        version: link:../../packages/core
       chat:
         specifier: ^4.26.0
         version: 4.26.0
+      easymatrix:
+        specifier: workspace:*
+        version: link:../../packages/core
 
   examples/cloudflare-worker:
     dependencies:
-      '@better-matrix-js/cloudflare':
+      '@beeper/easymatrix-cloudflare':
         specifier: workspace:*
         version: link:../../packages/cloudflare
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../../packages/core
     devDependencies:
@@ -54,16 +54,16 @@ importers:
 
   examples/dummybridge-bot:
     dependencies:
-      '@better-matrix-js/state-file':
+      '@beeper/easymatrix-state-file':
         specifier: workspace:*
         version: link:../../packages/state-file
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../../packages/core
 
   packages/ai-sdk:
     devDependencies:
-      '@better-matrix-js/chat-adapter':
+      '@beeper/easymatrix-chat-adapter':
         specifier: workspace:*
         version: link:../chat-adapter
       '@types/node':
@@ -81,7 +81,7 @@ importers:
 
   packages/chat-adapter:
     dependencies:
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../core
       marked:
@@ -109,7 +109,7 @@ importers:
 
   packages/cloudflare:
     dependencies:
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -143,7 +143,7 @@ importers:
 
   packages/state-file:
     dependencies:
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -165,7 +165,7 @@ importers:
 
   packages/state-indexeddb:
     dependencies:
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -187,7 +187,7 @@ importers:
 
   packages/state-memory:
     dependencies:
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -209,7 +209,7 @@ importers:
 
   packages/state-simple:
     dependencies:
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -231,7 +231,7 @@ importers:
 
   packages/state-sqlite:
     dependencies:
-      better-matrix-js:
+      easymatrix:
         specifier: workspace:*
         version: link:../core
     devDependencies:

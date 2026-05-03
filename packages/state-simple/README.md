@@ -1,13 +1,13 @@
-# @better-matrix-js/state-simple
+# @beeper/easymatrix-state-simple
 
 Wrap any get/set/delete backend (Redis, Postgres, S3, …) as a `MatrixStore`.
 
 ```sh
-npm install @better-matrix-js/state-simple
+npm install @beeper/easymatrix-state-simple
 ```
 
 ```ts
-import { createMatrixStore } from "@better-matrix-js/state-simple";
+import { createMatrixStore } from "@beeper/easymatrix-state-simple";
 
 const store = createMatrixStore({
   get: (key) => redis.getBuffer(key),

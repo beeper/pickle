@@ -1,6 +1,6 @@
 # API Reference
 
-The full surface of `better-matrix-js`. Start with the [package README](../packages/core) for quickstart.
+The full EasyMatrix (`easymatrix`) surface. Start with the [package README](../packages/core) for quickstart.
 
 ## Lifecycle
 
@@ -31,7 +31,7 @@ type MatrixAccount = {
 ## Login
 
 ```ts
-import { createMatrixLogin } from "better-matrix-js";
+import { createMatrixLogin } from "easymatrix";
 
 const login = createMatrixLogin({ homeserver, initialDeviceDisplayName: "my bot" });
 const session = await login.password({ username, password });
@@ -72,7 +72,7 @@ Subscriptions are future-only by default. Multiple subscribers share one `/sync`
 Thin wrappers over `subscribe`:
 
 ```ts
-import { onInvite, onMessage, onRawEvent, onReaction } from "better-matrix-js";
+import { onInvite, onMessage, onRawEvent, onReaction } from "easymatrix";
 
 await onMessage(client, { roomId }, handler);
 await onReaction(client, { relationEventId }, handler);
@@ -135,7 +135,7 @@ Each account/device store is single-writer. To run multiple bots in one process,
 Beeper-only behavior lives under `client.beeper.*` and is only used by the Chat SDK adapter when the homeserver is Beeper or `beeper: true` is passed.
 
 ```ts
-import { createBeeperLogin } from "better-matrix-js/beeper-login";
+import { createBeeperLogin } from "easymatrix/beeper-login";
 
 const beeper = createBeeperLogin();
 const token = await beeper.requestEmailToken({ clientSecret, email, sendAttempt: 1 });

@@ -1,4 +1,4 @@
-import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent } from "better-matrix-js";
+import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent } from "easymatrix";
 import type { MatrixCore, MatrixCoreEvent } from "../../core/src/runtime-types";
 import type { Adapter, ChatInstance, Logger, StateAdapter } from "chat";
 import { describe, expect, it, vi } from "vitest";

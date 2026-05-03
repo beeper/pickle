@@ -2,7 +2,7 @@ import type {
   MatrixAccount,
   MatrixClient,
   MatrixStore,
-} from "better-matrix-js";
+} from "easymatrix";
 
 export interface MatrixChatThreadRef {
   eventId?: string;

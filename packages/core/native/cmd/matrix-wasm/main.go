@@ -10,7 +10,7 @@ import (
 	"sync"
 	"syscall/js"
 
-	"github.com/batuhan/better-matrix-js/packages/core/native/internal/core"
+	"github.com/beeper/EasyMatrix/packages/core/native/internal/core"
 )
 
 func main() {

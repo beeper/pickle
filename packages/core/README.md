@@ -1,16 +1,16 @@
-# better-matrix-js
+# EasyMatrix
 
 A TypeScript Matrix SDK that runs in Node, browsers, and any WASM runtime. Built on `mautrix-go` + `goolm`. E2EE included.
 
 ```sh
-npm install better-matrix-js
+npm install easymatrix
 ```
 
 ## Node
 
 ```ts
-import { createMatrixClient, onMessage } from "better-matrix-js/node";
-import { createSQLiteMatrixStore } from "@better-matrix-js/state-sqlite";
+import { createMatrixClient, onMessage } from "easymatrix/node";
+import { createSQLiteMatrixStore } from "@beeper/easymatrix-state-sqlite";
 
 const client = createMatrixClient({
   homeserver: "https://matrix.example.org",
@@ -36,8 +36,8 @@ The first awaited call boots WASM, store, and crypto. Call `await client.boot()`
 Serve `matrix-core.wasm` with your static assets and persist state in IndexedDB:
 
 ```ts
-import { createMatrixClient } from "better-matrix-js";
-import { createIndexedDBMatrixStore } from "@better-matrix-js/state-indexeddb";
+import { createMatrixClient } from "easymatrix";
+import { createIndexedDBMatrixStore } from "@beeper/easymatrix-state-indexeddb";
 
 const client = createMatrixClient({
   homeserver: "https://matrix.example.org",
@@ -64,7 +64,7 @@ await client.typing.set({ roomId, typing: true, timeoutMs: 5000 });
 ## Listening
 
 ```ts
-import { onMessage, onReaction, onInvite, onRawEvent } from "better-matrix-js";
+import { onMessage, onReaction, onInvite, onRawEvent } from "easymatrix";
 
 await onMessage(client, { roomId }, async (event) => { /* ... */ });
 await onReaction(client, { relationEventId: "$event" }, async (event) => { /* ... */ });
@@ -84,7 +84,7 @@ await sub.stop();
 ## Login
 
 ```ts
-import { createMatrixLogin } from "better-matrix-js";
+import { createMatrixLogin } from "easymatrix";
 
 const login = createMatrixLogin({ homeserver: "https://matrix.example.org" });
 const session = await login.password({ username: "bot", password: "..." });
@@ -122,7 +122,7 @@ const status = await client.crypto.status();
 - **Beeper-only:** `beeper.ephemeral`, `beeper.streams`
 - **Escape hatch:** `raw.request({ method, path, body })`
 
-See [`docs/API.md`](https://github.com/batuhan/better-matrix-js/blob/main/docs/API.md) for full details.
+See [`docs/API.md`](https://github.com/beeper/EasyMatrix/blob/main/docs/API.md) for full details.
 
 ## Store ownership
 

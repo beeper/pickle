@@ -1,4 +1,4 @@
-import { copyBytes, type MatrixStore } from "better-matrix-js";
+import { copyBytes, type MatrixStore } from "easymatrix";
 
 export class MemoryMatrixStore implements MatrixStore {
   readonly #values = new Map<string, Uint8Array>();

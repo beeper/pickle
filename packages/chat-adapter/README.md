@@ -1,16 +1,16 @@
-# @better-matrix-js/chat-adapter
+# @beeper/easymatrix-chat-adapter
 
 [Chat SDK](https://www.npmjs.com/package/chat) adapter for Matrix. Same bot, same code, runs on Matrix, Slack, Discord, Teams.
 
 ```sh
-npm install chat better-matrix-js @better-matrix-js/chat-adapter
+npm install chat easymatrix @beeper/easymatrix-chat-adapter
 ```
 
 ## Usage
 
 ```ts
 import { Chat } from "chat";
-import { createMatrixAdapter } from "@better-matrix-js/chat-adapter";
+import { createMatrixAdapter } from "@beeper/easymatrix-chat-adapter";
 
 const matrix = createMatrixAdapter({
   homeserver: "https://matrix.example.org", // defaults to https://matrix.beeper.com
@@ -34,7 +34,7 @@ That's it. The adapter logs in, subscribes, and forwards Matrix events into Chat
 ## Login with password
 
 ```ts
-import { createMatrixLogin } from "better-matrix-js";
+import { createMatrixLogin } from "easymatrix";
 
 const { accessToken } = await createMatrixLogin({
   homeserver: "https://matrix.example.org",
@@ -60,7 +60,7 @@ async function* agentStream(prompt: string) {
 }
 ```
 
-On Beeper homeservers this uses native streaming events; elsewhere it falls back to debounced edits. Wire the AI SDK directly with [`@better-matrix-js/ai-sdk`](https://github.com/batuhan/better-matrix-js/tree/main/packages/ai-sdk).
+On Beeper homeservers this uses native streaming events; elsewhere it falls back to debounced edits. Wire the AI SDK directly with [`@beeper/easymatrix-ai-sdk`](https://github.com/beeper/EasyMatrix/tree/main/packages/ai-sdk).
 
 ## Thread IDs
 

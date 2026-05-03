@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const rootPath = join(dirname(fileURLToPath(import.meta.url)), "..");
-const tempRoot = await mkdtemp(join(tmpdir(), "better-matrix-js-package-consumer-"));
+const tempRoot = await mkdtemp(join(tmpdir(), "easymatrix-package-consumer-"));
 const packDir = join(tempRoot, "packs");
 const consumerDir = join(tempRoot, "consumer");
 
@@ -56,7 +56,7 @@ try {
     join(consumerDir, "package.json"),
     `${JSON.stringify(
       {
-        name: "better-matrix-js-package-consumer-smoke",
+        name: "easymatrix-package-consumer-smoke",
         private: true,
         type: "module",
         dependencies,
@@ -81,13 +81,13 @@ try {
       "--input-type=module",
       "--eval",
       `
-        import * as core from "better-matrix-js";
-        import * as beeperLogin from "better-matrix-js/beeper-login";
-        import * as helpers from "better-matrix-js/helpers";
-        import * as login from "better-matrix-js/login";
-        import * as node from "better-matrix-js/node";
-        import * as cloudflare from "@better-matrix-js/cloudflare";
-        import * as adapter from "@better-matrix-js/chat-adapter";
+        import * as core from "easymatrix";
+        import * as beeperLogin from "easymatrix/beeper-login";
+        import * as helpers from "easymatrix/helpers";
+        import * as login from "easymatrix/login";
+        import * as node from "easymatrix/node";
+        import * as cloudflare from "@beeper/easymatrix-cloudflare";
+        import * as adapter from "@beeper/easymatrix-chat-adapter";
 
         const checks = {
           core: ["createMatrixClient", "createMatrixLogin"].every((key) => key in core),

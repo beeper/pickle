@@ -1,5 +1,5 @@
 {
-  "name": "better-matrix-js-cloudflare-worker-example",
+  "name": "easymatrix-cloudflare-worker-example",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,8 +7,8 @@
     "deploy:dry-run": "wrangler deploy --dry-run --outdir bundled"
   },
   "dependencies": {
-    "@better-matrix-js/cloudflare": "workspace:*",
-    "better-matrix-js": "workspace:*"
+    "@beeper/easymatrix-cloudflare": "workspace:*",
+    "easymatrix": "workspace:*"
   },
   "devDependencies": {
     "wrangler": "^4.85.0"

@@ -1,14 +1,14 @@
-# @better-matrix-js/state-sqlite
+# @beeper/easymatrix-state-sqlite
 
-SQLite `MatrixStore` for `better-matrix-js`. Uses Node's built-in `node:sqlite` — no native deps.
+SQLite `MatrixStore` for `easymatrix`. Uses Node's built-in `node:sqlite` — no native deps.
 
 ```sh
-npm install @better-matrix-js/state-sqlite
+npm install @beeper/easymatrix-state-sqlite
 ```
 
 ```ts
-import { createMatrixClient } from "better-matrix-js/node";
-import { createSQLiteMatrixStore } from "@better-matrix-js/state-sqlite";
+import { createMatrixClient } from "easymatrix/node";
+import { createSQLiteMatrixStore } from "@beeper/easymatrix-state-sqlite";
 
 const client = createMatrixClient({
   homeserver,

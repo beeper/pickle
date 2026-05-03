@@ -31,7 +31,7 @@ func persistentStorePrefix(homeserverURL string, userID id.UserID, deviceID id.D
 	homeKey := base64.RawURLEncoding.EncodeToString(homeHash[:])
 	userKey := base64.RawURLEncoding.EncodeToString([]byte(userID.String()))
 	deviceKey := base64.RawURLEncoding.EncodeToString([]byte(deviceID.String()))
-	return "better-matrix-js/v1/" + homeKey + "/" + userKey + "/" + deviceKey + "/"
+	return "easymatrix/v1/" + homeKey + "/" + userKey + "/" + deviceKey + "/"
 }
 
 func (store jsByteStore) Get(ctx context.Context, key string) ([]byte, error) {

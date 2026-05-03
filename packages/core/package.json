@@ -1,16 +1,16 @@
 {
-  "name": "better-matrix-js",
+  "name": "easymatrix",
   "version": "0.1.0",
   "description": "WASM-backed TypeScript Matrix SDK built on mautrix-go",
   "type": "module",
-  "homepage": "https://github.com/batuhan/better-matrix-js#readme",
+  "homepage": "https://github.com/beeper/EasyMatrix#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/batuhan/better-matrix-js.git",
+    "url": "git+https://github.com/beeper/EasyMatrix.git",
     "directory": "packages/core"
   },
   "bugs": {
-    "url": "https://github.com/batuhan/better-matrix-js/issues"
+    "url": "https://github.com/beeper/EasyMatrix/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",

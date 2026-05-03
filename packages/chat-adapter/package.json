@@ -1,16 +1,16 @@
 {
-  "name": "@better-matrix-js/chat-adapter",
+  "name": "@beeper/easymatrix-chat-adapter",
   "version": "0.1.0",
   "description": "Matrix adapter for Chat SDK",
   "type": "module",
-  "homepage": "https://github.com/batuhan/better-matrix-js#readme",
+  "homepage": "https://github.com/beeper/EasyMatrix#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/batuhan/better-matrix-js.git",
+    "url": "git+https://github.com/beeper/EasyMatrix.git",
     "directory": "packages/chat-adapter"
   },
   "bugs": {
-    "url": "https://github.com/batuhan/better-matrix-js/issues"
+    "url": "https://github.com/beeper/EasyMatrix/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "better-matrix-js": "workspace:*",
+    "easymatrix": "workspace:*",
     "marked": "^18.0.2",
     "node-html-parser": "^7.1.0"
   },

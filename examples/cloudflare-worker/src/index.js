@@ -1,10 +1,10 @@
-import "better-matrix-js/wasm_exec.js";
-import wasmModule from "better-matrix-js/matrix-core.wasm";
-import { createMatrixClient } from "better-matrix-js";
+import "easymatrix/wasm_exec.js";
+import wasmModule from "easymatrix/matrix-core.wasm";
+import { createMatrixClient } from "easymatrix";
 import {
   createDurableObjectMatrixStore,
   MatrixSyncDurableObject,
-} from "@better-matrix-js/cloudflare";
+} from "@beeper/easymatrix-cloudflare";
 
 export class MatrixClientObject {
   constructor(state, env) {

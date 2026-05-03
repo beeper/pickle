@@ -1,7 +1,7 @@
 {
-  "name": "@better-matrix-js/state-sqlite",
+  "name": "@beeper/easymatrix-state-sqlite",
   "version": "0.1.0",
-  "description": "SQLite Matrix state adapter for better-matrix-js",
+  "description": "SQLite Matrix state adapter for EasyMatrix",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "better-matrix-js": "workspace:*"
+    "easymatrix": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

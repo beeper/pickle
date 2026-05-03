@@ -6,5 +6,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: false,
-  external: ["@better-matrix-js/chat-adapter", "ai"],
+  external: ["@beeper/easymatrix-chat-adapter", "ai"],
 });

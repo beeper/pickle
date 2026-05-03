@@ -1,4 +1,4 @@
-module github.com/batuhan/better-matrix-js/packages/core/native
+module github.com/beeper/EasyMatrix/packages/core/native
 
 go 1.25.0
 

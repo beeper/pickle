@@ -1,11 +1,11 @@
-# @better-matrix-js/cloudflare
+# @beeper/easymatrix-cloudflare
 
 > ⚠️ **Experimental — doesn't work yet.** This package is in active design. The APIs and Durable Object below compile and have unit tests, but no end-to-end Cloudflare deployment has been validated. Expect breaking changes and runtime issues. Don't ship it.
 
-Cloudflare Workers helpers for [`better-matrix-js`](https://github.com/batuhan/better-matrix-js): KV / Durable Object stores and a long-poll sync Durable Object.
+Cloudflare Workers helpers for [`easymatrix`](https://github.com/beeper/EasyMatrix): KV / Durable Object stores and a long-poll sync Durable Object.
 
 ```sh
-npm install better-matrix-js @better-matrix-js/cloudflare
+npm install easymatrix @beeper/easymatrix-cloudflare
 ```
 
 ## State
@@ -14,7 +14,7 @@ npm install better-matrix-js @better-matrix-js/cloudflare
 import {
   createCloudflareKVMatrixStore,
   createDurableObjectMatrixStore,
-} from "@better-matrix-js/cloudflare";
+} from "@beeper/easymatrix-cloudflare";
 
 // Cloudflare KV
 const store = createCloudflareKVMatrixStore(env.MATRIX_KV, { prefix: "matrix/" });
@@ -29,7 +29,7 @@ const store = createDurableObjectMatrixStore(state.storage, { prefix: "matrix/" 
 
 ```ts
 // worker.ts
-import { MatrixSyncDurableObject } from "@better-matrix-js/cloudflare";
+import { MatrixSyncDurableObject } from "@beeper/easymatrix-cloudflare";
 
 export class MatrixSync extends MatrixSyncDurableObject {}
 
@@ -75,7 +75,7 @@ If the sync DO and webhook receiver don't share a private boundary, encrypt the 
 import {
   decryptMatrixSyncWebhookEnvelope,
   encryptMatrixSyncWebhookPayload,
-} from "@better-matrix-js/cloudflare";
+} from "@beeper/easymatrix-cloudflare";
 
 const envelope = await encryptMatrixSyncWebhookPayload({ response, since }, env.WEBHOOK_SECRET);
 const payload = await decryptMatrixSyncWebhookEnvelope(envelope, env.WEBHOOK_SECRET);
@@ -96,7 +96,7 @@ One `MatrixSyncDurableObject` per Matrix account. It owns the `/sync` cursor; th
 | `syncTimeoutMs` | `MATRIX_SYNC_TIMEOUT_MS` | `30000` |
 | `retryMs` / `maxRetryMs` | `MATRIX_SYNC_RETRY_MS` / `MATRIX_SYNC_MAX_RETRY_MS` | `1000` / `60000` |
 
-See [`examples/cloudflare-worker`](https://github.com/batuhan/better-matrix-js/tree/main/examples/cloudflare-worker) for the full setup.
+See [`examples/cloudflare-worker`](https://github.com/beeper/EasyMatrix/tree/main/examples/cloudflare-worker) for the full setup.
 
 ## License
 

@@ -1,9 +1,9 @@
-# @better-matrix-js/ai-sdk
+# @beeper/easymatrix-ai-sdk
 
-Pipe an [AI SDK](https://sdk.vercel.ai) UI message stream straight into a Matrix message via [`@better-matrix-js/chat-adapter`](https://github.com/batuhan/better-matrix-js/tree/main/packages/chat-adapter).
+Pipe an [AI SDK](https://sdk.vercel.ai) UI message stream straight into a Matrix message via [`@beeper/easymatrix-chat-adapter`](https://github.com/beeper/EasyMatrix/tree/main/packages/chat-adapter).
 
 ```sh
-npm install @better-matrix-js/ai-sdk
+npm install @beeper/easymatrix-ai-sdk
 ```
 
 ## Usage
@@ -11,7 +11,7 @@ npm install @better-matrix-js/ai-sdk
 ```ts
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { fromAIStreamResult } from "@better-matrix-js/ai-sdk";
+import { fromAIStreamResult } from "@beeper/easymatrix-ai-sdk";
 
 bot.onNewMention(async (thread, message) => {
   await thread.subscribe();

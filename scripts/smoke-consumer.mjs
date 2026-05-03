@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 
 const root = new URL("..", import.meta.url);
 const rootPath = root.pathname;
-const temp = await mkdtemp(join(tmpdir(), "better-matrix-js-consumer-"));
+const temp = await mkdtemp(join(tmpdir(), "easymatrix-consumer-"));
 const packDir = join(temp, "packs");
 const consumerDir = join(temp, "consumer");
 
@@ -18,9 +18,9 @@ await execFileAsync("pnpm", ["-r", "--filter", "./packages/*", "pack", "--pack-d
 });
 await execFileAsync("npm", ["init", "-y"], { cwd: await mkdirp(consumerDir) });
 
-const coreTarball = join(packDir, "better-matrix-js-0.1.0.tgz");
-const cloudflareTarball = join(packDir, "better-matrix-js-cloudflare-0.1.0.tgz");
-const adapterTarball = join(packDir, "better-matrix-js-chat-adapter-0.1.0.tgz");
+const coreTarball = join(packDir, "easymatrix-0.1.0.tgz");
+const cloudflareTarball = join(packDir, "easymatrix-cloudflare-0.1.0.tgz");
+const adapterTarball = join(packDir, "easymatrix-chat-adapter-0.1.0.tgz");
 
 await execFileAsync("npm", ["install", coreTarball, cloudflareTarball, adapterTarball, "chat@4.26.0"], {
   cwd: consumerDir,
@@ -32,10 +32,10 @@ const { stdout } = await execFileAsync(
     "--input-type=module",
     "--eval",
     `
-      import * as core from "better-matrix-js";
-      import * as node from "better-matrix-js/node";
-      import * as cf from "@better-matrix-js/cloudflare";
-      import * as adapter from "@better-matrix-js/chat-adapter";
+      import * as core from "easymatrix";
+      import * as node from "easymatrix/node";
+      import * as cf from "@beeper/easymatrix-cloudflare";
+      import * as adapter from "@beeper/easymatrix-chat-adapter";
       const checks = {
         core: ["createMatrixClient", "createMatrixLogin"].every((key) => key in core),
         node: ["createMatrixClient"].every((key) => key in node),

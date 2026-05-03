@@ -1,4 +1,4 @@
-import type { MatrixStore } from "better-matrix-js";
+import type { MatrixStore } from "easymatrix";
 
 export interface CloudflareKVNamespaceLike {
   delete(key: string): Promise<void>;

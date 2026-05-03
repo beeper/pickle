@@ -1,14 +1,14 @@
-# @better-matrix-js/state-indexeddb
+# @beeper/easymatrix-state-indexeddb
 
-IndexedDB `MatrixStore` for `better-matrix-js`. For browsers.
+IndexedDB `MatrixStore` for `easymatrix`. For browsers.
 
 ```sh
-npm install @better-matrix-js/state-indexeddb
+npm install @beeper/easymatrix-state-indexeddb
 ```
 
 ```ts
-import { createMatrixClient } from "better-matrix-js";
-import { createIndexedDBMatrixStore } from "@better-matrix-js/state-indexeddb";
+import { createMatrixClient } from "easymatrix";
+import { createIndexedDBMatrixStore } from "@beeper/easymatrix-state-indexeddb";
 
 const client = createMatrixClient({
   homeserver,

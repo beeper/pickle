@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Chat } from "chat";
-import { createMatrixLogin } from "better-matrix-js";
-import { createMatrixClient } from "better-matrix-js/node";
-import { createMatrixAdapter } from "@better-matrix-js/chat-adapter";
+import { createMatrixLogin } from "easymatrix";
+import { createMatrixClient } from "easymatrix/node";
+import { createMatrixAdapter } from "@beeper/easymatrix-chat-adapter";
 import { FileState, MatrixState } from "../../shared/file-state.mjs";
 
 const loremSentenceCorpus = [
@@ -380,7 +380,7 @@ async function resolveLogin(homeserverUrl, state) {
   console.log("login_session_cache=miss");
   const login = await createMatrixLogin({
     homeserver: homeserverUrl,
-    initialDeviceDisplayName: "matrix-chat-sdk streaming smoke",
+    initialDeviceDisplayName: "easymatrix streaming smoke",
   }).password({
     password: process.env.MATRIX_PASSWORD,
     username: process.env.MATRIX_USERNAME,
@@ -424,9 +424,9 @@ async function createSmokeRoom(homeserverUrl, accessToken, inviteUserId) {
           ]
         : [],
       is_direct: false,
-      name: `matrix-chat-sdk streaming smoke ${new Date().toISOString()}`,
+      name: `easymatrix streaming smoke ${new Date().toISOString()}`,
       preset: "private_chat",
-      topic: "Live Matrix Chat SDK streaming smoke test",
+      topic: "Live EasyMatrix streaming smoke test",
     }),
     headers: {
       authorization: `Bearer ${accessToken}`,

@@ -111,7 +111,7 @@ function findReactionRemoval(events, roomId, messageId, key) {
 async function main() {
   const keepStore = process.argv.includes("--keep-store");
   const timeoutMs = Number(optionalEnv("MATRIX_LIVE_E2E_TIMEOUT_MS") ?? DEFAULT_TIMEOUT_MS);
-  const runDir = await mkdtemp(join(tmpdir(), "better-matrix-js-e2e-"));
+  const runDir = await mkdtemp(join(tmpdir(), "easymatrix-e2e-"));
   console.log(`store=${runDir}`);
 
   try {
@@ -175,11 +175,11 @@ async function main() {
     );
     await bot.client.messages.markRead({ eventId: peerMessage.eventId, roomId: dm.roomId });
 
-    const mediaPayload = Buffer.from("better-matrix-js media", "utf8");
+    const mediaPayload = Buffer.from("easymatrix media", "utf8");
     const media = await bot.client.messages.sendMedia({
       bytes: mediaPayload,
       contentType: "text/plain",
-      filename: "better-matrix-js-e2e.txt",
+      filename: "easymatrix-e2e.txt",
       roomId: dm.roomId,
     });
     const receivedMedia = await syncUntil("peer receives media", peer, () =>

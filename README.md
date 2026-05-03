@@ -1,4 +1,4 @@
-# easymatrix
+# EasyMatrix
 
 A TypeScript Matrix SDK that runs anywhere. Built on `mautrix-go` + `goolm` compiled to WebAssembly. **E2EE works out of the box.** No `matrix-js-sdk`, no Rust sidecar, no Node FFI.
 
@@ -7,21 +7,21 @@ A TypeScript Matrix SDK that runs anywhere. Built on `mautrix-go` + `goolm` comp
 | Package | What it does |
 | --- | --- |
 | [`easymatrix`](packages/core) | Matrix core: login, sync, rooms, messages, reactions, threads, media, E2EE. |
-| [`@easymatrix/chat-adapter`](packages/chat-adapter) | Build Matrix bots using the [Chat SDK](https://www.npmjs.com/package/chat). |
-| [`@easymatrix/ai-sdk`](packages/ai-sdk) | Pipe AI SDK streams into Matrix messages. |
-| [`@easymatrix/state-file`](packages/state-file) · [`-sqlite`](packages/state-sqlite) · [`-indexeddb`](packages/state-indexeddb) · [`-memory`](packages/state-memory) · [`-simple`](packages/state-simple) | State adapters for Node, browsers, and custom backends. |
+| [`@beeper/easymatrix-chat-adapter`](packages/chat-adapter) | Build Matrix bots using the [Chat SDK](https://www.npmjs.com/package/chat). |
+| [`@beeper/easymatrix-ai-sdk`](packages/ai-sdk) | Pipe AI SDK streams into Matrix messages. |
+| [`@beeper/easymatrix-state-file`](packages/state-file) · [`-sqlite`](packages/state-sqlite) · [`-indexeddb`](packages/state-indexeddb) · [`-memory`](packages/state-memory) · [`-simple`](packages/state-simple) | State adapters for Node, browsers, and custom backends. |
 
 ## Install
 
 ```sh
-npm install easymatrix @easymatrix/state-sqlite
+npm install easymatrix @beeper/easymatrix-state-sqlite
 ```
 
 ## A Node bot in 20 lines
 
 ```ts
 import { createMatrixClient, onMessage } from "easymatrix/node";
-import { createSQLiteMatrixStore } from "@easymatrix/state-sqlite";
+import { createSQLiteMatrixStore } from "@beeper/easymatrix-state-sqlite";
 
 const client = createMatrixClient({
   homeserver: "https://matrix.example.org",
@@ -47,12 +47,12 @@ That's a working E2EE-capable Matrix bot. The first awaited method boots WASM, s
 Same bot, written as a [Chat SDK](https://www.npmjs.com/package/chat) adapter — gets you Slack/Discord/Teams parity and shared bot logic across platforms:
 
 ```sh
-npm install chat easymatrix @easymatrix/chat-adapter
+npm install chat easymatrix @beeper/easymatrix-chat-adapter
 ```
 
 ```ts
 import { Chat } from "chat";
-import { createMatrixAdapter } from "@easymatrix/chat-adapter";
+import { createMatrixAdapter } from "@beeper/easymatrix-chat-adapter";
 
 const matrix = createMatrixAdapter({
   homeserver: "https://matrix.example.org",

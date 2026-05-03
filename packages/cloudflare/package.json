@@ -1,16 +1,16 @@
 {
-  "name": "@better-matrix-js/cloudflare",
+  "name": "@beeper/easymatrix-cloudflare",
   "version": "0.1.0",
-  "description": "Cloudflare Workers and Durable Objects helpers for better-matrix-js",
+  "description": "Cloudflare Workers and Durable Objects helpers for EasyMatrix",
   "type": "module",
-  "homepage": "https://github.com/batuhan/better-matrix-js#readme",
+  "homepage": "https://github.com/beeper/EasyMatrix#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/batuhan/better-matrix-js.git",
+    "url": "git+https://github.com/beeper/EasyMatrix.git",
     "directory": "packages/cloudflare"
   },
   "bugs": {
-    "url": "https://github.com/batuhan/better-matrix-js/issues"
+    "url": "https://github.com/beeper/EasyMatrix/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "better-matrix-js": "workspace:*"
+    "easymatrix": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

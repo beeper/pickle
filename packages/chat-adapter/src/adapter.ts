@@ -9,7 +9,7 @@ import {
   type MatrixSubscription,
   type RoomInfo,
   type MatrixStore,
-} from "better-matrix-js";
+} from "easymatrix";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -1131,11 +1131,11 @@ class ChatMatrixState implements MatrixStore {
   }
 }
 
-async function importNodeMatrixClient(): Promise<typeof import("better-matrix-js/node")> {
+async function importNodeMatrixClient(): Promise<typeof import("easymatrix/node")> {
   const dynamicImport = new Function("specifier", "return import(specifier)") as (
     specifier: string
-  ) => Promise<typeof import("better-matrix-js/node")>;
-  return dynamicImport("better-matrix-js/node");
+  ) => Promise<typeof import("easymatrix/node")>;
+  return dynamicImport("easymatrix/node");
 }
 
 export function createMatrixAdapter(config: MatrixAdapterConfig): MatrixAdapter {

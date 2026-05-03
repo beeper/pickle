@@ -1,16 +1,16 @@
 {
-  "name": "@better-matrix-js/state-indexeddb",
+  "name": "@beeper/easymatrix-state-indexeddb",
   "version": "0.1.0",
-  "description": "IndexedDB Matrix state adapter for better-matrix-js",
+  "description": "IndexedDB Matrix state adapter for EasyMatrix",
   "type": "module",
-  "homepage": "https://github.com/batuhan/better-matrix-js#readme",
+  "homepage": "https://github.com/beeper/EasyMatrix#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/batuhan/better-matrix-js.git",
+    "url": "git+https://github.com/beeper/EasyMatrix.git",
     "directory": "packages/state-indexeddb"
   },
   "bugs": {
-    "url": "https://github.com/batuhan/better-matrix-js/issues"
+    "url": "https://github.com/beeper/EasyMatrix/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -33,7 +33,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "better-matrix-js": "workspace:*"
+    "easymatrix": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

@@ -1,13 +1,13 @@
 {
-  "name": "@better-matrix-js/example-dummybridge-bot",
+  "name": "@beeper/easymatrix-example-dummybridge-bot",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node src/index.mjs"
   },
   "dependencies": {
-    "@better-matrix-js/state-file": "workspace:*",
-    "better-matrix-js": "workspace:*"
+    "@beeper/easymatrix-state-file": "workspace:*",
+    "easymatrix": "workspace:*"
   },
   "engines": {
     "node": ">=20"

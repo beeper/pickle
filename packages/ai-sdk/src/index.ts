@@ -1,4 +1,4 @@
-import type { MatrixStream } from "better-matrix-js";
+import type { MatrixStream } from "easymatrix";
 
 export type AIUIMessageChunk = {
   type: string;
