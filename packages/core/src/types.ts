@@ -213,6 +213,7 @@ export interface MatrixCryptoStatusEvent {
   kind: "crypto";
   state:
     | "enabled"
+    | "keyBackupUpdated"
     | "keyBackupUnavailable"
     | "recoveryCacheUnavailable"
     | "recoveryKeyCached"
@@ -229,6 +230,7 @@ export interface MatrixCryptoStatus {
   state:
     | "disabled"
     | "enabled"
+    | "keyBackupUpdated"
     | "keyBackupUnavailable"
     | "recoveryCacheUnavailable"
     | "recoveryKeyCached"

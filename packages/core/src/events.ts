@@ -182,6 +182,7 @@ function toCryptoState(
   const states = {
     disabled: "disabled",
     enabled: "enabled",
+    key_backup_updated: "keyBackupUpdated",
     key_backup_unavailable: "keyBackupUnavailable",
     recovery_cache_unavailable: "recoveryCacheUnavailable",
     recovery_key_cached: "recoveryKeyCached",

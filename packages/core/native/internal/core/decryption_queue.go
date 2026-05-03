@@ -217,14 +217,21 @@ func (c *Core) restorePendingFromBackup(ctx context.Context, pending *pendingDec
 	sessionID := id.SessionID(pending.SessionID)
 	resp, err := mach.Client.GetKeyBackupForRoomAndSession(ctx, c.backupVersion, roomID, sessionID)
 	if err != nil || resp == nil {
+		if err != nil {
+			c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": err.Error()})
+		}
 		return false, true
 	}
 	sessionData, err := resp.SessionData.Decrypt(c.backupKey)
 	if err != nil {
+		c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": err.Error()})
 		return false, true
 	}
 	imported, err := mach.ImportRoomKeyFromBackup(ctx, c.backupVersion, roomID, sessionID, sessionData)
-	return err == nil && imported != nil && imported.Internal.FirstKnownIndex() <= uint32(pending.MinIndex), true
+	if err != nil {
+		c.emit(OutboundEvent{"type": "crypto_status", "status": "key_backup_unavailable", "error": err.Error()})
+	}
+	return err == nil && imported != nil, true
 }
 
 func (c *Core) trimPendingDecryptions(pending []pendingDecryption) []pendingDecryption {

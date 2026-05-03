@@ -37,7 +37,7 @@ func (c *Core) handleAddReaction(ctx context.Context, payload []byte) ([]byte, e
 		RelatesTo: *(&event.RelatesTo{}).SetAnnotation(id.EventID(req.MessageID), req.Emoji),
 	}
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
-		if err := ensureMegolmRecipients(ctx, cli, id.RoomID(req.RoomID)); err != nil {
+		if err := c.prepareOutboundMegolm(ctx, cli, id.RoomID(req.RoomID)); err != nil {
 			return nil, err
 		}
 		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventReaction, content)

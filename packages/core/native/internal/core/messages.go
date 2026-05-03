@@ -60,7 +60,7 @@ func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, e
 		contentMap["m.relates_to"] = content.RelatesTo
 	}
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
-		if err := ensureMegolmRecipients(ctx, cli, id.RoomID(req.RoomID)); err != nil {
+		if err := c.prepareOutboundMegolm(ctx, cli, id.RoomID(req.RoomID)); err != nil {
 			return nil, err
 		}
 		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, contentMap)
@@ -183,7 +183,7 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 	}, req.Content)
 	content["m.new_content"] = newContentMap
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
-		if err := ensureMegolmRecipients(ctx, cli, id.RoomID(req.RoomID)); err != nil {
+		if err := c.prepareOutboundMegolm(ctx, cli, id.RoomID(req.RoomID)); err != nil {
 			return nil, err
 		}
 		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
@@ -238,6 +238,9 @@ func (c *Core) handleSendEphemeralEvent(ctx context.Context, payload []byte) ([]
 		return nil, errors.New("eventType is required")
 	}
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		if err := c.prepareOutboundMegolm(ctx, cli, id.RoomID(req.RoomID)); err != nil {
+			return nil, err
+		}
 		return beeperSendEphemeralEvent(ctx, cli, id.RoomID(req.RoomID), event.Type{Type: req.EventType, Class: event.EphemeralEventType}, req.Content, req.TransactionID)
 	})
 	if err != nil {

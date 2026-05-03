@@ -133,6 +133,7 @@ export type MatrixCoreEvent =
       keyId?: string;
       status:
         | "enabled"
+        | "key_backup_updated"
         | "key_backup_unavailable"
         | "recovery_cache_unavailable"
         | "recovery_key_cached"
