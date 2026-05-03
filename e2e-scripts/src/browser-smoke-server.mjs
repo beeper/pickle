@@ -39,6 +39,7 @@ const html = `<!doctype html>
     </script>
     <script type="module">
       import { createMatrixClient } from "/sdk/packages/core/dist/index.js";
+      import { createMatrixLogin } from "/sdk/packages/core/dist/login.js";
       import { createIndexedDBMatrixStore } from "/sdk/packages/state-indexeddb/dist/index.js";
 
       const account = ${JSON.stringify(account)};
@@ -57,26 +58,13 @@ const html = `<!doctype html>
       };
 
       async function loginFreshDevice() {
-        const response = await fetch(new URL("/_matrix/client/v3/login", account.homeserverUrl), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            initial_device_display_name: "better-matrix-js browser smoke " + mode,
-            token: account.loginToken,
-            type: "org.matrix.login.jwt"
-          })
-        });
-        const text = await response.text();
-        const data = text ? JSON.parse(text) : {};
-        if (!response.ok) {
-          throw new Error("browser login failed: HTTP " + response.status + " " + text);
-        }
-        return {
-          accessToken: data.access_token,
-          deviceId: data.device_id,
+        return createMatrixLogin({
           homeserver: account.homeserverUrl,
-          userId: data.user_id
-        };
+          initialDeviceDisplayName: "better-matrix-js browser smoke " + mode
+        }).token({
+          token: account.loginToken,
+          type: "org.matrix.login.jwt"
+        });
       }
 
       function readSession() {

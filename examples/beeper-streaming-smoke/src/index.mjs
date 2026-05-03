@@ -5,7 +5,7 @@ import { Chat } from "chat";
 import { createMatrixLogin } from "better-matrix-js";
 import { createMatrixClient } from "better-matrix-js/node";
 import { createMatrixAdapter } from "@better-matrix-js/chat-adapter";
-import { FileState, MatrixState } from "./file-state.mjs";
+import { FileState, MatrixState } from "../../shared/file-state.mjs";
 
 const loremSentenceCorpus = [
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",

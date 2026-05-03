@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { OUT_DIR, STORE_DIR, ensureOutDirs, sdkDist } from "./config.mjs";
 
 const { createMatrixClient } = await import(sdkDist("packages/core/dist/node.js"));
+const { createMatrixLogin } = await import(sdkDist("packages/core/dist/login.js"));
 const { createFileMatrixStore } = await import(sdkDist("packages/state-file/dist/index.js"));
 
 export async function makeCore(account, label) {
@@ -73,26 +74,18 @@ async function saveCachedSession(label, account) {
 
 async function loginFreshDevice(account, label) {
   return retry(`fresh Matrix login ${label}`, async () => {
-    const response = await fetch(new URL("/_matrix/client/v3/login", account.homeserverUrl), {
-      body: JSON.stringify({
-        initial_device_display_name: `better-matrix-js private e2e ${label}`,
-        token: account.loginToken,
-        type: "org.matrix.login.jwt",
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
+    const session = await createMatrixLogin({
+      homeserver: account.homeserverUrl,
+      initialDeviceDisplayName: `better-matrix-js private e2e ${label}`,
+    }).token({
+      token: account.loginToken,
+      type: "org.matrix.login.jwt",
     });
-    const text = await response.text();
-    const data = text ? JSON.parse(text) : {};
-    if (!response.ok) {
-      const retryAfter = typeof data.retry_after_ms === "number" ? ` retry_after_ms=${data.retry_after_ms}` : "";
-      throw new Error(`fresh Matrix login failed: HTTP ${response.status}${retryAfter} ${JSON.stringify(data)}`);
-    }
     return {
       ...account,
-      accessToken: data.access_token,
-      deviceId: data.device_id,
-      userId: data.user_id,
+      accessToken: session.accessToken,
+      deviceId: session.deviceId,
+      userId: session.userId,
     };
   }, 5, 5000);
 }
