@@ -1,6 +1,6 @@
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
-import { testMatrixStoreConformance } from "../../core/test/store-conformance";
+import { testMatrixStoreConformance } from "../../pickle/test/store-conformance";
 import { createIndexedDBMatrixStore } from "./index";
 
 describe("IndexedDBMatrixStore", () => {

@@ -125,7 +125,7 @@ class NodeMatrixClient implements MatrixClient {
     const { wasmExecPath, wasmPath, ...clientOptions } = this.#options;
     const distDir = dirname(fileURLToPath(import.meta.url));
     if (!clientOptions.wasmBytes && !clientOptions.wasmModule) {
-      clientOptions.wasmBytes = await readFile(wasmPath ?? join(distDir, "matrix-core.wasm"));
+      clientOptions.wasmBytes = await readFile(wasmPath ?? join(distDir, "pickle.wasm"));
     }
     if (!clientOptions.wasmBytes && !clientOptions.wasmModule) {
       throw new Error("Matrix WASM bytes are missing");
@@ -174,7 +174,7 @@ async function loadMatrixCoreFromNodePackage(
   }
 
   if (!coreOptions.wasmBytes && !coreOptions.wasmModule) {
-    coreOptions.wasmBytes = await readFile(wasmPath ?? join(distDir, "matrix-core.wasm"));
+    coreOptions.wasmBytes = await readFile(wasmPath ?? join(distDir, "pickle.wasm"));
   }
 
   return loadMatrixCore(coreOptions);

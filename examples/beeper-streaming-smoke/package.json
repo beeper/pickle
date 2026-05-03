@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@beeper/pickle-chat-adapter": "workspace:*",
-    "@beeper/pickle": "workspace:*",
+    "pickle": "workspace:*",
     "chat": "^4.26.0"
   },
   "engines": {

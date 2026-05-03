@@ -10,7 +10,7 @@ import (
 	"sync"
 	"syscall/js"
 
-	"github.com/beeper/pickle/packages/core/native/internal/core"
+	"github.com/beeper/pickle/packages/pickle/native/internal/core"
 )
 
 func main() {

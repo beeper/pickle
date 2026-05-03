@@ -2,7 +2,7 @@ packages:
   - "packages/ai-sdk"
   - "packages/chat-adapter"
   - "packages/cloudflare"
-  - "packages/core"
+  - "packages/pickle"
   - "packages/state-file"
   - "packages/state-indexeddb"
   - "packages/state-memory"

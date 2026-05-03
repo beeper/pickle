@@ -1,6 +1,6 @@
-import "@beeper/pickle/wasm_exec.js";
-import wasmModule from "@beeper/pickle/matrix-core.wasm";
-import { createMatrixClient } from "@beeper/pickle";
+import "pickle/wasm_exec.js";
+import wasmModule from "pickle/pickle.wasm";
+import { createMatrixClient } from "pickle";
 import {
   createDurableObjectMatrixStore,
   MatrixSyncDurableObject,

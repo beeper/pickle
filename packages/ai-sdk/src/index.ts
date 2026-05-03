@@ -1,4 +1,4 @@
-import type { MatrixStream } from "@beeper/pickle";
+import type { MatrixStream } from "pickle";
 
 export type AIUIMessageChunk = {
   type: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { testMatrixStoreConformance } from "../../core/test/store-conformance";
+import { testMatrixStoreConformance } from "../../pickle/test/store-conformance";
 import {
   createDurableObjectMatrixStore,
   decryptMatrixSyncWebhookEnvelope,

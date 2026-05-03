@@ -3,8 +3,8 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { OUT_DIR, STORE_DIR, ensureOutDirs, sdkDist } from "./config.mjs";
 
-const { createMatrixClient } = await import(sdkDist("packages/core/dist/node.js"));
-const { createMatrixLogin } = await import(sdkDist("packages/core/dist/login.js"));
+const { createMatrixClient } = await import(sdkDist("packages/pickle/dist/node.js"));
+const { createMatrixLogin } = await import(sdkDist("packages/pickle/dist/login.js"));
 const { createFileMatrixStore } = await import(sdkDist("packages/state-file/dist/index.js"));
 
 export async function makeCore(account, label) {

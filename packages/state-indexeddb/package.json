@@ -33,7 +33,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@beeper/pickle": "workspace:*"
+    "pickle": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

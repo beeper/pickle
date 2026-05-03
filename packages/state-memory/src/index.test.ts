@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { testMatrixStoreConformance } from "../../core/test/store-conformance";
+import { testMatrixStoreConformance } from "../../pickle/test/store-conformance";
 import { createMemoryMatrixStore } from "./index";
 
 describe("MemoryMatrixStore", () => {

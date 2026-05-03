@@ -1,5 +1,5 @@
 {
-  "name": "@beeper/pickle",
+  "name": "pickle",
   "version": "0.1.0",
   "description": "WASM-backed TypeScript Matrix SDK built on mautrix-go",
   "type": "module",
@@ -7,7 +7,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/beeper/pickle.git",
-    "directory": "packages/core"
+    "directory": "packages/pickle"
   },
   "bugs": {
     "url": "https://github.com/beeper/pickle/issues"
@@ -40,7 +40,7 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     },
-    "./matrix-core.wasm": "./dist/matrix-core.wasm",
+    "./pickle.wasm": "./dist/pickle.wasm",
     "./wasm_exec.js": "./dist/wasm_exec.js"
   },
   "files": [
@@ -53,7 +53,7 @@
   },
   "scripts": {
     "build": "npm run generate:types && tsup && npm run build:wasm",
-    "build:wasm": "mkdir -p dist && cd native && GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -tags goolm -ldflags='-s -w' -o ../dist/matrix-core.wasm ./cmd/matrix-wasm && cp \"$(go env GOROOT)/lib/wasm/wasm_exec.js\" ../dist/wasm_exec.js",
+    "build:wasm": "mkdir -p dist && cd native && GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -tags goolm -ldflags='-s -w' -o ../dist/pickle.wasm ./cmd/matrix-wasm && cp \"$(go env GOROOT)/lib/wasm/wasm_exec.js\" ../dist/wasm_exec.js",
     "clean": "rm -rf dist",
     "generate:types": "cd native && go run ./cmd/matrix-ts-types",
     "test": "vitest run --coverage",

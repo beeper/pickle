@@ -12,7 +12,7 @@
     "noUncheckedIndexedAccess": true,
     "baseUrl": ".",
     "paths": {
-      "@beeper/pickle": ["packages/core/src/index.ts"],
+      "pickle": ["packages/pickle/src/index.ts"],
       "@beeper/pickle-ai-sdk": ["packages/ai-sdk/src/index.ts"],
       "@beeper/pickle-chat-adapter": ["packages/chat-adapter/src/index.ts"],
       "@beeper/pickle-cloudflare": ["packages/cloudflare/src/index.ts"],
@@ -21,7 +21,7 @@
       "@beeper/pickle-state-memory": ["packages/state-memory/src/index.ts"],
       "@beeper/pickle-state-simple": ["packages/state-simple/src/index.ts"],
       "@beeper/pickle-state-sqlite": ["packages/state-sqlite/src/index.ts"],
-      "@beeper/pickle/node": ["packages/core/src/node.ts"]
+      "pickle/node": ["packages/pickle/src/node.ts"]
     },
     "resolveJsonModule": true,
     "skipLibCheck": true,

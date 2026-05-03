@@ -22,7 +22,7 @@ try {
   await mkdir(packDir, { recursive: true });
   await mkdir(consumerDir, { recursive: true });
 
-  const corePackage = await readPackage(join(rootPath, "packages/core/package.json"));
+  const corePackage = await readPackage(join(rootPath, "packages/pickle/package.json"));
   const cloudflarePackage = await readPackage(join(rootPath, "packages/cloudflare/package.json"));
   const adapterPackage = await readPackage(join(rootPath, "packages/chat-adapter/package.json"));
 
@@ -81,11 +81,11 @@ try {
       "--input-type=module",
       "--eval",
       `
-        import * as core from "@beeper/pickle";
-        import * as beeperLogin from "@beeper/pickle/beeper-login";
-        import * as helpers from "@beeper/pickle/helpers";
-        import * as login from "@beeper/pickle/login";
-        import * as node from "@beeper/pickle/node";
+        import * as core from "pickle";
+        import * as beeperLogin from "pickle/beeper-login";
+        import * as helpers from "pickle/helpers";
+        import * as login from "pickle/login";
+        import * as node from "pickle/node";
         import * as cloudflare from "@beeper/pickle-cloudflare";
         import * as adapter from "@beeper/pickle-chat-adapter";
 

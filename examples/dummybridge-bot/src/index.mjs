@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createMatrixLogin } from "@beeper/pickle/login";
-import { createMatrixClient, onInvite, onMessage, onReaction } from "@beeper/pickle/node";
+import { createMatrixLogin } from "pickle/login";
+import { createMatrixClient, onInvite, onMessage, onReaction } from "pickle/node";
 import { createFileMatrixStore } from "@beeper/pickle-state-file";
 import { FileState } from "../../shared/file-state.mjs";
 import { dummybridgeTextStream, helpText } from "./dummy-runtime.mjs";

@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@beeper/pickle": "workspace:*",
+    "pickle": "workspace:*",
     "marked": "^18.0.2",
     "node-html-parser": "^7.1.0"
   },

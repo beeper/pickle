@@ -15,7 +15,7 @@ const srcDir = join(workerDir, "src");
 await mkdir(packDir, { recursive: true });
 await execFileAsync(
   "pnpm",
-  ["-r", "--filter", "@beeper/pickle", "--filter", "@beeper/pickle-cloudflare", "pack", "--pack-destination", packDir],
+  ["-r", "--filter", "pickle", "--filter", "@beeper/pickle-cloudflare", "pack", "--pack-destination", packDir],
   { cwd: rootPath }
 );
 await mkdir(srcDir, { recursive: true });
@@ -29,9 +29,9 @@ await execFileAsync("npm", [
 await writeFile(
   join(srcDir, "index.js"),
   `
-import "@beeper/pickle/wasm_exec.js";
-import wasmModule from "@beeper/pickle/matrix-core.wasm";
-import { createMatrixClient } from "@beeper/pickle";
+import "pickle/wasm_exec.js";
+import wasmModule from "pickle/pickle.wasm";
+import { createMatrixClient } from "pickle";
 import {
   createDurableObjectMatrixStore,
   MatrixSyncDurableObject,

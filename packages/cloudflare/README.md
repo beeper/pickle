@@ -2,10 +2,10 @@
 
 > ⚠️ **Experimental — doesn't work yet.** This package is in active design. The APIs and Durable Object below compile and have unit tests, but no end-to-end Cloudflare deployment has been validated. Expect breaking changes and runtime issues. Don't ship it.
 
-Cloudflare Workers helpers for [`@beeper/pickle`](https://github.com/beeper/pickle): KV / Durable Object stores and a long-poll sync Durable Object.
+Cloudflare Workers helpers for [`pickle`](https://github.com/beeper/pickle): KV / Durable Object stores and a long-poll sync Durable Object.
 
 ```sh
-npm install @beeper/pickle @beeper/pickle-cloudflare
+npm install pickle @beeper/pickle-cloudflare
 ```
 
 ## State

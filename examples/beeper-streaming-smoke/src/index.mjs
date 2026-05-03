@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Chat } from "chat";
-import { createMatrixLogin } from "@beeper/pickle";
-import { createMatrixClient } from "@beeper/pickle/node";
+import { createMatrixLogin } from "pickle";
+import { createMatrixClient } from "pickle/node";
 import { createMatrixAdapter } from "@beeper/pickle-chat-adapter";
 import { FileState, MatrixState } from "../../shared/file-state.mjs";
 

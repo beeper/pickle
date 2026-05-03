@@ -1,4 +1,4 @@
-import { copyBytes, type MatrixStore } from "@beeper/pickle";
+import { copyBytes, type MatrixStore } from "pickle";
 
 export interface SQLiteDatabaseLike {
   exec(sql: string): unknown;

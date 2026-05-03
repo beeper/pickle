@@ -1,6 +1,6 @@
 # API Reference
 
-The full Pickle (`@beeper/pickle`) surface. Start with the [package README](../packages/core) for quickstart.
+The full Pickle (`pickle`) surface. Start with the [Pickle README](../packages/pickle) for quickstart.
 
 ## Lifecycle
 
@@ -31,7 +31,7 @@ type MatrixAccount = {
 ## Login
 
 ```ts
-import { createMatrixLogin } from "@beeper/pickle";
+import { createMatrixLogin } from "pickle";
 
 const login = createMatrixLogin({ homeserver, initialDeviceDisplayName: "my bot" });
 const session = await login.password({ username, password });
@@ -72,7 +72,7 @@ Subscriptions are future-only by default. Multiple subscribers share one `/sync`
 Thin wrappers over `subscribe`:
 
 ```ts
-import { onInvite, onMessage, onRawEvent, onReaction } from "@beeper/pickle";
+import { onInvite, onMessage, onRawEvent, onReaction } from "pickle";
 
 await onMessage(client, { roomId }, handler);
 await onReaction(client, { relationEventId }, handler);
@@ -135,7 +135,7 @@ Each account/device store is single-writer. To run multiple bots in one process,
 Beeper-only behavior lives under `client.beeper.*` and is only used by the Chat SDK adapter when the homeserver is Beeper or `beeper: true` is passed.
 
 ```ts
-import { createBeeperLogin } from "@beeper/pickle/beeper-login";
+import { createBeeperLogin } from "pickle/beeper-login";
 
 const beeper = createBeeperLogin();
 const token = await beeper.requestEmailToken({ clientSecret, email, sendAttempt: 1 });
@@ -153,5 +153,4 @@ Standard Matrix homeservers reject Beeper-only operations with a clear error.
 
 ## Unsupported
 
-- Chat SDK native modals, scheduled messages, interactive cards (no Matrix equivalent)
 - URL previews (send rendered content explicitly)

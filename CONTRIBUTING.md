@@ -6,7 +6,7 @@ pnpm workspaces, TypeScript, Go, and WebAssembly.
 
 ```sh
 pnpm install
-pnpm build       # compiles TS + builds matrix-core.wasm via Go
+pnpm build       # compiles TS + builds pickle.wasm via Go
 ```
 
 Requires Node 22+, pnpm 9+, and a Go toolchain.
@@ -17,16 +17,28 @@ Requires Node 22+, pnpm 9+, and a Go toolchain.
 pnpm typecheck
 pnpm test
 pnpm build
-go test ./...   # run from packages/core/native
+go test ./...   # run from packages/pickle/native
 ```
 
 ## Release
 
-Always publish with pnpm so workspace dependency ranges get rewritten:
+Add a changeset with each user-facing package change:
 
 ```sh
-pnpm check
-pnpm publish:packages
+pnpm changeset
 ```
 
-Don't run `npm publish` from a package directory — npm doesn't rewrite `workspace:*` ranges.
+When changes land on `main`, GitHub Actions opens or updates a release PR.
+Merging that release PR runs the full `pnpm check` gate, publishes changed
+packages with `pnpm changeset publish`, and creates GitHub Releases.
+
+Publishing uses npm Trusted Publishing through GitHub Actions OIDC. Each npm
+package must configure this trusted publisher on npmjs.com:
+
+- Organization/repository: `beeper/pickle`
+- Workflow: `.github/workflows/release.yml`
+- Environment: leave blank unless the workflow is later moved behind a GitHub
+  deployment environment
+
+After the first OIDC publish succeeds, disable token publishing for the package
+on npmjs.com and revoke any old automation publish tokens.

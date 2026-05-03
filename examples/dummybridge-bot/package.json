@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "@beeper/pickle-state-file": "workspace:*",
-    "@beeper/pickle": "workspace:*"
+    "pickle": "workspace:*"
   },
   "engines": {
     "node": ">=20"

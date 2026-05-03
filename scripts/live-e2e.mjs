@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFileMatrixStore } from "../packages/state-file/dist/index.js";
-import { createMatrixClient } from "../packages/core/dist/node.js";
+import { createMatrixClient } from "../packages/pickle/dist/node.js";
 
 const DEFAULT_TIMEOUT_MS = 90_000;
 

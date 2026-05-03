@@ -1,4 +1,4 @@
-import { copyBytes, type MatrixStore } from "@beeper/pickle";
+import { copyBytes, type MatrixStore } from "pickle";
 
 export class MemoryMatrixStore implements MatrixStore {
   readonly #values = new Map<string, Uint8Array>();

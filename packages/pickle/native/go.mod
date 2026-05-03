@@ -1,4 +1,4 @@
-module github.com/beeper/pickle/packages/core/native
+module github.com/beeper/pickle/packages/pickle/native
 
 go 1.25.0
 

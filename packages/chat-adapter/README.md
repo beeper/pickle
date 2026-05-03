@@ -3,7 +3,7 @@
 [Chat SDK](https://www.npmjs.com/package/chat) adapter for Matrix. Same bot, same code, runs on Matrix, Slack, Discord, Teams.
 
 ```sh
-npm install chat @beeper/pickle @beeper/pickle-chat-adapter
+npm install chat pickle @beeper/pickle-chat-adapter
 ```
 
 ## Usage
@@ -34,7 +34,7 @@ That's it. The adapter logs in, subscribes, and forwards Matrix events into Chat
 ## Login with password
 
 ```ts
-import { createMatrixLogin } from "@beeper/pickle";
+import { createMatrixLogin } from "pickle";
 
 const { accessToken } = await createMatrixLogin({
   homeserver: "https://matrix.example.org",

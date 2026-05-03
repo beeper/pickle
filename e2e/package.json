@@ -5,7 +5,7 @@
   "scripts": {
     "test": "node --test --test-concurrency=1 --test-timeout=420000 test/*.test.mjs",
     "test:browser:serve": "node src/browser-smoke-server.mjs",
-    "test:core": "node --test --test-timeout=420000 test/core-e2e.test.mjs",
+    "test:pickle": "node --test --test-timeout=420000 test/pickle-e2e.test.mjs",
     "test:adapter": "node --test --test-timeout=420000 test/chat-adapter-e2e.test.mjs",
     "test:cloudflare": "node src/cloudflare-runtime-smoke.mjs",
     "test:surface": "node --test --test-timeout=420000 test/sdk-surface-happy-path-e2e.test.mjs"

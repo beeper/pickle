@@ -29,9 +29,9 @@ importers:
 
   examples/beeper-streaming-smoke:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../../packages/core
+        version: link:../../packages/pickle
       '@beeper/pickle-chat-adapter':
         specifier: workspace:*
         version: link:../../packages/chat-adapter
@@ -41,9 +41,9 @@ importers:
 
   examples/cloudflare-worker:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../../packages/core
+        version: link:../../packages/pickle
       '@beeper/pickle-cloudflare':
         specifier: workspace:*
         version: link:../../packages/cloudflare
@@ -54,9 +54,9 @@ importers:
 
   examples/dummybridge-bot:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../../packages/core
+        version: link:../../packages/pickle
       '@beeper/pickle-state-file':
         specifier: workspace:*
         version: link:../../packages/state-file
@@ -81,9 +81,9 @@ importers:
 
   packages/chat-adapter:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../core
+        version: link:../pickle
       marked:
         specifier: ^18.0.2
         version: 18.0.2
@@ -109,9 +109,9 @@ importers:
 
   packages/cloudflare:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../core
+        version: link:../pickle
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -126,7 +126,7 @@ importers:
         specifier: ^4.0.18
         version: 4.1.5(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(@vitest/coverage-v8@4.1.5)(vite@8.0.10(@types/node@25.6.0)(esbuild@0.27.7))
 
-  packages/core:
+  packages/pickle:
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -143,9 +143,9 @@ importers:
 
   packages/state-file:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../core
+        version: link:../pickle
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -165,9 +165,9 @@ importers:
 
   packages/state-indexeddb:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../core
+        version: link:../pickle
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -187,9 +187,9 @@ importers:
 
   packages/state-memory:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../core
+        version: link:../pickle
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -209,9 +209,9 @@ importers:
 
   packages/state-simple:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../core
+        version: link:../pickle
     devDependencies:
       '@types/node':
         specifier: ^25.3.2
@@ -231,9 +231,9 @@ importers:
 
   packages/state-sqlite:
     dependencies:
-      '@beeper/pickle':
+      pickle:
         specifier: workspace:*
-        version: link:../core
+        version: link:../pickle
     devDependencies:
       '@types/node':
         specifier: ^25.3.2

@@ -6,5 +6,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: false,
-  external: ["@beeper/pickle", "chat"],
+  external: ["pickle", "chat"],
 });

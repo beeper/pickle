@@ -1,19 +1,19 @@
 # @beeper/pickle-state-indexeddb
 
-IndexedDB `MatrixStore` for `@beeper/pickle`. For browsers.
+IndexedDB `MatrixStore` for `pickle`. For browsers.
 
 ```sh
 npm install @beeper/pickle-state-indexeddb
 ```
 
 ```ts
-import { createMatrixClient } from "@beeper/pickle";
+import { createMatrixClient } from "pickle";
 import { createIndexedDBMatrixStore } from "@beeper/pickle-state-indexeddb";
 
 const client = createMatrixClient({
   homeserver,
   token,
-  wasmUrl: "/matrix-core.wasm",
+  wasmUrl: "/pickle.wasm",
   store: createIndexedDBMatrixStore({ databaseName: "matrix-alice" }),
 });
 ```

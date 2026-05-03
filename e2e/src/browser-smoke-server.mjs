@@ -23,7 +23,7 @@ const html = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <title>pickle browser smoke</title>
-    <script src="/sdk/packages/core/dist/wasm_exec.js"></script>
+    <script src="/sdk/packages/pickle/dist/wasm_exec.js"></script>
   </head>
   <body>
     <main>
@@ -33,13 +33,13 @@ const html = `<!doctype html>
     <script type="importmap">
       {
         "imports": {
-          "@beeper/pickle": "/sdk/packages/core/dist/index.js"
+          "pickle": "/sdk/packages/pickle/dist/index.js"
         }
       }
     </script>
     <script type="module">
-      import { createMatrixClient } from "/sdk/packages/core/dist/index.js";
-      import { createMatrixLogin } from "/sdk/packages/core/dist/login.js";
+      import { createMatrixClient } from "/sdk/packages/pickle/dist/index.js";
+      import { createMatrixLogin } from "/sdk/packages/pickle/dist/login.js";
       import { createIndexedDBMatrixStore } from "/sdk/packages/state-indexeddb/dist/index.js";
 
       const account = ${JSON.stringify(account)};
@@ -73,7 +73,7 @@ const html = `<!doctype html>
       }
 
       async function createClient(session) {
-        const wasmBytes = await (await fetch("/sdk/packages/core/dist/matrix-core.wasm")).arrayBuffer();
+        const wasmBytes = await (await fetch("/sdk/packages/pickle/dist/pickle.wasm")).arrayBuffer();
         return createMatrixClient({
           account: session,
           recoveryKey: account.recoveryKey,

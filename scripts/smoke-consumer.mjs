@@ -32,8 +32,8 @@ const { stdout } = await execFileAsync(
     "--input-type=module",
     "--eval",
     `
-      import * as core from "@beeper/pickle";
-      import * as node from "@beeper/pickle/node";
+      import * as core from "pickle";
+      import * as node from "pickle/node";
       import * as cf from "@beeper/pickle-cloudflare";
       import * as adapter from "@beeper/pickle-chat-adapter";
       const checks = {
