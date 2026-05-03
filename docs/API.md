@@ -165,3 +165,27 @@ Matrix has no native portable equivalent for Chat SDK modals, scheduled messages
 ## Beeper
 
 Beeper is first-class, but non-standard behavior stays explicit. Native stream events and ephemeral sends live under `client.beeper.*`, and the Chat SDK adapter only uses them when the homeserver is Beeper or `beeper: true` is configured. Standard Matrix homeservers use Matrix edit-based streaming and reject Beeper-only ephemeral sends.
+
+Beeper login helpers are stateless request functions:
+
+```ts
+import { createBeeperLogin } from "better-matrix-js/beeper-login";
+
+const beeper = createBeeperLogin();
+const token = await beeper.requestEmailToken({
+  clientSecret,
+  email,
+  sendAttempt: 1,
+});
+
+const registered = await beeper.register({
+  auth: {
+    type: "m.login.email.identity",
+    threepid_creds: { sid: token.sid, client_secret: clientSecret },
+  },
+  password,
+  username,
+});
+```
+
+The helper does not embed QA secrets, fixed OTP values, or environment-specific assumptions.

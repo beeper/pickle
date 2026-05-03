@@ -42,8 +42,8 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Add logout helper.
 - [x] Add token/JWT login coverage for returned `MatrixAccount`.
 - [x] Persist/use account metadata without making it required for runtime identity.
-- [ ] Add Beeper signup/login flow object under `client.beeper` or a Beeper login helper package.
-- [ ] Ensure no QA-specific secrets, OTP assumptions, or fixed Beeper test behavior ship in public code.
+- [x] Add Beeper signup/login flow object under `client.beeper` or a Beeper login helper package.
+- [x] Ensure no QA-specific secrets, OTP assumptions, or fixed Beeper test behavior ship in public code.
 
 ## Sync And Subscription Semantics
 
@@ -169,7 +169,7 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Beeper stream auto mode for Beeper homeservers.
 - [ ] Move all remaining non-standard Beeper APIs under `client.beeper`.
 - [ ] Add Beeper capability discovery beyond hostname where possible.
-- [ ] Add Beeper login/signup flow as stateless request functions.
+- [x] Add Beeper login/signup flow as stateless request functions.
 - [ ] Add tests ensuring non-standard event/content keys remain namespaced.
 - [ ] Document Beeper-first behavior and standard Matrix fallback behavior.
 

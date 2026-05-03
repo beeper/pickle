@@ -82,6 +82,7 @@ try {
       "--eval",
       `
         import * as core from "better-matrix-js";
+        import * as beeperLogin from "better-matrix-js/beeper-login";
         import * as helpers from "better-matrix-js/helpers";
         import * as login from "better-matrix-js/login";
         import * as node from "better-matrix-js/node";
@@ -90,6 +91,7 @@ try {
 
         const checks = {
           core: ["createMatrixClient", "createMatrixLogin"].every((key) => key in core),
+          beeperLogin: ["createBeeperLogin"].every((key) => key in beeperLogin),
           helpers: ["onMessage", "onReaction", "onInvite", "onRawEvent"].every((key) => key in helpers),
           login: ["createMatrixLogin"].every((key) => key in login),
           node: ["createMatrixClient"].every((key) => key in node),

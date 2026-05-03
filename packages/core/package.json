@@ -24,6 +24,10 @@
       "types": "./dist/helpers.d.ts",
       "import": "./dist/helpers.js"
     },
+    "./beeper-login": {
+      "types": "./dist/beeper-login.d.ts",
+      "import": "./dist/beeper-login.js"
+    },
     "./login": {
       "types": "./dist/login.d.ts",
       "import": "./dist/login.js"

@@ -1,7 +1,16 @@
 export { copyBytes } from "./bytes";
 export { createMatrixClient } from "./client";
 export { onInvite, onMessage, onRawEvent, onReaction } from "./helpers";
+export { createBeeperLogin } from "./beeper-login";
 export { createMatrixLogin } from "./login";
+export type {
+  BeeperEmailTokenOptions,
+  BeeperEmailTokenResult,
+  BeeperLogin,
+  BeeperLoginOptions,
+  BeeperRegisterOptions,
+  BeeperRegisterResult,
+} from "./beeper-login";
 export type {
   MatrixClient,
   MatrixAccountData,
