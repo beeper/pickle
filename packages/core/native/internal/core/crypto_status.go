@@ -7,7 +7,7 @@ type MatrixCryptoStatus struct {
 	HasRecoveryKey         bool   `json:"hasRecoveryKey"`
 	KeyBackupVersion       string `json:"keyBackupVersion,omitempty"`
 	PendingDecryptionCount int    `json:"pendingDecryptionCount"`
-	State                  string `json:"state" tstype:"\"disabled\" | \"enabled\" | \"key_backup_unavailable\" | \"recovery_cache_unavailable\" | \"recovery_key_cached\" | \"recovery_key_loaded\" | \"recovery_restored\" | \"recovery_unverified\""`
+	State                  string `json:"state" tstype:"\"disabled\" | \"enabled\" | \"key_backup_updated\" | \"key_backup_unavailable\" | \"recovery_cache_unavailable\" | \"recovery_key_cached\" | \"recovery_key_loaded\" | \"recovery_restored\" | \"recovery_unverified\""`
 	StoreBacked            bool   `json:"storeBacked"`
 	UserID                 string `json:"userId,omitempty"`
 }

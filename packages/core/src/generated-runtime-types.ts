@@ -21,7 +21,7 @@ export interface MatrixCryptoStatus {
   hasRecoveryKey: boolean;
   keyBackupVersion?: string;
   pendingDecryptionCount: number /* int */;
-  state: "disabled" | "enabled" | "key_backup_unavailable" | "recovery_cache_unavailable" | "recovery_key_cached" | "recovery_key_loaded" | "recovery_restored" | "recovery_unverified";
+  state: "disabled" | "enabled" | "key_backup_updated" | "key_backup_unavailable" | "recovery_cache_unavailable" | "recovery_key_cached" | "recovery_key_loaded" | "recovery_restored" | "recovery_unverified";
   storeBacked: boolean;
   userId?: string;
 }
