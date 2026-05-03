@@ -230,26 +230,26 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 
 - [x] README updated away from old `connect/events/sync.start` API.
 - [x] Core README updated away from old API.
-- [ ] Add a dedicated API overview with:
-  - [ ] inert factory and lazy boot
-  - [ ] `MatrixAccount`
-  - [ ] CLI usage without sync
-  - [ ] live subscription usage
-  - [ ] `catchUp()`
-  - [ ] serverless `applyResponse`
-  - [ ] raw event helper
-  - [ ] E2EE store/recovery guidance
+- [x] Add a dedicated API overview with:
+  - [x] inert factory and lazy boot
+  - [x] `MatrixAccount`
+  - [x] CLI usage without sync
+  - [x] live subscription usage
+  - [x] `catchUp()`
+  - [x] serverless `applyResponse`
+  - [x] raw event helper
+  - [x] E2EE store/recovery guidance
 - [ ] Add migration note stating no backward compatibility is intended pre-release.
 - [ ] Add Chat SDK adapter usage docs for live, disabled-sync, and webhook modes.
 - [ ] Add Beeper-specific docs.
-- [ ] Add unsupported features docs for cards/actions/modals/scheduled messages.
-- [ ] Add e2e README explaining external Beeper setup and cached account reuse.
+- [x] Add unsupported features docs for cards/actions/modals/scheduled messages.
+- [x] Add e2e README explaining external Beeper setup and cached account reuse.
 
 ## E2E Test Plan
 
 - [ ] Move public e2e tests into this repo with a README.
-- [ ] Keep e2e out of default CI.
-- [ ] Reuse cached Beeper accounts by default.
+- [x] Keep e2e out of default CI.
+- [x] Reuse cached Beeper accounts by default.
 - [ ] Scenario: lazy client can send/fetch without sync.
 - [ ] Scenario: `boot()` initializes but does not emit app events.
 - [ ] Scenario: `whoami()` confirms account/device identity.
