@@ -195,7 +195,10 @@ func (c *Core) handleSendReceipt(ctx context.Context, payload []byte) ([]byte, e
 	if req.ReceiptType != "" {
 		receiptType = event.ReceiptType(req.ReceiptType)
 	}
-	var content any = req.Content
+	var content any = map[string]any{}
+	if len(req.Content) > 0 {
+		content = req.Content
+	}
 	if req.ThreadID != "" {
 		content = mautrix.ReqSendReceipt{ThreadID: req.ThreadID}
 		if len(req.Content) > 0 {
