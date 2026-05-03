@@ -1,6 +1,6 @@
 # better-matrix-js
 
-TypeScript Matrix SDK that runs in Node, Cloudflare Workers, browsers, and any WASM runtime. Built on `mautrix-go` + `goolm`, compiled to WebAssembly. E2EE included.
+A TypeScript Matrix SDK that runs in Node, browsers, and any WASM runtime. Built on `mautrix-go` + `goolm`. E2EE included.
 
 ```sh
 npm install better-matrix-js
@@ -8,128 +8,125 @@ npm install better-matrix-js
 
 ## Node
 
-Use the Node entrypoint and a durable store. File or SQLite storage is enough for a single-process bot; production deployments can provide any `MatrixStore` implementation.
-
 ```ts
 import { createMatrixClient, onMessage } from "better-matrix-js/node";
-import { createFileMatrixStore } from "@better-matrix-js/state-file";
+import { createSQLiteMatrixStore } from "@better-matrix-js/state-sqlite";
 
 const client = createMatrixClient({
   homeserver: "https://matrix.example.org",
   token: process.env.MATRIX_ACCESS_TOKEN!,
-  store: createFileMatrixStore(".matrix-state/my-account"),
-  recoveryKey: process.env.MATRIX_RECOVERY_KEY,
+  store: await createSQLiteMatrixStore(".matrix-state/bot.db"),
+  recoveryKey: process.env.MATRIX_RECOVERY_KEY, // optional, for E2EE history
 });
 
 await onMessage(client, undefined, async (event) => {
   if (event.sender.isMe) return;
   await client.messages.send({
     roomId: event.roomId,
-    text: "Got it.",
+    text: "got it",
     replyTo: event.eventId,
   });
 });
 ```
 
-Send directly through the explicit namespaces:
+The first awaited call boots WASM, store, and crypto. Call `await client.boot()` if you want startup failures early.
+
+## Browser
+
+Serve `matrix-core.wasm` with your static assets and persist state in IndexedDB:
 
 ```ts
-const { eventId } = await client.messages.send({
-  roomId: "!room:example.org",
-  text: "hello world",
-});
-
-await client.reactions.send({ roomId: "!room:example.org", eventId, key: "hi" });
-```
-
-## Cloudflare Workers
-
-Cloudflare Workers need the generic entrypoint plus an explicit WASM module import.
-
-```ts
-import "better-matrix-js/wasm_exec.js";
-import wasmModule from "better-matrix-js/matrix-core.wasm";
 import { createMatrixClient } from "better-matrix-js";
-import { createDurableObjectMatrixStore } from "@better-matrix-js/cloudflare";
-
-const client = createMatrixClient({
-  homeserver,
-  token: accessToken,
-  store: createDurableObjectMatrixStore(state.storage),
-  wasmModule,
-});
-
-await client.boot();
-```
-
-For sync, use `MatrixSyncDurableObject` from `@better-matrix-js/cloudflare` and forward the response into `client.sync.applyResponse({ response, since })`. See [`examples/cloudflare-worker`](https://github.com/batuhan/better-matrix-js/tree/main/examples/cloudflare-worker).
-
-## State
-
-Pass a store as `store`. The store persists Matrix sync state and E2EE crypto state, so use durable storage for any real account.
-
-```ts
-import { createMatrixStore } from "@better-matrix-js/state-simple";
-import { createMemoryMatrixStore } from "@better-matrix-js/state-memory";
-import { createFileMatrixStore } from "@better-matrix-js/state-file";
-import { createSQLiteMatrixStore } from "@better-matrix-js/state-sqlite";
-import { createDurableObjectMatrixStore } from "@better-matrix-js/cloudflare";
-
-const memory = createMemoryMatrixStore(); // tests and local experiments
-const filesystem = createFileMatrixStore(".matrix-state/alice");
-const sqlite = await createSQLiteMatrixStore(".matrix-state/alice.db");
-const durableObject = createDurableObjectMatrixStore(state.storage);
-
-const custom = createMatrixStore({
-  get: (key) => backend.get(key),
-  set: (key, value) => backend.set(key, value),
-  delete: (key) => backend.delete(key),
-  keys: () => backend.keys(), // optional; otherwise an index key is maintained
-});
-```
-
-Browser apps can use IndexedDB:
-
-```ts
 import { createIndexedDBMatrixStore } from "@better-matrix-js/state-indexeddb";
 
 const client = createMatrixClient({
-  homeserver,
+  homeserver: "https://matrix.example.org",
   token,
   wasmUrl: "/matrix-core.wasm",
   store: createIndexedDBMatrixStore({ databaseName: "matrix-alice" }),
 });
 ```
 
-## Browser / other runtimes
+## Sending things
 
-Pass any of `wasmModule`, `wasmBytes`, or `wasmUrl` to `createMatrixClient()`, plus a `store` implementing the `MatrixStore` interface. For browser apps, serve `matrix-core.wasm` with your static assets and use `@better-matrix-js/state-indexeddb` so sync and E2EE state survive page reloads.
+```ts
+const { eventId } = await client.messages.send({
+  roomId: "!room:example.org",
+  text: "hello",
+});
 
-## Live sync vs serverless applyResponse
+await client.reactions.send({ roomId: "!room:example.org", eventId, key: "👋" });
+await client.messages.edit({ roomId, eventId, text: "edited" });
+await client.messages.redact({ roomId, eventId });
+await client.typing.set({ roomId, typing: true, timeoutMs: 5000 });
+```
 
-Use `client.subscribe(filter, handler)` when the same process can keep a long-lived `/sync` request open. In serverless runtimes, run `/sync` elsewhere and call `client.sync.applyResponse({ response, since })` for each response. Do not run both for the same account at the same time; only one component should advance a Matrix account cursor.
+## Listening
 
-## E2EE storage and keys
+```ts
+import { onMessage, onReaction, onInvite, onRawEvent } from "better-matrix-js";
 
-Encrypted accounts need durable Matrix storage. The store contains Olm/Megolm session state and the sync cursor, while `pickleKey` protects local pickles and `recoveryKey` unlocks Matrix key backup. Keep `pickleKey` stable for a device; rotate it only with a planned device reset or store migration.
+await onMessage(client, { roomId }, async (event) => { /* ... */ });
+await onReaction(client, { relationEventId: "$event" }, async (event) => { /* ... */ });
+await onInvite(client, undefined, async (invite) => {
+  await client.rooms.join({ roomIdOrAlias: invite.roomId });
+});
+```
 
-Recommended bot onboarding:
+Or use `client.subscribe(filter, handler, options)` directly. The first subscriber starts the sync loop; the last `stop()` ends it. Use `sub.catchUp()` to replay missed events from the stored cursor.
 
-1. Log in once and persist the returned `userId`, `deviceId`, and access token.
-2. Pick a stable high-entropy `pickleKey` and store it with the bot secret material.
-3. Pass a durable `store`, `userId`, `deviceId`, access token, and `pickleKey` on every boot.
-4. Pass `recoveryKey` when the bot must decrypt historical encrypted messages from key backup.
-5. Check `await client.crypto.status()` after `boot()` and alert on `keyBackupUnavailable`, `recoveryUnverified`, or a nonzero `pendingDecryptionCount`.
+```ts
+const sub = await client.subscribe({ kind: "message", roomId }, handler);
+await sub.catchUp();
+await sub.stop();
+```
 
-If `pickleKey` is omitted, the runtime currently falls back to the access token for compatibility with one-off bots. Treat that as development-only. Production encrypted bots should always set `pickleKey` explicitly so token rotation does not make local crypto state unreadable.
+## Login
 
-## What it does
+```ts
+import { createMatrixLogin } from "better-matrix-js";
 
-Login (password, token, JWT), `/sync` long polling, send/edit/delete messages, formatted HTML, mentions, replies, reactions, read receipts, threads, typing, media (encrypted upload/download), DMs, joined-room listing, invites, and the full mautrix E2EE pipeline (Olm/Megolm, cross-signing, key backup, recovery key).
+const login = createMatrixLogin({ homeserver: "https://matrix.example.org" });
+const session = await login.password({ username: "bot", password: "..." });
+// or: await login.token({ token, type: "m.login.token" | "org.matrix.login.jwt" });
+
+const client = createMatrixClient({ account: session, store, pickleKey });
+```
+
+## E2EE essentials
+
+For encrypted bots, persist these across restarts:
+
+- The `store` (Olm/Megolm sessions, sync cursor, crypto state)
+- A stable `pickleKey` (protects local pickles — never rotate without a planned device reset)
+- Optional `recoveryKey` to unlock Matrix key backup for historical messages
+
+After boot, check status and alert on issues:
+
+```ts
+const status = await client.crypto.status();
+// { keyBackupUnavailable, recoveryUnverified, pendingDecryptionCount, ... }
+```
 
 ## API surface
 
-`MatrixClient` exposes one explicit lifecycle plus namespaces: `connect`, `close`, `events`, `messages`, `reactions`, `rooms`, `media`, `users`, `typing`, and `sync`.
+`MatrixClient` exposes:
+
+- **Lifecycle:** `boot`, `whoami`, `close`, `logout`
+- **Send/fetch:** `messages`, `reactions`, `media`, `typing`, `receipts`, `accountData`, `toDevice`, `streams`
+- **Rooms:** `rooms` (create, join, invite, kick, ban, state, threads, DMs, members)
+- **Users:** `users` (profile, avatar, display name)
+- **Events:** `subscribe(filter, handler)` + helpers `onMessage`, `onReaction`, `onInvite`, `onRawEvent`
+- **Sync:** `sync.applyResponse({ response, since })` for serverless / external sync runners
+- **E2EE:** `crypto.status()`
+- **Beeper-only:** `beeper.ephemeral`, `beeper.streams`
+- **Escape hatch:** `raw.request({ method, path, body })`
+
+See [`docs/API.md`](https://github.com/batuhan/better-matrix-js/blob/main/docs/API.md) for full details.
+
+## Store ownership
+
+Each Matrix account/device store is single-writer. Don't run two clients against the same store prefix concurrently. To run multiple bots in one process, give each its own store.
 
 ## License
 

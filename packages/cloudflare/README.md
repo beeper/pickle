@@ -1,14 +1,14 @@
 # @better-matrix-js/cloudflare
 
-Cloudflare Workers helpers for [`better-matrix-js`](https://github.com/batuhan/better-matrix-js): KV / Durable Object stores and a ready-made sync Durable Object.
+> ⚠️ **Experimental — doesn't work yet.** This package is in active design. The APIs and Durable Object below compile and have unit tests, but no end-to-end Cloudflare deployment has been validated. Expect breaking changes and runtime issues. Don't ship it.
+
+Cloudflare Workers helpers for [`better-matrix-js`](https://github.com/batuhan/better-matrix-js): KV / Durable Object stores and a long-poll sync Durable Object.
 
 ```sh
 npm install better-matrix-js @better-matrix-js/cloudflare
 ```
 
 ## State
-
-Pick whichever fits your binding. Both implement the `MatrixStore` interface that `better-matrix-js` expects as `store`.
 
 ```ts
 import {
@@ -23,10 +23,9 @@ const store = createCloudflareKVMatrixStore(env.MATRIX_KV, { prefix: "matrix/" }
 const store = createDurableObjectMatrixStore(state.storage, { prefix: "matrix/" });
 ```
 
-
 ## Sync Durable Object
 
-`MatrixSyncDurableObject` long-polls `/_matrix/client/v3/sync`, posts `{ response, since }` to your webhook, persists the `next_batch` cursor, and uses Durable Object alarms to keep going through hibernation and transient errors.
+`MatrixSyncDurableObject` long-polls `/_matrix/client/v3/sync`, posts `{ response, since }` to your webhook, and persists the cursor across hibernation via DO alarms.
 
 ```ts
 // worker.ts
@@ -56,7 +55,7 @@ export default {
 }
 ```
 
-Set `MATRIX_SYNC_ACCESS_TOKEN` as a secret. Then start, stop, and inspect via HTTP:
+Set `MATRIX_SYNC_ACCESS_TOKEN` as a secret. Control via HTTP:
 
 ```sh
 curl -X POST https://your-worker.example.com/start
@@ -64,13 +63,13 @@ curl -X POST https://your-worker.example.com/stop
 curl       https://your-worker.example.com/status
 ```
 
-Your webhook receives `{ response, since }`. Apply it to a `MatrixClient` running in another Durable Object:
+Apply each webhook payload to the `MatrixClient` running in your account Durable Object:
 
 ```ts
 await client.sync.applyResponse({ response: body.response, since: body.since });
 ```
 
-If the sync Durable Object and webhook do not share a private boundary, encrypt the webhook body outside the Matrix client API:
+If the sync DO and webhook receiver don't share a private boundary, encrypt the payload:
 
 ```ts
 import {
@@ -80,20 +79,13 @@ import {
 
 const envelope = await encryptMatrixSyncWebhookPayload({ response, since }, env.WEBHOOK_SECRET);
 const payload = await decryptMatrixSyncWebhookEnvelope(envelope, env.WEBHOOK_SECRET);
-await client.sync.applyResponse(payload);
 ```
 
 ## Cursor ownership
 
-Use one `MatrixSyncDurableObject` per Matrix account. It owns the `/sync` cursor and is the only component that should call Matrix `/sync` for that account. Your account Durable Object should own the `MatrixClient`, durable crypto store, bot state, and webhook handler, then apply each sync payload with `applyResponse`.
-
-This split keeps serverless workers from racing cursors. If you choose not to use `MatrixSyncDurableObject`, keep the same rule: exactly one durable actor advances the cursor, and every consumer processes responses from that actor.
-
-Include a stable event ID or Matrix `next_batch` cursor in your own webhook idempotency keys. Retrying the same webhook is expected; consumers should treat already-seen sync responses as no-ops.
+One `MatrixSyncDurableObject` per Matrix account. It owns the `/sync` cursor; the account DO owns the `MatrixClient`, crypto state, and bot logic. Every consumer treats already-seen `next_batch` cursors as no-ops.
 
 ## Config
-
-Pass options directly when subclassing, or use env vars:
 
 | Option | Env var | Default |
 | --- | --- | --- |
@@ -104,7 +96,7 @@ Pass options directly when subclassing, or use env vars:
 | `syncTimeoutMs` | `MATRIX_SYNC_TIMEOUT_MS` | `30000` |
 | `retryMs` / `maxRetryMs` | `MATRIX_SYNC_RETRY_MS` / `MATRIX_SYNC_MAX_RETRY_MS` | `1000` / `60000` |
 
-See [`examples/cloudflare-worker`](https://github.com/batuhan/better-matrix-js/tree/main/examples/cloudflare-worker) for a complete setup with both the core and sync objects.
+See [`examples/cloudflare-worker`](https://github.com/batuhan/better-matrix-js/tree/main/examples/cloudflare-worker) for the full setup.
 
 ## License
 

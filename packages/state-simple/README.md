@@ -1,16 +1,20 @@
 # @better-matrix-js/state-simple
 
-Wrap any simple getter/setter backend as `better-matrix-js` Matrix state.
+Wrap any get/set/delete backend (Redis, Postgres, S3, …) as a `MatrixStore`.
+
+```sh
+npm install @better-matrix-js/state-simple
+```
 
 ```ts
 import { createMatrixStore } from "@better-matrix-js/state-simple";
 
-const state = createMatrixStore({
-  get: (key) => backend.get(key),
-  set: (key, value) => backend.set(key, value),
-  delete: (key) => backend.delete(key),
-  keys: () => backend.keys(),
+const store = createMatrixStore({
+  get: (key) => redis.getBuffer(key),
+  set: (key, value) => redis.set(key, value),
+  delete: (key) => redis.del(key).then(() => undefined),
+  keys: () => redis.keys("*"), // optional; if omitted, an index entry is maintained
 });
 ```
 
-If the backend cannot list keys, omit `keys` and `list`; the adapter maintains a small index entry.
+Use this when no built-in adapter fits. The wrapper handles the `MatrixStore` contract; you handle the backend.

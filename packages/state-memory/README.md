@@ -1,11 +1,15 @@
 # @better-matrix-js/state-memory
 
-In-memory state adapter for `better-matrix-js`.
+In-memory `MatrixStore` for `better-matrix-js`. Tests and local experiments only.
+
+```sh
+npm install @better-matrix-js/state-memory
+```
 
 ```ts
 import { createMemoryMatrixStore } from "@better-matrix-js/state-memory";
 
-const state = createMemoryMatrixStore();
+const store = createMemoryMatrixStore();
 ```
 
-Use this for tests and local experiments. It does not persist Matrix sync or E2EE crypto state across restarts.
+Does not persist anything across restarts. For real bots, use [`@better-matrix-js/state-sqlite`](../state-sqlite) or [`-file`](../state-file).

@@ -1,15 +1,10 @@
-# E2E Scripts
+# E2E scripts
 
-These scripts were moved from the private E2E harness so we can keep the test
-coverage close to the SDK. They intentionally do not include Beeper QA account
-creation, fixed OTP flows, private tokens, or any account provisioning logic.
+Standalone smoke scripts that exercise the SDK against a real Matrix homeserver. Not CI by default — bring your own accounts.
 
-They are not CI tests by default. They require reusable Matrix/Beeper accounts
-with access tokens and, for encrypted-history coverage, recovery keys.
+## Account file
 
-## Account File
-
-Create `e2e-scripts/.out/accounts.json` yourself:
+Create `e2e-scripts/.out/accounts.json`:
 
 ```json
 {
@@ -20,33 +15,28 @@ Create `e2e-scripts/.out/accounts.json` yourself:
       "deviceId": "DEVICEID",
       "accessToken": "ACCESS_TOKEN",
       "recoveryKey": "OPTIONAL_RECOVERY_KEY",
-      "loginToken": "OPTIONAL_JWT_LOGIN_TOKEN_FOR_FRESH_DEVICE_TESTS",
+      "loginToken": "OPTIONAL_JWT_FOR_FRESH_DEVICE_TESTS",
       "username": "stable-label"
     }
   ]
 }
 ```
 
-The test suite reuses accounts and stores by default so old history, old devices,
-and recovery behavior stay exercised. Use `MATRIX_E2E_RESET_STORES=1` when you
-want to force a clean local store. Use `MATRIX_E2E_FRESH_DEVICE=1` only when the
-accounts include reusable Matrix JWT login tokens.
+Stores are reused between runs by default to keep encrypted-history coverage realistic.
 
-## Running
+| Env var | Effect |
+| --- | --- |
+| `MATRIX_E2E_RESET_STORES=1` | Wipe local stores before running |
+| `MATRIX_E2E_FRESH_DEVICE=1` | Force fresh devices (requires `loginToken` per account) |
 
-Build the SDK first:
+## Run
 
 ```sh
 pnpm build
-```
-
-Then run from this directory or from the repo root:
-
-```sh
 cd e2e-scripts
+
 MATRIX_E2E_SDK_ROOT=.. npm run test:surface
 MATRIX_E2E_SDK_ROOT=.. npm test
 ```
 
-The Chat SDK adapter test requires the upstream `chat` package to be resolvable
-in Node, for example by installing/linking it in your local environment.
+The Chat SDK adapter test needs the upstream `chat` package resolvable in Node.

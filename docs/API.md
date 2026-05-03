@@ -1,22 +1,20 @@
-# better-matrix-js API Overview
+# API Reference
 
-`better-matrix-js` is a Matrix client SDK built around one lifecycle model:
+The full surface of `better-matrix-js`. Start with the [package README](../packages/core) for quickstart.
 
-- `createMatrixClient(options)` is synchronous and inert.
-- First awaited Matrix method lazily boots WASM, store, account identity, and crypto.
-- `client.boot()` exists when an app wants startup failures early.
-- Live events only flow through `client.subscribe(filter, handler)`.
-- Serverless sync payloads enter through `client.sync.applyResponse({ response, since })`.
+## Lifecycle
 
-There is no public `connect()`, `events`, `sync.start()`, `sync.once()`, or `sync.stop()`.
+```ts
+const client = createMatrixClient(options);   // sync, inert
+await client.boot();                           // optional, surfaces startup failures
+await client.whoami();                         // confirms identity
+await client.close();                          // shuts down sync runner + WASM
+await client.logout();                         // server-side device logout + close
+```
 
-## Migration Stance
+The first awaited Matrix call lazily boots WASM, the store, account identity, and crypto.
 
-This SDK has not had a stable public release. The v1 API intentionally deletes old generated shapes instead of preserving aliases. Treat stale examples that mention `connect()`, root `events`, or public `sync.start()` as obsolete.
-
-## Account Objects
-
-Use `MatrixAccount` as the serializable account/session shape:
+## Account
 
 ```ts
 type MatrixAccount = {
@@ -28,110 +26,73 @@ type MatrixAccount = {
 };
 ```
 
-`deviceId` is immutable identity returned by Matrix login/whoami. Do not generate or edit it as a runtime option for an existing access token.
+`deviceId` is server-assigned and immutable for a given access token. Persist `userId`, `deviceId`, and `accessToken` from your first login — or pass `account: session` from `createMatrixLogin()`.
+
+## Login
 
 ```ts
-const login = createMatrixLogin({ homeserver: "https://matrix.example.com" });
-const account = await login.token({ token: process.env.MATRIX_LOGIN_TOKEN! });
+import { createMatrixLogin } from "better-matrix-js";
 
-const client = createMatrixClient({
-  account,
-  pickleKey: process.env.MATRIX_PICKLE_KEY!,
-  store,
-});
-
-await client.whoami();
+const login = createMatrixLogin({ homeserver, initialDeviceDisplayName: "my bot" });
+const session = await login.password({ username, password });
+const session = await login.token({ token, type: "m.login.token" }); // or "org.matrix.login.jwt"
 ```
 
-`metadata` is carried through login results if provided, but it is never used as Matrix identity. Runtime identity is always `userId`, `deviceId`, `homeserver`, and `accessToken`.
+## CLI / one-shot use
 
-## CLI Usage Without Sync
-
-Request-style programs can send/fetch and exit without subscribing:
+Send and exit. The `/sync` loop only starts when you subscribe:
 
 ```ts
 const client = createMatrixClient({ account, store, pickleKey });
-
-await client.messages.send({
-  roomId: "!room:example.com",
-  text: "done",
-});
-
+await client.messages.send({ roomId, text: "done" });
 await client.close();
 ```
 
-No `/sync` loop is started by construction, `boot()`, `whoami()`, send, fetch, or pagination.
-
-## Live Subscriptions
-
-Use one root live primitive:
+## Live subscriptions
 
 ```ts
-const sub = await client.subscribe({ kind: "message", roomId }, async (event) => {
-  if (event.kind !== "message" || event.sender.isMe) return;
-  await client.messages.send({
-    roomId: event.roomId,
-    text: "ack",
-    replyTo: event.eventId,
-  });
-});
+const sub = await client.subscribe(
+  { kind: "message", roomId },
+  async (event) => {
+    if (event.kind !== "message" || event.sender.isMe) return;
+    await client.messages.send({ roomId: event.roomId, text: "ack", replyTo: event.eventId });
+  },
+  { timeoutMs: 30_000, retryDelayMs: 1_000 }, // optional
+);
 
-await sub.stop();
-await sub.done;
+await sub.catchUp();   // replay missed events from stored cursor
+await sub.stop();      // last subscriber stops the runner
+await sub.done;        // resolves once the runner is fully stopped
 ```
 
-The first subscriber starts the internal sync runner. Stopping the last subscriber stops it. Multiple subscribers share one runner.
+Subscriptions are future-only by default. Multiple subscribers share one `/sync` runner.
 
-Optional sync tuning lives on the subscription call, not under `client.sync`:
+### Helpers
 
-```ts
-await client.subscribe(filter, handler, {
-  timeoutMs: 30_000,
-  retryDelayMs: 1_000,
-});
-```
-
-## Catch-Up
-
-Subscriptions are future-only by default. A reused account does not replay stored-cursor backlog unless the caller asks:
-
-```ts
-const sub = await client.subscribe({ kind: "message" }, onMessage);
-await sub.catchUp();
-```
-
-`catchUp()` replays missed events from the stored cursor through that subscription.
-
-## Helper Functions
-
-Pure helpers are thin wrappers over `client.subscribe`:
+Thin wrappers over `subscribe`:
 
 ```ts
 import { onInvite, onMessage, onRawEvent, onReaction } from "better-matrix-js";
 
 await onMessage(client, { roomId }, handler);
-await onReaction(client, { relationEventId: "$event" }, handler);
+await onReaction(client, { relationEventId }, handler);
 await onInvite(client, undefined, handler);
-await onRawEvent(client, { roomId }, handler);
+await onRawEvent(client, { roomId }, handler); // raw Matrix JSON
 ```
 
-They are not separate event systems.
+## Serverless apply
 
-## Serverless Apply
-
-When `/sync` is owned by another process, pass raw Matrix sync JSON to the client:
+When `/sync` runs elsewhere (cron, webhook, separate worker), feed responses in:
 
 ```ts
 await client.sync.applyResponse({ response, since });
 ```
 
-Only one writer should advance an encrypted Matrix device cursor and crypto store at a time. In serverless deployments, serialize work through a Durable Object, a lock, or another single-writer mechanism.
+**Single-writer rule:** exactly one component advances an encrypted Matrix device cursor. Don't run `subscribe(...)` and `applyResponse(...)` for the same account at the same time.
 
-Live mode owns the cursor inside `client.subscribe(...)`. Webhook mode owns the cursor in the external sync producer and applies the payload to the account client. Cloudflare mode should use one sync Durable Object to poll Matrix and one account Durable Object to apply responses and run bot code.
+## Raw requests
 
-## Raw Requests
-
-Use `client.raw.request` for advanced Matrix endpoints without adding throwaway wrappers:
+Escape hatch for Matrix endpoints without a typed wrapper:
 
 ```ts
 const result = await client.raw.request({
@@ -141,11 +102,15 @@ const result = await client.raw.request({
 });
 ```
 
-The path must be relative to the homeserver.
+Path is relative to the homeserver.
 
-## E2EE Storage
+## E2EE
 
-Encrypted bots should always use durable storage and a stable `pickleKey`:
+Encrypted bots need:
+
+- A durable `store` (Olm/Megolm sessions, sync cursor, crypto state)
+- A stable `pickleKey` — keep it constant for the device's lifetime
+- Optional `recoveryKey` to unlock Matrix key backup for historical messages
 
 ```ts
 const client = createMatrixClient({
@@ -154,36 +119,26 @@ const client = createMatrixClient({
   pickleKey: process.env.MATRIX_PICKLE_KEY!,
   recoveryKey: process.env.MATRIX_RECOVERY_KEY,
 });
+
+const status = await client.crypto.status();
+// alert on: keyBackupUnavailable, recoveryUnverified, pendingDecryptionCount > 0
 ```
 
-`recoveryKey` unlocks Matrix key backup for historical encrypted messages. `pickleKey` protects local crypto state and must remain stable for the device/store pair.
+If `pickleKey` is omitted, the runtime falls back to the access token. That's fine for one-off bots; production E2EE should always set `pickleKey` explicitly so token rotation doesn't brick local crypto.
 
-## Store Ownership
+## Store ownership
 
-Each Matrix account/device store is single-writer. Do not run two live clients, webhook consumers, or Durable Objects against the same store prefix at the same time. Multiple logical bots can share a process by creating separate clients with separate account/device stores.
-
-The storage adapters persist fast-boot state only: account/session material supplied by the app, crypto state, sync cursors, pending decryptions, and small summaries/caches. They intentionally do not model a full gomuks-style timeline database.
-
-## Unsupported Chat SDK Features
-
-Matrix has no native portable equivalent for Chat SDK modals, scheduled messages, or interactive cards/actions. The adapter may render plain text only when that does not imply unsupported interactivity; otherwise it should throw clearly.
+Each account/device store is single-writer. To run multiple bots in one process, give each its own store. Storage adapters persist fast-boot state (account material, crypto state, sync cursors, small caches) — they're not a full timeline database.
 
 ## Beeper
 
-Beeper is first-class, but non-standard behavior stays explicit. Native stream events and ephemeral sends live under `client.beeper.*`, and the Chat SDK adapter only uses them when the homeserver is Beeper or `beeper: true` is configured. Standard Matrix homeservers use Matrix edit-based streaming and reject Beeper-only ephemeral sends.
-
-Beeper login helpers are stateless request functions:
+Beeper-only behavior lives under `client.beeper.*` and is only used by the Chat SDK adapter when the homeserver is Beeper or `beeper: true` is passed.
 
 ```ts
 import { createBeeperLogin } from "better-matrix-js/beeper-login";
 
 const beeper = createBeeperLogin();
-const token = await beeper.requestEmailToken({
-  clientSecret,
-  email,
-  sendAttempt: 1,
-});
-
+const token = await beeper.requestEmailToken({ clientSecret, email, sendAttempt: 1 });
 const registered = await beeper.register({
   auth: {
     type: "m.login.email.identity",
@@ -194,4 +149,9 @@ const registered = await beeper.register({
 });
 ```
 
-The helper does not embed QA secrets, fixed OTP values, or environment-specific assumptions.
+Standard Matrix homeservers reject Beeper-only operations with a clear error.
+
+## Unsupported
+
+- Chat SDK native modals, scheduled messages, interactive cards (no Matrix equivalent)
+- URL previews (send rendered content explicitly)

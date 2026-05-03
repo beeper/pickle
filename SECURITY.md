@@ -1,12 +1,9 @@
 # Security
 
-Report security issues privately by emailing the repository owner or by using
-GitHub private vulnerability reporting when it is enabled for the repository.
+Report vulnerabilities privately via GitHub's private vulnerability reporting, or by emailing the repository owner.
 
-Do not include access tokens, recovery keys, Matrix session stores, or other
-account secrets in public issues.
+**Do not** include access tokens, recovery keys, pickle keys, or Matrix session stores in public issues.
 
-## Supported Versions
+## Supported versions
 
-This project is experimental before `1.0.0`. Security fixes target the latest
-published version.
+This project is pre-`1.0.0` and experimental. Security fixes target the latest published version.

@@ -1,29 +1,25 @@
 # @better-matrix-js/chat-adapter
 
-[Chat SDK](https://www.npmjs.com/package/chat) adapter for Matrix. Build a Matrix bot the same way you'd build a Slack or Discord bot.
+[Chat SDK](https://www.npmjs.com/package/chat) adapter for Matrix. Same bot, same code, runs on Matrix, Slack, Discord, Teams.
 
 ```sh
-npm install chat better-matrix-js @better-matrix-js/chat-adapter @chat-adapter/state-redis
+npm install chat better-matrix-js @better-matrix-js/chat-adapter
 ```
 
 ## Usage
 
 ```ts
 import { Chat } from "chat";
-import { createRedisState } from "@chat-adapter/state-redis";
 import { createMatrixAdapter } from "@better-matrix-js/chat-adapter";
 
 const matrix = createMatrixAdapter({
+  homeserver: "https://matrix.example.org", // defaults to https://matrix.beeper.com
   token: process.env.MATRIX_ACCESS_TOKEN!,
-  // Defaults to https://matrix.beeper.com
-  recoveryKey: process.env.MATRIX_RECOVERY_KEY,    // optional, enables E2EE
+  recoveryKey: process.env.MATRIX_RECOVERY_KEY, // optional, enables E2EE history
   inviteAutoJoin: { inviterAllowlist: ["@me:example.org"] },
 });
 
-const bot = new Chat({
-  adapters: { matrix },
-  state: createRedisState({ url: process.env.REDIS_URL! }),
-});
+const bot = new Chat({ adapters: { matrix }, state });
 
 bot.onNewMention(async (thread, message) => {
   await thread.subscribe();
@@ -33,13 +29,9 @@ bot.onNewMention(async (thread, message) => {
 await bot.initialize();
 ```
 
-That's it. The adapter subscribes automatically and forwards future Matrix events into Chat SDK threads.
-
-For E2EE bots, keep both Chat SDK state and Matrix client state durable. `recoveryKey` lets the bot restore backed-up room keys, while `pickleKey` protects the local crypto pickles; keep `pickleKey` stable for the lifetime of the Matrix device.
+That's it. The adapter logs in, subscribes, and forwards Matrix events into Chat SDK threads.
 
 ## Login with password
-
-If you don't have an access token yet:
 
 ```ts
 import { createMatrixLogin } from "better-matrix-js";
@@ -47,23 +39,17 @@ import { createMatrixLogin } from "better-matrix-js";
 const { accessToken } = await createMatrixLogin({
   homeserver: "https://matrix.example.org",
   initialDeviceDisplayName: "my bot",
-}).password({
-  username: "bot",
-  password: process.env.MATRIX_PASSWORD!,
-});
+}).password({ username: "bot", password: process.env.MATRIX_PASSWORD! });
 ```
 
-There's also `.token()` for token / JWT login.
+`createMatrixLogin().token({ token })` works the same way for token / JWT login.
 
-## Streaming responses (AI bots)
+## Streaming responses
 
 Stream markdown into a Matrix message with progressive edits. Pass any async iterable of AI-SDK-shaped chunks:
 
 ```ts
-await matrix.stream(
-  matrix.encodeThreadId({ roomId }),
-  agentStream(message.text),
-);
+await matrix.stream(matrix.encodeThreadId({ roomId }), agentStream(message.text));
 
 async function* agentStream(prompt: string) {
   yield { type: "markdown_text", text: "Thinking…\n\n" };
@@ -74,62 +60,46 @@ async function* agentStream(prompt: string) {
 }
 ```
 
-On Beeper homeservers this uses Beeper native streaming events; elsewhere it falls back to debounced Matrix edits. To wire the AI SDK directly, see [`@better-matrix-js/ai-sdk`](https://github.com/batuhan/better-matrix-js/tree/main/packages/ai-sdk).
-
-## Serverless / webhook sync
-
-If you run `/sync` outside the adapter, for example from `MatrixSyncDurableObject`, disable the built-in poller and feed responses in:
-
-```ts
-const matrix = createMatrixAdapter({
-  /* … */,
-  sync: { enabled: false },
-});
-
-await matrix.handleSyncResponse({ response, since });
-```
-
-In this mode the external sync runner owns the cursor. Do not also let the adapter run live sync for the same Matrix account.
-
-For encrypted rooms, keep webhook application single-writer for each Matrix device. The external sync runner should deliver raw Matrix JSON to `handleSyncResponse`; the adapter does not decrypt or unwrap custom webhook envelopes itself.
+On Beeper homeservers this uses native streaming events; elsewhere it falls back to debounced edits. Wire the AI SDK directly with [`@better-matrix-js/ai-sdk`](https://github.com/batuhan/better-matrix-js/tree/main/packages/ai-sdk).
 
 ## Thread IDs
 
-Chat SDK thread IDs encode `{ roomId, eventId? }`. Use the helpers when you need to cross between Matrix room IDs and Chat SDK thread IDs:
+Chat SDK thread IDs encode `{ roomId, eventId? }`:
 
 ```ts
 matrix.encodeThreadId({ roomId: "!room:example.org" });
-matrix.decodeThreadId(threadId); // => { roomId, eventId? }
+matrix.decodeThreadId(threadId); // { roomId, eventId? }
 matrix.channelIdFromThreadId(threadId);
 ```
 
-## Config reference
+## Config
 
 ```ts
 createMatrixAdapter({
-  token,                                        // required
-  homeserver,                                   // optional, defaults to Beeper
-  client | createClient | wasmModule | wasmBytes | wasmUrl, // optional
-  recoveryKey | pickleKey,                      // optional, for E2EE
-  inviteAutoJoin: { inviterAllowlist },         // optional
-  roomAllowlist,                                // optional
-  sync: { enabled },
+  token,                                // required (or pass `client` / `createClient`)
+  homeserver,                           // defaults to Beeper
+  recoveryKey, pickleKey,               // E2EE
+  inviteAutoJoin: { inviterAllowlist },
+  roomAllowlist,
+  sync: { enabled },                    // false = caller drives sync via handleSyncResponse
   typingTimeoutMs,
   commandPrefix,
 });
 ```
 
-## Matrix-specific support
+For E2EE bots: keep `pickleKey` stable for the device, persist Matrix state with a durable store, and persist Chat SDK state too.
 
-| Chat SDK feature | Matrix adapter support |
+## Matrix-specific behavior
+
+| Chat SDK feature | Matrix support |
 | --- | --- |
-| Messages, replies, reactions, threads | Supported. |
-| Streaming responses | Beeper native streaming on Beeper homeservers; Matrix edit fallback elsewhere. |
-| Ephemeral messages | Beeper-only. Non-Beeper homeservers reject this operation. |
-| Cards and actions | Non-interactive cards can be rendered as text; interactive cards/actions throw clearly. |
-| Native modals | Unsupported because Matrix has no equivalent native surface. |
-| Scheduled messages | Unsupported; schedule work in your app and send later. |
-| URL previews | Unsupported by design; send explicit text or rendered content instead. |
+| Messages, replies, reactions, threads | ✅ |
+| Streaming | ✅ Beeper-native on Beeper, edit fallback elsewhere |
+| Ephemeral messages | Beeper-only |
+| Cards / actions | Non-interactive cards render as text; interactive throw |
+| Native modals | ❌ no equivalent in Matrix |
+| Scheduled messages | ❌ schedule in your app |
+| URL previews | ❌ send rendered content explicitly |
 
 ## License
 

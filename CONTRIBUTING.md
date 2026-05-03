@@ -1,13 +1,15 @@
 # Contributing
 
-This repo uses pnpm workspaces, TypeScript, Go, and WebAssembly.
+pnpm workspaces, TypeScript, Go, and WebAssembly.
 
 ## Setup
 
 ```sh
 pnpm install
-pnpm build
+pnpm build       # compiles TS + builds matrix-core.wasm via Go
 ```
+
+Requires Node 22+, pnpm 9+, and a Go toolchain.
 
 ## Checks
 
@@ -15,18 +17,16 @@ pnpm build
 pnpm typecheck
 pnpm test
 pnpm build
-go test ./...
+go test ./...   # run from packages/core/native
 ```
-
-Run Go tests from `packages/core/native`.
 
 ## Release
 
-Use the workspace release path so workspace dependencies are rewritten for npm:
+Always publish with pnpm so workspace dependency ranges get rewritten:
 
 ```sh
+pnpm check
 pnpm publish:packages
 ```
 
-Do not publish the adapter package with direct `npm publish` from the package
-directory because npm does not rewrite workspace dependency ranges.
+Don't run `npm publish` from a package directory — npm doesn't rewrite `workspace:*` ranges.
