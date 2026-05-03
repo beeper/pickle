@@ -281,7 +281,7 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Chat adapter type conformance.
 - [ ] Subscription multi-subscriber lifecycle.
 - [ ] Subscription handler error behavior.
-- [ ] Pure helper behavior for `onMessage`, `onReaction`, `onInvite`, `onRawEvent`.
+- [x] Pure helper behavior for `onMessage`, `onReaction`, `onInvite`, `onRawEvent`.
 - [ ] Normalized event mapping for every event kind.
 - [ ] Raw event path.
 - [ ] Storage adapter conformance.

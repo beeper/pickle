@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMatrixClient } from "./client";
-import { onRawEvent } from "./helpers";
+import { onInvite, onMessage, onRawEvent, onReaction } from "./helpers";
 
 interface RuntimeCall {
   coreId: string;
@@ -183,6 +183,68 @@ describe("createMatrixClient", () => {
     }));
     await accountSub.stop();
     await rawSub.stop();
+  });
+
+  it("keeps pure event helpers as thin subscription filters", async () => {
+    installRuntime({ init: { deviceId: "DEVICE", userId: "@bot:example.com" }, start_sync: {}, stop_sync: {} });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+    const message = vi.fn();
+    const reaction = vi.fn();
+    const invite = vi.fn();
+    const messageSub = await onMessage(client, { roomId: "!room:example.com" }, message);
+    const reactionSub = await onReaction(client, { roomId: "!room:example.com" }, reaction);
+    const inviteSub = await onInvite(client, undefined, invite);
+
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          body: "Hello",
+          content: { body: "Hello", msgtype: "m.text" },
+          eventId: "$message",
+          msgtype: "m.text",
+          raw: {},
+          roomId: "!room:example.com",
+          sender: "@alice:example.com",
+          type: "m.room.message",
+        },
+        type: "message",
+      })
+    );
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          content: {},
+          eventId: "$reaction",
+          key: "+1",
+          raw: {},
+          relatesToEventId: "$message",
+          roomId: "!room:example.com",
+          sender: "@alice:example.com",
+          type: "m.reaction",
+        },
+        type: "reaction",
+      })
+    );
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: { raw: {}, roomId: "!invite:example.com" },
+        type: "invite",
+      })
+    );
+
+    expect(message).toHaveBeenCalledWith(expect.objectContaining({ eventId: "$message", kind: "message" }));
+    expect(reaction).toHaveBeenCalledWith(expect.objectContaining({ eventId: "$reaction", kind: "reaction" }));
+    expect(invite).toHaveBeenCalledWith(expect.objectContaining({ kind: "invite", roomId: "!invite:example.com" }));
+    await messageSub.stop();
+    await reactionSub.stop();
+    await inviteSub.stop();
   });
 
   it("delegates subscription lifetime to the runtime", async () => {
