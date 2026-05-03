@@ -16,6 +16,8 @@
     "smoke:package-consumer": "node scripts/package-consumer-smoke.mjs",
     "test:go": "cd packages/core/native && go test -tags goolm ./...",
     "test:live": "node scripts/live-e2e.mjs",
+    "test:docker": "pnpm build && BMJS_E2E_REDIS_PORT=${BMJS_E2E_REDIS_PORT:-6380} docker compose -f docker-compose.e2e.yml up -d --wait redis && BMJS_E2E_REDIS_PORT=${BMJS_E2E_REDIS_PORT:-6380} node scripts/docker-redis-store-smoke.mjs",
+    "test:docker:down": "docker compose -f docker-compose.e2e.yml down -v",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },

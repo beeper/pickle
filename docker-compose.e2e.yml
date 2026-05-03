@@ -1,0 +1,11 @@
+services:
+  redis:
+    image: ${BMJS_E2E_REDIS_IMAGE:-public.ecr.aws/docker/library/redis:7.4-alpine}
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${BMJS_E2E_REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 1s
+      retries: 30

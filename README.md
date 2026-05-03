@@ -80,6 +80,16 @@ Use `MatrixSyncDurableObject` for live sync and feed each webhook body to `clien
 
 Use `@better-matrix-js/state-memory` for tests, `@better-matrix-js/state-file` or `@better-matrix-js/state-sqlite` in Node, `@better-matrix-js/state-indexeddb` in browsers, and `@better-matrix-js/cloudflare` for Durable Object or KV storage. For anything custom, wrap a simple getter/setter with `@better-matrix-js/state-simple`.
 
+Docker-backed storage smoke tests are available for service-style stores:
+
+```sh
+pnpm test:docker
+pnpm test:docker:down
+```
+
+The Redis smoke uses `@better-matrix-js/state-simple` against a real Redis container
+to prove the minimal Matrix store contract works with external server-side storage.
+
 Browser apps should load `matrix-core.wasm` with `wasmUrl`, `wasmBytes`, or a bundler-provided `wasmModule`, and should persist Matrix state in IndexedDB.
 
 ## Feature support matrix
