@@ -1,127 +1,302 @@
-# Matrix SDK Alignment TODO
+# Matrix SDK v1 Completion Plan
 
-## API Alignment
+## Product Intention
 
-- [x] Remove `recoveryCode`; keep only top-level `recoveryKey` in JS and Go contracts.
-- [x] Keep `recoveryKey` top-level in `MatrixClientOptions` and adapter config.
-- [x] Keep one sync ingestion primitive: `client.sync.applyResponse({ response, since })`.
-- [x] Do not add a Matrix-client `applyEnvelope`; encrypted webhook envelopes belong to app/transport helpers.
-- [x] Make `MatrixAdapter` explicitly satisfy Chat SDK adapter requirements.
-- [x] Delete duplicated `MatrixRawMessage` in the Chat adapter; use the core `MatrixMessageEvent` as raw data.
-- [x] Collapse duplicated public/runtime/generated Matrix event types where possible; keep generated runtime and public client event types separate because they model different wire/client shapes.
-- [x] Keep package public entrypoints, but stop internal imports from convenience barrels.
-- [x] Normalize option naming to one public spelling for each concern.
-- [x] Make Beeper-specific features explicit under `client.beeper`.
+Build `better-matrix-js` as a Node-first Matrix client SDK that is agents/bots-first but capable of becoming a full client SDK. The public API should feel like a Vercel SDK: synchronous factory, lazy async methods, plain serializable account objects, one live subscription primitive, pure helper functions, and no sync ceremony during construction.
 
-## Main Library Capabilities
+The Chat SDK adapter must be a very thin translator over `better-matrix-js`. If Chat SDK needs Matrix behavior, the behavior belongs in core or a focused helper exported by core. The adapter should map Chat SDK concepts to Matrix calls, not maintain a parallel Matrix client model.
 
-- [x] Expose `client.beeper.ephemeral.send(...)` for Beeper homeservers.
-- [x] Implement Chat SDK `postEphemeral` through Beeper ephemeral events when supported.
-- [x] Make non-Beeper `postEphemeral` fail clearly instead of pretending to be portable Matrix.
-- [x] Move generic streaming orchestration from `@better-matrix-js/chat-adapter` into `better-matrix-js`.
-- [x] Expose `client.streams.send(...)` with automatic Beeper-native or edit-fallback mode.
-- [x] Keep Beeper native streaming available under `client.beeper.streams`.
-- [x] Move AI-specific stream conversion into `@better-matrix-js/ai-sdk`.
-- [x] Expose `client.crypto.status()` or equivalent queryable E2EE status.
-- [x] Expose pending decryption count/status.
-- [x] Expose recovery/backup status after startup.
-- [x] Add profile APIs: get/set own display name and avatar.
-- [x] Add room creation API beyond DM creation.
-- [x] Add room permission/power-level inspection.
-- [x] Add generic room state read/send APIs for advanced users.
-- [x] Add member listing and member event/profile APIs.
-- [x] Add room alias resolution and optional directory lookup.
-- [x] Add optional media thumbnail support.
-- [x] Decide whether URL previews belong in scope; document unsupported if not.
+Non-standard Beeper features are first-class but must remain explicit under `client.beeper` or Beeper-namespaced event/content handling. Standard Matrix behavior should stay standard and portable.
 
-## Go/Core Ownership
+No backward compatibility is required. Prefer deleting old API shapes and duplicated layers over preserving aliases.
 
-- [x] Move Matrix attachment extraction fully into Go/core event normalization.
-- [x] Move mention detection fully into Go/core event normalization.
-- [x] Move relation parsing fully into Go/core event normalization.
-- [x] Normalize replies, threads, edits, annotations/reactions, and references in core.
-- [x] Normalize inbound redactions in core.
-- [x] Normalize inbound edits in core without Chat adapter raw-content inference.
-- [x] Move reaction target/thread lookup into core state.
-- [x] Make reaction removal work across cold starts.
-- [x] Make `openDM(userId)` reuse existing `m.direct` rooms by default.
-- [x] Add an option to force creating a new DM when needed.
-- [x] Use `m.direct` account data for DM detection before member-count fallback.
-- [x] Make Beeper sync options conditional instead of setting `BeeperStreaming: true` for every homeserver.
-- [x] Add Beeper capability detection beyond hostname fallback.
-- [x] Keep encrypted media behavior in Go; remove duplicate TS parsing paths.
-- [x] Ensure fetch-message pagination always returns chronological page order.
-- [x] Ensure sync response replay is idempotent at the emitted event level.
+## API Contract Target
 
-## Serverless
+- [x] `createMatrixClient(options)` is synchronous and inert.
+- [x] First awaited Matrix method lazily boots runtime/core/store/crypto.
+- [x] `client.boot()` exists for apps that want startup failure early.
+- [x] Remove public `connect()`.
+- [x] Use `MatrixAccount` as the serializable account/session object.
+- [x] Make `deviceId` immutable identity from login/whoami, not a user-editable client option.
+- [x] Keep `client.sync` minimal with only `applyResponse({ response, since })`.
+- [x] Make `client.subscribe(filter, handler)` the only core live event primitive.
+- [x] `subscribe` returns `{ stop, catchUp, done }`.
+- [x] Default subscription delivery is future-only.
+- [x] `catchUp()` explicitly replays missed events from stored cursor.
+- [x] Move ergonomic event helpers to pure exports: `onMessage`, `onReaction`, `onInvite`, `onRawEvent`.
+- [ ] Add and document short namespaces that are still missing:
+  - [ ] `client.accountData.*`
+  - [ ] `client.toDevice.*`
+  - [ ] `client.receipts.*`
+  - [ ] `client.raw.request(...)`
+- [ ] Confirm every public namespace has one canonical method name per operation and no aliases.
+- [ ] Audit package exports so there are no convenience barrel imports inside package source.
 
-- [x] Document two modes: live sync and serverless apply-response.
-- [x] Make cursor ownership explicit for Cloudflare DO syncer versus core `nextBatch`.
-- [x] Ensure serverless `applyResponse` works with E2EE cold starts and durable crypto state.
-- [x] Add a single-writer story for E2EE stores.
-- [x] Recommend Durable Objects or other serialized storage for encrypted bots.
-- [x] Warn against concurrent KV writes for active E2EE devices.
-- [x] Add optional Cloudflare encrypted webhook helper outside the Matrix client sync API.
-- [x] Add webhook replay/idempotency guidance.
+## Boot, Account, And Login
 
-## Chat SDK Adapter
+- [x] `boot()` initializes runtime/account/store/crypto only.
+- [x] Request methods work without sync for CLI usage.
+- [x] `whoami()` boots if needed and confirms account identity.
+- [x] Generic password/token login returns `MatrixAccount`.
+- [x] Remove public login option for caller-selected `deviceId`.
+- [ ] Add logout helper.
+- [ ] Add token/JWT login coverage for returned `MatrixAccount`.
+- [ ] Persist/use account metadata without making it required for runtime identity.
+- [ ] Add Beeper signup/login flow object under `client.beeper` or a Beeper login helper package.
+- [ ] Ensure no QA-specific secrets, OTP assumptions, or fixed Beeper test behavior ship in public code.
 
-- [x] Make the Chat adapter a thin translator over `better-matrix-js`.
-- [x] Delete old Chat adapter streaming drivers; keep streaming delegated to core plus the public `MatrixStream` type/helper exports.
-- [x] Remove Chat adapter Matrix attachment parser after core emits normalized attachments.
-- [x] Remove Chat adapter Matrix mention parser after core emits normalized mentions.
-- [x] Remove Chat adapter Matrix relation parser after core emits normalized relations.
-- [x] Remove Chat adapter in-memory reaction/thread authority.
-- [x] Keep only Chat message construction, formatting conversion, slash dispatch, and Chat SDK method mapping.
-- [x] Wire Chat SDK streaming to `client.streams.send(...)`.
-- [x] Wire Chat SDK ephemeral messages to `client.beeper.ephemeral.send(...)`.
+## Sync And Subscription Semantics
 
-## Code Organization
+- [x] Sync starts only through `client.subscribe(...)`, pure handler helpers, or `sync.applyResponse(...)`.
+- [x] Reused accounts do not replay backlog unless `catchUp()` is called.
+- [x] Explicit pagination reads history independently of subscription delivery.
+- [x] Stopping the last subscription stops the internal sync runner.
+- [ ] Make `sub.done` reject on unrecoverable sync loop errors from Go, not only subscription handler errors.
+- [ ] Add subscription options for runtime sync tuning if needed without exposing `sync.start`.
+- [ ] Add tests for multiple subscribers sharing one sync runner.
+- [ ] Add tests for stopping one subscriber while another remains active.
+- [ ] Add tests for handler failures and `done` rejection behavior.
+- [ ] Add tests that `boot()` does not emit app events.
+- [ ] Add tests that default subscription is future-only with a reused stored cursor.
+- [ ] Add tests that `catchUp()` emits missed events and only through that subscription.
 
-- [x] Split `packages/core/src/client.ts` public interfaces into `client-types.ts`.
-- [x] Split `packages/core/src/client.ts` event normalization into `events.ts`.
-- [x] Split `packages/core/src/client.ts` streaming orchestration into `streams.ts`.
-- [x] Continue shrinking `packages/core/src/client.ts` by moving media byte helpers if it keeps growing.
-- [x] Keep card/action support fallback-only unless Beeper interactive product scope is explicitly added.
-- [x] Document unsupported Chat SDK features: native modals and native scheduled messages.
+## Raw Event Access
+
+- [x] `onRawEvent(...)` helper exists.
+- [x] Raw helper currently exposes mapped events plus available raw payload.
+- [ ] Implement true granular raw Matrix sync events from Go for:
+  - [ ] joined room timeline events
+  - [ ] invited room state
+  - [ ] left room timeline/state
+  - [ ] room state events
+  - [ ] ephemeral room events
+  - [ ] account data events
+  - [ ] to-device events
+  - [ ] device list changes
+  - [ ] presence events if supported
+- [ ] Raw events must include unmodified Matrix payload and source metadata:
+  - [ ] sync cursor `since`
+  - [ ] next batch when available
+  - [ ] room id if applicable
+  - [ ] event class/source section
+  - [ ] event type
+  - [ ] encrypted/decrypted status where applicable
+- [ ] Ensure raw event delivery shares the same subscription runner and filter path.
+- [ ] Add unit tests for raw event filtering and metadata.
+- [ ] Add e2e coverage for raw encrypted timeline events.
+
+## Normalized Event Model
+
+- [x] Message events.
+- [x] Reaction events.
+- [x] Invite events.
+- [x] Sync status events.
+- [x] Crypto status events.
+- [x] Decryption error events.
+- [ ] Redaction events as first-class normalized events.
+- [ ] Membership events as first-class normalized events.
+- [ ] Room state events as first-class normalized events.
+- [ ] Account data events as first-class normalized events.
+- [ ] To-device events as first-class normalized events.
+- [ ] Ephemeral events as first-class normalized events.
+- [ ] Receipt events as first-class normalized events.
+- [ ] Typing events as first-class normalized events.
+- [ ] Room summary/update events if needed for client UIs.
+- [ ] Decryption lifecycle events for pending, retried, failed, and recovered decryptions.
+- [ ] Make event filter matching work consistently across `kind`, `roomId`, `type`, sender, relation, and thread root where available.
+- [ ] Add unit tests for every normalized event mapper.
+- [ ] Add Go tests for every event emitted from `/sync`.
+
+## Core Matrix Capabilities
+
+- [x] Messages: send, edit, redact, get, list, mark read.
+- [x] Reactions: send, redact, cold-start removal state.
+- [x] Media: upload/download encrypted and unencrypted media.
+- [x] Rooms: create, join, leave, invite, ban, kick, unban, open DM.
+- [x] Room state read/send.
+- [x] Room power-level inspection.
+- [x] Thread listing.
+- [x] Profile get/set own display name/avatar.
+- [ ] Account data get/set/delete helpers.
+- [ ] `m.direct` account data helpers under account data or rooms.
+- [ ] To-device send helper.
+- [ ] Receipt send/fetch helpers.
+- [ ] Generic raw Matrix request helper with typed method/path/body/query.
+- [ ] Pagination helpers that cleanly support old encrypted history.
+- [ ] Room membership timeline/history helpers for full-client usage.
+- [ ] Room summary cache exposed without becoming a gomuks-style timeline DB.
+- [ ] Relation summary cache for reactions/threads/edit summaries.
+- [ ] Bounded recent cache configuration and tests.
 
 ## E2EE
 
-- [x] Require or strongly recommend explicit `pickleKey` for durable E2EE bot deployments.
-- [x] Reconsider access-token fallback as pickle key before release.
-- [x] Provide a clear bot onboarding flow: login, device ID, store persistence, recovery key restore.
-- [ ] Test fresh-device historical decryption via recovery key. Requires live Matrix credentials that can create a fresh device and access a real key backup.
-- [x] Test missing backup/recovery status behavior.
-- [x] Test encrypted media upload/download roundtrip.
-- [x] Test decryption retry and pending queue persistence.
+- [x] E2EE is initialized through mautrix/go crypto helper.
+- [x] Durable crypto store support.
+- [x] Recovery key support.
+- [x] Crypto status query includes pending decryption count and backup status.
+- [x] Pending decryptions are persisted/retried.
+- [x] Encrypted media roundtrip test coverage exists.
+- [ ] Fresh-device historical decryption via recovery key e2e.
+- [ ] Existing-device reused account decrypts old encrypted history e2e.
+- [ ] Existing accounts with old devices and old rooms e2e.
+- [ ] Multi-device same account behavior tests.
+- [ ] Multi-client same-process isolation tests.
+- [ ] Missing room key behavior tests.
+- [ ] Key backup unavailable/unverified behavior tests in JS unit coverage.
+- [ ] Browser E2EE smoke once browser harness exists.
+- [ ] Cloudflare E2EE smoke after API migration.
 
-## Tests And Verification
+## Storage
 
-- [x] Add compile-time Chat SDK adapter conformance test.
-- [x] Add Go relation parsing tests.
-- [x] Add Go redaction/edit normalization tests.
-- [x] Add reaction removal after cold start test.
-- [x] Add `openDM` reuse test.
-- [ ] Add serverless encrypted-room `applyResponse` test. Requires a captured encrypted `/sync` fixture plus matching durable crypto store, or live Matrix credentials.
-- [x] Add serverless replay/idempotency test.
-- [x] Add core streaming tests for Beeper-native and edit-fallback modes.
-- [x] Add Cloudflare Worker smoke with Durable Object store and WASM.
-- [ ] Add browser smoke with IndexedDB and WASM. Requires a browser harness that can load the packaged WASM asset and IndexedDB store.
-- [x] Add Node smoke with file/sqlite store and E2EE.
-- [x] Run `pnpm typecheck`.
-- [x] Run `pnpm test`.
-- [x] Run `pnpm test:go`.
-- [x] Run `pnpm build`.
-- [x] Run package consumer and Cloudflare smoke tests.
+- [x] Keep separate storage packages: memory, file, sqlite, indexeddb, cloudflare.
+- [x] Store fast-boot state: crypto, cursor, pending decryptions, reaction summaries.
+- [ ] Audit all stores against the new lazy lifecycle.
+- [ ] Add shared conformance tests for all storage adapters.
+- [ ] Confirm no store tries to model a full gomuks timeline DB.
+- [ ] Persist room summaries needed for bot/client startup.
+- [ ] Persist relation summaries needed for reactions/threads.
+- [ ] Add bounded recent event cache and eviction tests.
+- [ ] Document single-writer requirements per store.
+- [ ] Cloudflare Durable Object store smoke after subscription API change.
+- [ ] IndexedDB smoke after subscription API change.
 
-## Documentation
+## Beeper
 
-- [x] Document browser setup.
-- [x] Document Node setup.
-- [x] Document Cloudflare Worker setup.
-- [x] Document serverless sync apply-response flow.
-- [x] Document E2EE bot storage requirements.
-- [x] Document recovery key usage.
-- [x] Document Beeper-only ephemeral support.
-- [x] Document Beeper-native streaming and edit-fallback streaming.
-- [x] Document feature support matrix.
+- [x] Existing Beeper stream primitives under `client.beeper.streams`.
+- [x] Existing Beeper ephemeral send under `client.beeper.ephemeral`.
+- [x] Beeper stream auto mode for Beeper homeservers.
+- [ ] Move all remaining non-standard Beeper APIs under `client.beeper`.
+- [ ] Add Beeper capability discovery beyond hostname where possible.
+- [ ] Add Beeper login/signup flow as stateless request functions.
+- [ ] Add tests ensuring non-standard event/content keys remain namespaced.
+- [ ] Document Beeper-first behavior and standard Matrix fallback behavior.
+
+## Chat SDK Adapter
+
+- [x] Adapter initializes with `whoami()` and no public `connect()`.
+- [x] `sync.enabled: false` disables live subscription.
+- [x] Live mode uses `client.subscribe(...)`.
+- [x] Webhook/serverless mode uses `client.sync.applyResponse(...)`.
+- [x] Streaming delegates to core `client.streams.send(...)`.
+- [x] Ephemeral delegates to `client.beeper.ephemeral.send(...)`.
+- [ ] Move remaining generic Matrix parsing/rendering from adapter to core:
+  - [ ] content parsing
+  - [ ] mentions
+  - [ ] media normalization
+  - [ ] relation/thread mapping
+  - [ ] Beeper content primitives
+- [ ] Audit cards/actions behavior:
+  - [ ] text fallback only when no unsupported interactivity is implied
+  - [ ] throw clearly for unsupported interactive cards/actions
+  - [ ] tests for unsupported behavior
+- [ ] Add tests for live subscription mode.
+- [ ] Add tests for sync-disabled CLI/request mode.
+- [ ] Add tests for webhook/apply mode with raw JSON payloads.
+- [ ] Confirm adapter does not keep parallel Matrix event systems or stores.
+
+## Serverless
+
+- [x] `client.sync.applyResponse({ response, since })` accepts externally supplied raw `/sync`.
+- [x] Serverless encrypted sync payload decryption is intentionally outside core sync API.
+- [ ] Add optional stateless helper in adapter or companion package for encrypted webhook payloads.
+- [ ] Add replay/idempotency tests for serverless apply.
+- [ ] Add encrypted-room `applyResponse` fixture test with matching crypto store.
+- [ ] Document cursor ownership in live, webhook, and Durable Object modes.
+- [ ] Document how to avoid concurrent writers for encrypted devices.
+- [ ] Cloudflare Worker smoke using current subscription/apply APIs.
+
+## Node, Browser, Cloudflare Compatibility
+
+- [x] Node entrypoint lazily loads packaged WASM.
+- [x] Generic entrypoint still accepts `wasmBytes`, `wasmModule`, or `wasmUrl`.
+- [ ] Node smoke against packaged build after API migration.
+- [ ] Browser smoke with IndexedDB and WASM asset.
+- [ ] Cloudflare Worker smoke with Durable Object store and WASM.
+- [ ] Confirm no Node-only imports leak into browser/core entrypoint.
+- [ ] Confirm Node helper exports are available from `better-matrix-js/node`.
+- [ ] Confirm package exports support direct helper imports if needed.
+
+## AI Streaming
+
+- [x] Core accepts generic async iterable text/delta input.
+- [x] AI-specific helper package exists separately.
+- [ ] Confirm optional AI helper has no required runtime dependency on AI SDK.
+- [ ] Add type-only/dev import audit.
+- [ ] Add streaming tests for generic string chunks, text deltas, markdown chunks, and empty streams.
+
+## Public Documentation
+
+- [x] README updated away from old `connect/events/sync.start` API.
+- [x] Core README updated away from old API.
+- [ ] Add a dedicated API overview with:
+  - [ ] inert factory and lazy boot
+  - [ ] `MatrixAccount`
+  - [ ] CLI usage without sync
+  - [ ] live subscription usage
+  - [ ] `catchUp()`
+  - [ ] serverless `applyResponse`
+  - [ ] raw event helper
+  - [ ] E2EE store/recovery guidance
+- [ ] Add migration note stating no backward compatibility is intended pre-release.
+- [ ] Add Chat SDK adapter usage docs for live, disabled-sync, and webhook modes.
+- [ ] Add Beeper-specific docs.
+- [ ] Add unsupported features docs for cards/actions/modals/scheduled messages.
+- [ ] Add e2e README explaining external Beeper setup and cached account reuse.
+
+## E2E Test Plan
+
+- [ ] Move public e2e tests into this repo with a README.
+- [ ] Keep e2e out of default CI.
+- [ ] Reuse cached Beeper accounts by default.
+- [ ] Scenario: lazy client can send/fetch without sync.
+- [ ] Scenario: `boot()` initializes but does not emit app events.
+- [ ] Scenario: `whoami()` confirms account/device identity.
+- [ ] Scenario: `client.subscribe(...)` returns `{ stop, catchUp, done }`.
+- [ ] Scenario: default subscription receives future events only.
+- [ ] Scenario: `catchUp()` replays missed events.
+- [ ] Scenario: `onRawEvent(...)` receives raw granular Matrix payloads.
+- [ ] Scenario: encrypted messages.
+- [ ] Scenario: edits.
+- [ ] Scenario: reactions and reaction removals.
+- [ ] Scenario: media upload/download.
+- [ ] Scenario: threads.
+- [ ] Scenario: invites and auto-join.
+- [ ] Scenario: room state.
+- [ ] Scenario: account data.
+- [ ] Scenario: to-device.
+- [ ] Scenario: receipts.
+- [ ] Scenario: reused accounts paginate and decrypt old encrypted history.
+- [ ] Scenario: fresh and existing devices behave correctly.
+- [ ] Scenario: multi-client same-process isolation.
+- [ ] Scenario: Chat SDK live subscription mode.
+- [ ] Scenario: Chat SDK sync-disabled mode.
+- [ ] Scenario: Chat SDK webhook/apply mode.
+
+## Unit And Type Test Plan
+
+- [x] Core lazy boot behavior.
+- [x] Subscription controller lifecycle basics.
+- [x] Chat adapter type conformance.
+- [ ] Subscription multi-subscriber lifecycle.
+- [ ] Subscription handler error behavior.
+- [ ] Pure helper behavior for `onMessage`, `onReaction`, `onInvite`, `onRawEvent`.
+- [ ] Normalized event mapping for every event kind.
+- [ ] Raw event path.
+- [ ] Storage adapter conformance.
+- [ ] Unsupported Chat SDK card/action behavior.
+- [ ] `raw.request` request construction and error handling.
+- [ ] Account data/to-device/receipt helper tests.
+
+## Release Readiness
+
+- [ ] `pnpm typecheck`
+- [ ] `pnpm test`
+- [ ] `pnpm test:go`
+- [ ] `pnpm build`
+- [ ] Package consumer smoke.
+- [ ] Cloudflare smoke.
+- [ ] Browser smoke.
+- [ ] Node live e2e with cached accounts.
+- [ ] Review public exports for duplicate or fake layers.
+- [ ] Review code for duplicate types and adapters owning core logic.
+- [ ] Review docs for stale old API references.
