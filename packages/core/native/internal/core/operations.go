@@ -13,8 +13,22 @@ const (
 	opWhoami = "whoami"
 	// ts:operation getCryptoStatus get_crypto_status - MatrixCryptoStatus
 	opGetCryptoStatus = "get_crypto_status"
+	// ts:operation rawRequest raw_request MatrixRawRequestOptions MatrixRawRequestResult
+	opRawRequest = "raw_request"
 	// ts:operation applySyncResponse apply_sync_response MatrixApplySyncResponseOptions void
 	opApplySyncResponse = "apply_sync_response"
+	// ts:operation getAccountData get_account_data MatrixGetAccountDataOptions MatrixAccountDataResult
+	opGetAccountData = "get_account_data"
+	// ts:operation setAccountData set_account_data MatrixSetAccountDataOptions void
+	opSetAccountData = "set_account_data"
+	// ts:operation getRoomAccountData get_room_account_data MatrixGetRoomAccountDataOptions MatrixAccountDataResult
+	opGetRoomAccountData = "get_room_account_data"
+	// ts:operation setRoomAccountData set_room_account_data MatrixSetRoomAccountDataOptions void
+	opSetRoomAccountData = "set_room_account_data"
+	// ts:operation sendToDevice send_to_device MatrixSendToDeviceOptions MatrixSendToDeviceResult
+	opSendToDevice = "send_to_device"
+	// ts:operation sendReceipt send_receipt MatrixSendReceiptOptions void
+	opSendReceipt = "send_receipt"
 	// ts:operation postMessage post_message MatrixSendMessageOptions MatrixRawMessage
 	opPostMessage = "post_message"
 	// ts:operation postMediaMessage post_media_message MatrixSendMediaMessageOptions MatrixRawMessage

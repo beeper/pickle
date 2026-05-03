@@ -137,6 +137,91 @@ describe("createMatrixClient", () => {
     expect(calls[2]?.payload).toEqual({ replayMissed: true });
   });
 
+  it("maps account data, to-device, receipts, and raw requests to core operations", async () => {
+    const calls = installRuntime({
+      get_account_data: { content: { theme: "dark" }, raw: { theme: "dark" }, type: "m.preference" },
+      get_room_account_data: { content: { muted: true }, raw: { muted: true }, type: "m.room.preference" },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      raw_request: { body: { ok: true }, headers: {}, raw: { ok: true }, status: 200 },
+      send_receipt: {},
+      send_to_device: { raw: {} },
+      set_account_data: {},
+      set_room_account_data: {},
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+
+    await expect(client.accountData.get({ eventType: "m.preference" })).resolves.toEqual({
+      content: { theme: "dark" },
+      raw: { theme: "dark" },
+      type: "m.preference",
+    });
+    await client.accountData.set({ content: { theme: "light" }, eventType: "m.preference" });
+    await expect(client.accountData.getRoom({
+      eventType: "m.room.preference",
+      roomId: "!room:example.com",
+    })).resolves.toEqual({
+      content: { muted: true },
+      raw: { muted: true },
+      type: "m.room.preference",
+    });
+    await client.accountData.setRoom({
+      content: { muted: false },
+      eventType: "m.room.preference",
+      roomId: "!room:example.com",
+    });
+    await client.toDevice.send({
+      content: { hello: true },
+      deviceId: "DEVICE2",
+      eventType: "m.test",
+      userId: "@alice:example.com",
+    });
+    await client.receipts.send({
+      eventId: "$event",
+      receiptType: "m.read.private",
+      roomId: "!room:example.com",
+      threadId: "$thread",
+    });
+    await client.raw.request({
+      body: { include: true },
+      method: "POST",
+      path: "/_matrix/client/v3/custom",
+      query: { q: "1" },
+    });
+
+    expect(calls.map((call) => call.operation)).toEqual([
+      "init",
+      "get_account_data",
+      "set_account_data",
+      "get_room_account_data",
+      "set_room_account_data",
+      "send_to_device",
+      "send_receipt",
+      "raw_request",
+    ]);
+    expect(calls[5]?.payload).toEqual({
+      content: { hello: true },
+      deviceId: "DEVICE2",
+      eventType: "m.test",
+      userId: "@alice:example.com",
+    });
+    expect(calls[6]?.payload).toEqual({
+      eventId: "$event",
+      receiptType: "m.read.private",
+      roomId: "!room:example.com",
+      threadId: "$thread",
+    });
+    expect(calls[7]?.payload).toEqual({
+      body: { include: true },
+      method: "POST",
+      path: "/_matrix/client/v3/custom",
+      query: { q: "1" },
+    });
+  });
+
   it("maps the public crypto status API to the runtime contract", async () => {
     const calls = installRuntime({
       get_crypto_status: {

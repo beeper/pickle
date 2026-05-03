@@ -4,14 +4,18 @@ export { onInvite, onMessage, onRawEvent, onReaction } from "./helpers";
 export { createMatrixLogin } from "./login";
 export type {
   MatrixClient,
+  MatrixAccountData,
   MatrixBeeper,
   MatrixMedia,
   MatrixMessages,
+  MatrixRaw,
+  MatrixReceipts,
   MatrixReactions,
   MatrixRooms,
   MatrixStreams,
   MatrixSync,
   MatrixTyping,
+  MatrixToDevice,
   MatrixUsers,
 } from "./client-types";
 export type {
@@ -22,6 +26,8 @@ export type {
 } from "./login";
 export type {
   ApplySyncResponseOptions,
+  AccountDataOptions,
+  AccountDataResult,
   BanUserOptions,
   CreateBeeperStreamOptions,
   CreateRoomOptions,
@@ -87,6 +93,8 @@ export type {
   RegisterBeeperStreamOptions,
   ResolveRoomAliasOptions,
   ResolveRoomAliasResult,
+  RawRequestOptions,
+  RawRequestResult,
   RoomMember,
   RoomInfo,
   RoomPowerLevels,
@@ -97,9 +105,14 @@ export type {
   SendMatrixStreamOptions,
   SendMediaMessageOptions,
   SendMessageOptions,
+  SendReceiptOptions,
   SendRoomStateEventOptions,
+  SendToDeviceOptions,
+  SendToDeviceResult,
   SetOwnAvatarUrlOptions,
   SetOwnDisplayNameOptions,
+  SetAccountDataOptions,
+  SetRoomAccountDataOptions,
   SentEvent,
   TypingOptions,
   UnbanUserOptions,

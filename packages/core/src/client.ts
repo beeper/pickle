@@ -1,14 +1,18 @@
 import type {
+  MatrixAccountData,
   MatrixBeeper,
   MatrixClient,
   MatrixCrypto,
   MatrixMedia,
   MatrixMessages,
+  MatrixRaw,
+  MatrixReceipts,
   MatrixReactions,
   MatrixRooms,
   MatrixStreams,
   MatrixSync,
   MatrixTyping,
+  MatrixToDevice,
   MatrixUsers,
 } from "./client-types";
 import { toClientEvent, toCryptoStatusSnapshot, toMessageEvent } from "./events";
@@ -31,15 +35,19 @@ export function createMatrixClient(options: MatrixClientOptions): MatrixClient {
 }
 
 class DefaultMatrixClient implements MatrixClient {
+  readonly accountData: MatrixAccountData;
   readonly beeper: MatrixBeeper;
   readonly crypto: MatrixCrypto;
   readonly media: MatrixMedia;
   readonly messages: MatrixMessages;
   readonly reactions: MatrixReactions;
+  readonly raw: MatrixRaw;
+  readonly receipts: MatrixReceipts;
   readonly rooms: MatrixRooms;
   readonly streams: MatrixStreams;
   readonly sync: MatrixSync;
   readonly typing: MatrixTyping;
+  readonly toDevice: MatrixToDevice;
   readonly users: MatrixUsers;
 
   #core: MatrixCore | null = null;
@@ -53,6 +61,12 @@ class DefaultMatrixClient implements MatrixClient {
 
   constructor(options: MatrixClientOptions) {
     this.#options = options;
+    this.accountData = {
+      get: (opts) => this.#withCore((core) => core.getAccountData(opts)),
+      getRoom: (opts) => this.#withCore((core) => core.getRoomAccountData(opts)),
+      set: (opts) => this.#withCore((core) => core.setAccountData(opts)),
+      setRoom: (opts) => this.#withCore((core) => core.setRoomAccountData(opts)),
+    };
     this.beeper = {
       ephemeral: {
         send: (opts) =>
@@ -131,6 +145,12 @@ class DefaultMatrixClient implements MatrixClient {
           messageId: opts.eventId,
           roomId: opts.roomId,
         })),
+    };
+    this.raw = {
+      request: (opts) => this.#withCore((core) => core.rawRequest(opts)),
+    };
+    this.receipts = {
+      send: (opts) => this.#withCore((core) => core.sendReceipt(opts)),
     };
     this.media = createMatrixMedia(() => this.#coreReady());
     this.rooms = {
@@ -218,6 +238,9 @@ class DefaultMatrixClient implements MatrixClient {
     };
     this.typing = {
       set: (opts) => this.#withCore((core) => core.setTyping(opts)),
+    };
+    this.toDevice = {
+      send: (opts) => this.#withCore((core) => core.sendToDevice(opts)),
     };
     this.users = {
       get: (opts) => this.#withCore((core) => core.getUser(opts)),

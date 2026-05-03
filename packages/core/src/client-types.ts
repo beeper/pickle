@@ -1,5 +1,7 @@
 import type {
   ApplySyncResponseOptions,
+  AccountDataOptions,
+  AccountDataResult,
   BanUserOptions,
   CreateBeeperStreamOptions,
   CreateRoomOptions,
@@ -42,6 +44,8 @@ import type {
   RegisterBeeperStreamOptions,
   ResolveRoomAliasOptions,
   ResolveRoomAliasResult,
+  RawRequestOptions,
+  RawRequestResult,
   RoomInfo,
   RoomPowerLevels,
   RoomStateEvent,
@@ -49,9 +53,14 @@ import type {
   SendMatrixStreamOptions,
   SendMediaMessageOptions,
   SendMessageOptions,
+  SendReceiptOptions,
   SendRoomStateEventOptions,
+  SendToDeviceOptions,
+  SendToDeviceResult,
   SetOwnAvatarUrlOptions,
   SetOwnDisplayNameOptions,
+  SetAccountDataOptions,
+  SetRoomAccountDataOptions,
   SentEvent,
   TypingOptions,
   UnbanUserOptions,
@@ -63,12 +72,15 @@ import type {
 
 export interface MatrixClient {
   beeper: MatrixBeeper;
+  accountData: MatrixAccountData;
   boot(): Promise<MatrixWhoami>;
   close(): Promise<void>;
   crypto: MatrixCrypto;
   media: MatrixMedia;
   messages: MatrixMessages;
   reactions: MatrixReactions;
+  raw: MatrixRaw;
+  receipts: MatrixReceipts;
   rooms: MatrixRooms;
   streams: MatrixStreams;
   subscribe(
@@ -77,8 +89,28 @@ export interface MatrixClient {
   ): Promise<MatrixSubscription>;
   sync: MatrixSync;
   typing: MatrixTyping;
+  toDevice: MatrixToDevice;
   users: MatrixUsers;
   whoami(): Promise<MatrixWhoami>;
+}
+
+export interface MatrixRaw {
+  request(options: RawRequestOptions): Promise<RawRequestResult>;
+}
+
+export interface MatrixAccountData {
+  get(options: AccountDataOptions): Promise<AccountDataResult>;
+  getRoom(options: AccountDataOptions & { roomId: string }): Promise<AccountDataResult>;
+  set(options: SetAccountDataOptions): Promise<void>;
+  setRoom(options: SetRoomAccountDataOptions): Promise<void>;
+}
+
+export interface MatrixToDevice {
+  send(options: SendToDeviceOptions): Promise<SendToDeviceResult>;
+}
+
+export interface MatrixReceipts {
+  send(options: SendReceiptOptions): Promise<void>;
 }
 
 export interface MatrixBeeper {

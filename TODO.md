@@ -24,11 +24,11 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Default subscription delivery is future-only.
 - [x] `catchUp()` explicitly replays missed events from stored cursor.
 - [x] Move ergonomic event helpers to pure exports: `onMessage`, `onReaction`, `onInvite`, `onRawEvent`.
-- [ ] Add and document short namespaces that are still missing:
-  - [ ] `client.accountData.*`
-  - [ ] `client.toDevice.*`
-  - [ ] `client.receipts.*`
-  - [ ] `client.raw.request(...)`
+- [x] Add short namespaces that were still missing:
+  - [x] `client.accountData.*`
+  - [x] `client.toDevice.*`
+  - [x] `client.receipts.*`
+  - [x] `client.raw.request(...)`
 - [ ] Confirm every public namespace has one canonical method name per operation and no aliases.
 - [ ] Audit package exports so there are no convenience barrel imports inside package source.
 
@@ -117,11 +117,13 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [x] Room power-level inspection.
 - [x] Thread listing.
 - [x] Profile get/set own display name/avatar.
-- [ ] Account data get/set/delete helpers.
-- [ ] `m.direct` account data helpers under account data or rooms.
-- [ ] To-device send helper.
-- [ ] Receipt send/fetch helpers.
-- [ ] Generic raw Matrix request helper with typed method/path/body/query.
+- [x] Account data get/set helpers.
+- [x] Room account data get/set helpers.
+- [x] To-device send helper.
+- [x] Receipt send helper.
+- [x] Generic raw Matrix request helper with typed method/path/body/query.
+- [ ] Account data delete helper if a homeserver-supported delete shape is needed.
+- [ ] Receipt fetch helpers if a product need appears beyond sync receipt events.
 - [ ] Pagination helpers that cleanly support old encrypted history.
 - [ ] Room membership timeline/history helpers for full-client usage.
 - [ ] Room summary cache exposed without becoming a gomuks-style timeline DB.
@@ -285,7 +287,8 @@ No backward compatibility is required. Prefer deleting old API shapes and duplic
 - [ ] Storage adapter conformance.
 - [ ] Unsupported Chat SDK card/action behavior.
 - [ ] `raw.request` request construction and error handling.
-- [ ] Account data/to-device/receipt helper tests.
+- [x] Account data/to-device/receipt helper tests.
+- [x] Raw request helper tests.
 
 ## Release Readiness
 

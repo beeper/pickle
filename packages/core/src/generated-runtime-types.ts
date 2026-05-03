@@ -303,6 +303,58 @@ export interface MatrixUnbanUserOptions {
   roomId: string;
   userId: string;
 }
+export interface MatrixAccountDataResult {
+  content: { [key: string]: unknown};
+  raw: unknown;
+  type: string;
+}
+export interface MatrixGetAccountDataOptions {
+  eventType: string;
+}
+export interface MatrixSetAccountDataOptions {
+  content: { [key: string]: unknown};
+  eventType: string;
+}
+export interface MatrixGetRoomAccountDataOptions {
+  eventType: string;
+  roomId: string;
+}
+export interface MatrixSetRoomAccountDataOptions {
+  content: { [key: string]: unknown};
+  eventType: string;
+  roomId: string;
+}
+export interface MatrixSendToDeviceOptions {
+  content?: { [key: string]: unknown};
+  eventType: string;
+  messages?: { [key: string]: { [key: string]: { [key: string]: unknown}}};
+  transactionId?: string;
+  userId?: string;
+  deviceId?: string;
+}
+export interface MatrixSendToDeviceResult {
+  raw: unknown;
+}
+export interface MatrixSendReceiptOptions {
+  content?: { [key: string]: unknown};
+  eventId: string;
+  receiptType?: string;
+  roomId: string;
+  threadId?: string;
+}
+export interface MatrixRawRequestOptions {
+  body?: unknown;
+  headers?: { [key: string]: string};
+  method?: string;
+  path: string;
+  query?: { [key: string]: string};
+}
+export interface MatrixRawRequestResult {
+  body?: unknown;
+  raw?: unknown;
+  status: number /* int */;
+  headers?: { [key: string]: string};
+}
 export interface MatrixSyncOnceOptions {
   beeperStreaming?: boolean;
   replayMissed?: boolean;

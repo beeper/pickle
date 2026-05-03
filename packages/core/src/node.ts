@@ -31,6 +31,10 @@ class NodeMatrixClient implements MatrixClient {
     this.#options = options;
   }
 
+  get accountData() {
+    return this.#namespace("accountData");
+  }
+
   get beeper() {
     return this.#namespace("beeper");
   }
@@ -51,6 +55,14 @@ class NodeMatrixClient implements MatrixClient {
     return this.#namespace("reactions");
   }
 
+  get raw() {
+    return this.#namespace("raw");
+  }
+
+  get receipts() {
+    return this.#namespace("receipts");
+  }
+
   get rooms() {
     return this.#namespace("rooms");
   }
@@ -65,6 +77,10 @@ class NodeMatrixClient implements MatrixClient {
 
   get typing() {
     return this.#namespace("typing");
+  }
+
+  get toDevice() {
+    return this.#namespace("toDevice");
   }
 
   get users() {

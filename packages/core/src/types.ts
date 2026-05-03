@@ -219,6 +219,64 @@ export interface MatrixCryptoStatus {
   userId?: string;
 }
 
+export interface RawRequestOptions {
+  body?: unknown;
+  headers?: Record<string, string>;
+  method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT" | string;
+  path: string;
+  query?: Record<string, string>;
+}
+
+export interface RawRequestResult {
+  body?: unknown;
+  headers?: Record<string, string>;
+  raw?: unknown;
+  status: number;
+}
+
+export interface AccountDataResult {
+  content: Record<string, unknown>;
+  raw: unknown;
+  type: string;
+}
+
+export interface AccountDataOptions {
+  eventType: string;
+}
+
+export interface SetAccountDataOptions extends AccountDataOptions {
+  content: Record<string, unknown>;
+}
+
+export interface RoomAccountDataOptions extends AccountDataOptions {
+  roomId: string;
+}
+
+export interface SetRoomAccountDataOptions extends RoomAccountDataOptions {
+  content: Record<string, unknown>;
+}
+
+export interface SendToDeviceOptions {
+  content?: Record<string, unknown>;
+  deviceId?: string;
+  eventType: string;
+  messages?: Record<string, Record<string, Record<string, unknown>>>;
+  transactionId?: string;
+  userId?: string;
+}
+
+export interface SendToDeviceResult {
+  raw: unknown;
+}
+
+export interface SendReceiptOptions {
+  content?: Record<string, unknown>;
+  eventId: string;
+  receiptType?: "m.read" | "m.read.private" | "m.fully_read" | string;
+  roomId: string;
+  threadId?: string;
+}
+
 export interface MatrixDecryptionErrorEvent {
   error: string;
   event?: Pick<MatrixBaseEvent, "eventId" | "roomId"> & { senderId?: string };
