@@ -76,7 +76,7 @@ async function loginFreshDevice(account, label) {
   return retry(`fresh Matrix login ${label}`, async () => {
     const session = await createMatrixLogin({
       homeserver: account.homeserverUrl,
-      initialDeviceDisplayName: `easymatrix private e2e ${label}`,
+      initialDeviceDisplayName: `pickle private e2e ${label}`,
     }).token({
       token: account.loginToken,
       type: "org.matrix.login.jwt",

@@ -29,24 +29,24 @@ importers:
 
   examples/beeper-streaming-smoke:
     dependencies:
-      '@beeper/easymatrix-chat-adapter':
+      '@beeper/pickle':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@beeper/pickle-chat-adapter':
         specifier: workspace:*
         version: link:../../packages/chat-adapter
       chat:
         specifier: ^4.26.0
         version: 4.26.0
-      easymatrix:
-        specifier: workspace:*
-        version: link:../../packages/core
 
   examples/cloudflare-worker:
     dependencies:
-      '@beeper/easymatrix-cloudflare':
-        specifier: workspace:*
-        version: link:../../packages/cloudflare
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../../packages/core
+      '@beeper/pickle-cloudflare':
+        specifier: workspace:*
+        version: link:../../packages/cloudflare
     devDependencies:
       wrangler:
         specifier: ^4.85.0
@@ -54,16 +54,16 @@ importers:
 
   examples/dummybridge-bot:
     dependencies:
-      '@beeper/easymatrix-state-file':
-        specifier: workspace:*
-        version: link:../../packages/state-file
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../../packages/core
+      '@beeper/pickle-state-file':
+        specifier: workspace:*
+        version: link:../../packages/state-file
 
   packages/ai-sdk:
     devDependencies:
-      '@beeper/easymatrix-chat-adapter':
+      '@beeper/pickle-chat-adapter':
         specifier: workspace:*
         version: link:../chat-adapter
       '@types/node':
@@ -81,7 +81,7 @@ importers:
 
   packages/chat-adapter:
     dependencies:
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../core
       marked:
@@ -109,7 +109,7 @@ importers:
 
   packages/cloudflare:
     dependencies:
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -143,7 +143,7 @@ importers:
 
   packages/state-file:
     dependencies:
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -165,7 +165,7 @@ importers:
 
   packages/state-indexeddb:
     dependencies:
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -187,7 +187,7 @@ importers:
 
   packages/state-memory:
     dependencies:
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -209,7 +209,7 @@ importers:
 
   packages/state-simple:
     dependencies:
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -231,7 +231,7 @@ importers:
 
   packages/state-sqlite:
     dependencies:
-      easymatrix:
+      '@beeper/pickle':
         specifier: workspace:*
         version: link:../core
     devDependencies:

@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Chat } from "chat";
-import { createMatrixLogin } from "easymatrix";
-import { createMatrixClient } from "easymatrix/node";
-import { createMatrixAdapter } from "@beeper/easymatrix-chat-adapter";
+import { createMatrixLogin } from "@beeper/pickle";
+import { createMatrixClient } from "@beeper/pickle/node";
+import { createMatrixAdapter } from "@beeper/pickle-chat-adapter";
 import { FileState, MatrixState } from "../../shared/file-state.mjs";
 
 const loremSentenceCorpus = [
@@ -380,7 +380,7 @@ async function resolveLogin(homeserverUrl, state) {
   console.log("login_session_cache=miss");
   const login = await createMatrixLogin({
     homeserver: homeserverUrl,
-    initialDeviceDisplayName: "easymatrix streaming smoke",
+    initialDeviceDisplayName: "pickle streaming smoke",
   }).password({
     password: process.env.MATRIX_PASSWORD,
     username: process.env.MATRIX_USERNAME,
@@ -424,9 +424,9 @@ async function createSmokeRoom(homeserverUrl, accessToken, inviteUserId) {
           ]
         : [],
       is_direct: false,
-      name: `easymatrix streaming smoke ${new Date().toISOString()}`,
+      name: `pickle streaming smoke ${new Date().toISOString()}`,
       preset: "private_chat",
-      topic: "Live EasyMatrix streaming smoke test",
+      topic: "Live Pickle streaming smoke test",
     }),
     headers: {
       authorization: `Bearer ${accessToken}`,

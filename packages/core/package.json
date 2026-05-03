@@ -1,16 +1,16 @@
 {
-  "name": "easymatrix",
+  "name": "@beeper/pickle",
   "version": "0.1.0",
   "description": "WASM-backed TypeScript Matrix SDK built on mautrix-go",
   "type": "module",
-  "homepage": "https://github.com/beeper/EasyMatrix#readme",
+  "homepage": "https://github.com/beeper/Pickle#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/beeper/EasyMatrix.git",
+    "url": "git+https://github.com/beeper/Pickle.git",
     "directory": "packages/core"
   },
   "bugs": {
-    "url": "https://github.com/beeper/EasyMatrix/issues"
+    "url": "https://github.com/beeper/Pickle/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",

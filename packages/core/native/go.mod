@@ -1,4 +1,4 @@
-module github.com/beeper/EasyMatrix/packages/core/native
+module github.com/beeper/Pickle/packages/core/native
 
 go 1.25.0
 

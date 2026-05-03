@@ -1,14 +1,14 @@
-# @beeper/easymatrix-state-indexeddb
+# @beeper/pickle-state-indexeddb
 
-IndexedDB `MatrixStore` for `easymatrix`. For browsers.
+IndexedDB `MatrixStore` for `@beeper/pickle`. For browsers.
 
 ```sh
-npm install @beeper/easymatrix-state-indexeddb
+npm install @beeper/pickle-state-indexeddb
 ```
 
 ```ts
-import { createMatrixClient } from "easymatrix";
-import { createIndexedDBMatrixStore } from "@beeper/easymatrix-state-indexeddb";
+import { createMatrixClient } from "@beeper/pickle";
+import { createIndexedDBMatrixStore } from "@beeper/pickle-state-indexeddb";
 
 const client = createMatrixClient({
   homeserver,

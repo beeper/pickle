@@ -1,4 +1,4 @@
-EasyMatrix is a monorepo with package-level licenses:
+Pickle is a monorepo with package-level licenses:
 
 - packages/core: MPL-2.0
 - packages/chat-adapter: MIT

@@ -1,13 +1,13 @@
 {
-  "name": "@beeper/easymatrix-example-dummybridge-bot",
+  "name": "@beeper/pickle-example-dummybridge-bot",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node src/index.mjs"
   },
   "dependencies": {
-    "@beeper/easymatrix-state-file": "workspace:*",
-    "easymatrix": "workspace:*"
+    "@beeper/pickle-state-file": "workspace:*",
+    "@beeper/pickle": "workspace:*"
   },
   "engines": {
     "node": ">=20"

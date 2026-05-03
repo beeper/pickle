@@ -13,7 +13,7 @@ export function encodeMatrixChatThreadRef(data: MatrixChatThreadRef): string {
 export function decodeMatrixChatThreadRef(threadId: string): MatrixChatThreadRef {
   const [prefix, roomId, eventId, ...rest] = threadId.split(":");
   if (prefix !== PREFIX || !roomId || rest.length > 0) {
-    throw new Error(`Invalid EasyMatrix thread ref: ${threadId}`);
+    throw new Error(`Invalid Pickle thread ref: ${threadId}`);
   }
   const decoded: MatrixChatThreadRef = { roomId: decodeSegment(roomId) };
   if (eventId) {

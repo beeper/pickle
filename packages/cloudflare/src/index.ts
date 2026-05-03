@@ -1,4 +1,4 @@
-import type { MatrixStore } from "easymatrix";
+import type { MatrixStore } from "@beeper/pickle";
 
 export interface CloudflareKVNamespaceLike {
   delete(key: string): Promise<void>;

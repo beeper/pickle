@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const rootPath = join(dirname(fileURLToPath(import.meta.url)), "..");
-const tempRoot = await mkdtemp(join(tmpdir(), "easymatrix-package-consumer-"));
+const tempRoot = await mkdtemp(join(tmpdir(), "pickle-package-consumer-"));
 const packDir = join(tempRoot, "packs");
 const consumerDir = join(tempRoot, "consumer");
 
@@ -56,7 +56,7 @@ try {
     join(consumerDir, "package.json"),
     `${JSON.stringify(
       {
-        name: "easymatrix-package-consumer-smoke",
+        name: "pickle-package-consumer-smoke",
         private: true,
         type: "module",
         dependencies,
@@ -81,13 +81,13 @@ try {
       "--input-type=module",
       "--eval",
       `
-        import * as core from "easymatrix";
-        import * as beeperLogin from "easymatrix/beeper-login";
-        import * as helpers from "easymatrix/helpers";
-        import * as login from "easymatrix/login";
-        import * as node from "easymatrix/node";
-        import * as cloudflare from "@beeper/easymatrix-cloudflare";
-        import * as adapter from "@beeper/easymatrix-chat-adapter";
+        import * as core from "@beeper/pickle";
+        import * as beeperLogin from "@beeper/pickle/beeper-login";
+        import * as helpers from "@beeper/pickle/helpers";
+        import * as login from "@beeper/pickle/login";
+        import * as node from "@beeper/pickle/node";
+        import * as cloudflare from "@beeper/pickle-cloudflare";
+        import * as adapter from "@beeper/pickle-chat-adapter";
 
         const checks = {
           core: ["createMatrixClient", "createMatrixLogin"].every((key) => key in core),

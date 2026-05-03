@@ -1,15 +1,15 @@
-# @beeper/easymatrix-state-memory
+# @beeper/pickle-state-memory
 
-In-memory `MatrixStore` for `easymatrix`. Tests and local experiments only.
+In-memory `MatrixStore` for `@beeper/pickle`. Tests and local experiments only.
 
 ```sh
-npm install @beeper/easymatrix-state-memory
+npm install @beeper/pickle-state-memory
 ```
 
 ```ts
-import { createMemoryMatrixStore } from "@beeper/easymatrix-state-memory";
+import { createMemoryMatrixStore } from "@beeper/pickle-state-memory";
 
 const store = createMemoryMatrixStore();
 ```
 
-Does not persist anything across restarts. For real bots, use [`@beeper/easymatrix-state-sqlite`](../state-sqlite) or [`-file`](../state-file).
+Does not persist anything across restarts. For real bots, use [`@beeper/pickle-state-sqlite`](../state-sqlite) or [`-file`](../state-file).

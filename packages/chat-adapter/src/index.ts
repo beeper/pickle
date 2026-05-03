@@ -7,5 +7,5 @@ export {
   encodeMatrixChatThreadRef,
   matrixChannelIdFromChatThreadId,
 } from "./thread-id";
-export type { MatrixMessageEvent } from "easymatrix";
+export type { MatrixMessageEvent } from "@beeper/pickle";
 export type { MatrixAdapterConfig, MatrixChatThreadRef } from "./types";

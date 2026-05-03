@@ -49,7 +49,7 @@ test("core: encrypted rooms, messages, edits, reactions, media, history, webhook
         type: "m.room.encryption",
       }],
       invite: [peer.userId, third.userId],
-      name: `easymatrix e2e ${Date.now()}`,
+      name: `pickle e2e ${Date.now()}`,
       preset: "private_chat",
       topic: "private automated SDK coverage",
     });
@@ -66,7 +66,7 @@ test("core: encrypted rooms, messages, edits, reactions, media, history, webhook
 
     const plainRoom = await botRest.createRoom({
       invite: [peer.userId],
-      name: `easymatrix plain ${Date.now()}`,
+      name: `pickle plain ${Date.now()}`,
       topic: "unencrypted SDK coverage",
     });
     await peer.core.joinRoom({ roomIdOrAlias: plainRoom.room_id });
@@ -140,7 +140,7 @@ test("core: encrypted rooms, messages, edits, reactions, media, history, webhook
         },
       ],
       invite: [peer.userId],
-      name: `easymatrix late join ${Date.now()}`,
+      name: `pickle late join ${Date.now()}`,
       preset: "private_chat",
       topic: "late membership coverage",
     });
@@ -245,7 +245,7 @@ test("core: encrypted rooms, messages, edits, reactions, media, history, webhook
     const media = await retry("send media", () => bot.core.postMediaMessage({
       bytesBase64: mediaPayload.toString("base64"),
       contentType: "text/plain",
-      filename: "easymatrix-e2e.txt",
+      filename: "pickle-e2e.txt",
       roomId: dm.roomId,
     }));
     const mediaSeen = await syncUntil("peer receives encrypted media", peer, (events) =>

@@ -1,10 +1,10 @@
-import "easymatrix/wasm_exec.js";
-import wasmModule from "easymatrix/matrix-core.wasm";
-import { createMatrixClient } from "easymatrix";
+import "@beeper/pickle/wasm_exec.js";
+import wasmModule from "@beeper/pickle/matrix-core.wasm";
+import { createMatrixClient } from "@beeper/pickle";
 import {
   createDurableObjectMatrixStore,
   MatrixSyncDurableObject,
-} from "@beeper/easymatrix-cloudflare";
+} from "@beeper/pickle-cloudflare";
 
 export class MatrixClientObject {
   constructor(state, env) {

@@ -9,7 +9,7 @@ import {
   type MatrixSubscription,
   type RoomInfo,
   type MatrixStore,
-} from "easymatrix";
+} from "@beeper/pickle";
 import type {
   Adapter,
   AdapterPostableMessage,
@@ -1131,11 +1131,11 @@ class ChatMatrixState implements MatrixStore {
   }
 }
 
-async function importNodeMatrixClient(): Promise<typeof import("easymatrix/node")> {
+async function importNodeMatrixClient(): Promise<typeof import("@beeper/pickle/node")> {
   const dynamicImport = new Function("specifier", "return import(specifier)") as (
     specifier: string
-  ) => Promise<typeof import("easymatrix/node")>;
-  return dynamicImport("easymatrix/node");
+  ) => Promise<typeof import("@beeper/pickle/node")>;
+  return dynamicImport("@beeper/pickle/node");
 }
 
 export function createMatrixAdapter(config: MatrixAdapterConfig): MatrixAdapter {

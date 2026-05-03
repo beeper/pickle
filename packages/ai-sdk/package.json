@@ -1,16 +1,16 @@
 {
-  "name": "@beeper/easymatrix-ai-sdk",
+  "name": "@beeper/pickle-ai-sdk",
   "version": "0.1.0",
-  "description": "AI SDK stream adapters for EasyMatrix",
+  "description": "AI SDK stream adapters for Pickle",
   "type": "module",
-  "homepage": "https://github.com/beeper/EasyMatrix#readme",
+  "homepage": "https://github.com/beeper/Pickle#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/beeper/EasyMatrix.git",
+    "url": "git+https://github.com/beeper/Pickle.git",
     "directory": "packages/ai-sdk"
   },
   "bugs": {
-    "url": "https://github.com/beeper/EasyMatrix/issues"
+    "url": "https://github.com/beeper/Pickle/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -37,10 +37,10 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@beeper/easymatrix-chat-adapter": "^0.1.0"
+    "@beeper/pickle-chat-adapter": "^0.1.0"
   },
   "devDependencies": {
-    "@beeper/easymatrix-chat-adapter": "workspace:*",
+    "@beeper/pickle-chat-adapter": "workspace:*",
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",

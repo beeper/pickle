@@ -1,5 +1,5 @@
 {
-  "name": "@beeper/easymatrix-example-beeper-streaming-smoke",
+  "name": "@beeper/pickle-example-beeper-streaming-smoke",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,8 +7,8 @@
     "start": "node src/index.mjs"
   },
   "dependencies": {
-    "@beeper/easymatrix-chat-adapter": "workspace:*",
-    "easymatrix": "workspace:*",
+    "@beeper/pickle-chat-adapter": "workspace:*",
+    "@beeper/pickle": "workspace:*",
     "chat": "^4.26.0"
   },
   "engines": {

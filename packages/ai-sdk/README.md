@@ -1,9 +1,9 @@
-# @beeper/easymatrix-ai-sdk
+# @beeper/pickle-ai-sdk
 
-Pipe an [AI SDK](https://sdk.vercel.ai) UI message stream straight into a Matrix message via [`@beeper/easymatrix-chat-adapter`](https://github.com/beeper/EasyMatrix/tree/main/packages/chat-adapter).
+Pipe an [AI SDK](https://sdk.vercel.ai) UI message stream straight into a Matrix message via [`@beeper/pickle-chat-adapter`](https://github.com/beeper/Pickle/tree/main/packages/chat-adapter).
 
 ```sh
-npm install @beeper/easymatrix-ai-sdk
+npm install @beeper/pickle-ai-sdk
 ```
 
 ## Usage
@@ -11,7 +11,7 @@ npm install @beeper/easymatrix-ai-sdk
 ```ts
 import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { fromAIStreamResult } from "@beeper/easymatrix-ai-sdk";
+import { fromAIStreamResult } from "@beeper/pickle-ai-sdk";
 
 bot.onNewMention(async (thread, message) => {
   await thread.subscribe();

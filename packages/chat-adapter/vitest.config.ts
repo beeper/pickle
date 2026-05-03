@@ -3,8 +3,8 @@ import { defineProject } from "vitest/config";
 export default defineProject({
   resolve: {
     alias: {
-      "easymatrix/node": new URL("../core/src/node.ts", import.meta.url).pathname,
-      "easymatrix": new URL("../core/src/index.ts", import.meta.url).pathname,
+      "@beeper/pickle/node": new URL("../core/src/node.ts", import.meta.url).pathname,
+      "@beeper/pickle": new URL("../core/src/index.ts", import.meta.url).pathname,
     },
   },
   test: {

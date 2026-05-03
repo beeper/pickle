@@ -1,16 +1,16 @@
 {
-  "name": "@beeper/easymatrix-state-indexeddb",
+  "name": "@beeper/pickle-state-indexeddb",
   "version": "0.1.0",
-  "description": "IndexedDB Matrix state adapter for EasyMatrix",
+  "description": "IndexedDB Matrix state adapter for Pickle",
   "type": "module",
-  "homepage": "https://github.com/beeper/EasyMatrix#readme",
+  "homepage": "https://github.com/beeper/Pickle#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/beeper/EasyMatrix.git",
+    "url": "git+https://github.com/beeper/Pickle.git",
     "directory": "packages/state-indexeddb"
   },
   "bugs": {
-    "url": "https://github.com/beeper/EasyMatrix/issues"
+    "url": "https://github.com/beeper/Pickle/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -33,7 +33,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "easymatrix": "workspace:*"
+    "@beeper/pickle": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

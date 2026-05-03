@@ -1,5 +1,5 @@
 {
-  "name": "easymatrix-example",
+  "name": "pickle-example",
   "main": "src/index.js",
   "compatibility_date": "2026-04-24",
   "durable_objects": {

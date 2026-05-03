@@ -1,7 +1,7 @@
 {
-  "name": "@beeper/easymatrix-state-simple",
+  "name": "@beeper/pickle-state-simple",
   "version": "0.1.0",
-  "description": "Simple getter/setter Matrix state adapter for EasyMatrix",
+  "description": "Simple getter/setter Matrix state adapter for Pickle",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "easymatrix": "workspace:*"
+    "@beeper/pickle": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

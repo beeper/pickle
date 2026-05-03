@@ -1,5 +1,5 @@
 {
-  "name": "easymatrix-cloudflare-worker-example",
+  "name": "pickle-cloudflare-worker-example",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,8 +7,8 @@
     "deploy:dry-run": "wrangler deploy --dry-run --outdir bundled"
   },
   "dependencies": {
-    "@beeper/easymatrix-cloudflare": "workspace:*",
-    "easymatrix": "workspace:*"
+    "@beeper/pickle-cloudflare": "workspace:*",
+    "@beeper/pickle": "workspace:*"
   },
   "devDependencies": {
     "wrangler": "^4.85.0"

@@ -22,18 +22,18 @@ const html = `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>easymatrix browser smoke</title>
+    <title>pickle browser smoke</title>
     <script src="/sdk/packages/core/dist/wasm_exec.js"></script>
   </head>
   <body>
     <main>
-      <h1>easymatrix browser smoke</h1>
+      <h1>pickle browser smoke</h1>
       <pre id="status">starting</pre>
     </main>
     <script type="importmap">
       {
         "imports": {
-          "easymatrix": "/sdk/packages/core/dist/index.js"
+          "@beeper/pickle": "/sdk/packages/core/dist/index.js"
         }
       }
     </script>
@@ -46,8 +46,8 @@ const html = `<!doctype html>
       const status = document.querySelector("#status");
       const params = new URLSearchParams(location.search);
       const mode = params.get("mode") ?? "fresh";
-      const sessionKey = "easymatrix-browser-session-" + account.username;
-      const historyKey = "easymatrix-browser-history-" + account.username;
+      const sessionKey = "pickle-browser-session-" + account.username;
+      const historyKey = "pickle-browser-history-" + account.username;
       const log = (message, data) => {
         status.textContent += "\\n" + message + (data ? " " + JSON.stringify(data) : "");
       };
@@ -60,7 +60,7 @@ const html = `<!doctype html>
       async function loginFreshDevice() {
         return createMatrixLogin({
           homeserver: account.homeserverUrl,
-          initialDeviceDisplayName: "easymatrix browser smoke " + mode
+          initialDeviceDisplayName: "pickle browser smoke " + mode
         }).token({
           token: account.loginToken,
           type: "org.matrix.login.jwt"
@@ -77,7 +77,7 @@ const html = `<!doctype html>
         return createMatrixClient({
           account: session,
           recoveryKey: account.recoveryKey,
-          store: createIndexedDBMatrixStore({ databaseName: "easymatrix-browser-smoke-" + account.username + "-" + session.deviceId }),
+          store: createIndexedDBMatrixStore({ databaseName: "pickle-browser-smoke-" + account.username + "-" + session.deviceId }),
           wasmBytes
         });
       }
@@ -123,7 +123,7 @@ const html = `<!doctype html>
                 stateKey: "",
                 type: "m.room.encryption"
               }],
-              name: "easymatrix browser smoke " + Date.now(),
+              name: "pickle browser smoke " + Date.now(),
               preset: "private_chat"
             });
             const sent = await client.messages.send({

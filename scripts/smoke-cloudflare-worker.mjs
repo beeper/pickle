@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const rootPath = new URL("..", import.meta.url).pathname;
-const temp = await mkdtemp(join(tmpdir(), "easymatrix-worker-"));
+const temp = await mkdtemp(join(tmpdir(), "pickle-worker-"));
 const packDir = join(temp, "packs");
 const workerDir = join(temp, "worker");
 const srcDir = join(workerDir, "src");
@@ -15,27 +15,27 @@ const srcDir = join(workerDir, "src");
 await mkdir(packDir, { recursive: true });
 await execFileAsync(
   "pnpm",
-  ["-r", "--filter", "easymatrix", "--filter", "@beeper/easymatrix-cloudflare", "pack", "--pack-destination", packDir],
+  ["-r", "--filter", "@beeper/pickle", "--filter", "@beeper/pickle-cloudflare", "pack", "--pack-destination", packDir],
   { cwd: rootPath }
 );
 await mkdir(srcDir, { recursive: true });
 await execFileAsync("npm", ["init", "-y"], { cwd: workerDir });
 await execFileAsync("npm", [
   "install",
-  join(packDir, "easymatrix-0.1.0.tgz"),
-  join(packDir, "easymatrix-cloudflare-0.1.0.tgz"),
+  join(packDir, "beeper-pickle-0.1.0.tgz"),
+  join(packDir, "beeper-pickle-cloudflare-0.1.0.tgz"),
 ], { cwd: workerDir });
 
 await writeFile(
   join(srcDir, "index.js"),
   `
-import "easymatrix/wasm_exec.js";
-import wasmModule from "easymatrix/matrix-core.wasm";
-import { createMatrixClient } from "easymatrix";
+import "@beeper/pickle/wasm_exec.js";
+import wasmModule from "@beeper/pickle/matrix-core.wasm";
+import { createMatrixClient } from "@beeper/pickle";
 import {
   createDurableObjectMatrixStore,
   MatrixSyncDurableObject,
-} from "@beeper/easymatrix-cloudflare";
+} from "@beeper/pickle-cloudflare";
 
 export class MatrixClientObject {
   constructor(state) {
@@ -75,7 +75,7 @@ await writeFile(
   join(workerDir, "wrangler.jsonc"),
   JSON.stringify(
     {
-      name: "easymatrix-smoke",
+      name: "pickle-smoke",
       main: "src/index.js",
       compatibility_date: "2026-04-24",
       durable_objects: {

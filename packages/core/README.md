@@ -1,16 +1,16 @@
-# EasyMatrix
+# Pickle
 
 A TypeScript Matrix SDK that runs in Node, browsers, and any WASM runtime. Built on `mautrix-go` + `goolm`. E2EE included.
 
 ```sh
-npm install easymatrix
+npm install @beeper/pickle
 ```
 
 ## Node
 
 ```ts
-import { createMatrixClient, onMessage } from "easymatrix/node";
-import { createSQLiteMatrixStore } from "@beeper/easymatrix-state-sqlite";
+import { createMatrixClient, onMessage } from "@beeper/pickle/node";
+import { createSQLiteMatrixStore } from "@beeper/pickle-state-sqlite";
 
 const client = createMatrixClient({
   homeserver: "https://matrix.example.org",
@@ -36,8 +36,8 @@ The first awaited call boots WASM, store, and crypto. Call `await client.boot()`
 Serve `matrix-core.wasm` with your static assets and persist state in IndexedDB:
 
 ```ts
-import { createMatrixClient } from "easymatrix";
-import { createIndexedDBMatrixStore } from "@beeper/easymatrix-state-indexeddb";
+import { createMatrixClient } from "@beeper/pickle";
+import { createIndexedDBMatrixStore } from "@beeper/pickle-state-indexeddb";
 
 const client = createMatrixClient({
   homeserver: "https://matrix.example.org",
@@ -64,7 +64,7 @@ await client.typing.set({ roomId, typing: true, timeoutMs: 5000 });
 ## Listening
 
 ```ts
-import { onMessage, onReaction, onInvite, onRawEvent } from "easymatrix";
+import { onMessage, onReaction, onInvite, onRawEvent } from "@beeper/pickle";
 
 await onMessage(client, { roomId }, async (event) => { /* ... */ });
 await onReaction(client, { relationEventId: "$event" }, async (event) => { /* ... */ });
@@ -84,7 +84,7 @@ await sub.stop();
 ## Login
 
 ```ts
-import { createMatrixLogin } from "easymatrix";
+import { createMatrixLogin } from "@beeper/pickle";
 
 const login = createMatrixLogin({ homeserver: "https://matrix.example.org" });
 const session = await login.password({ username: "bot", password: "..." });
@@ -122,7 +122,7 @@ const status = await client.crypto.status();
 - **Beeper-only:** `beeper.ephemeral`, `beeper.streams`
 - **Escape hatch:** `raw.request({ method, path, body })`
 
-See [`docs/API.md`](https://github.com/beeper/EasyMatrix/blob/main/docs/API.md) for full details.
+See [`docs/API.md`](https://github.com/beeper/Pickle/blob/main/docs/API.md) for full details.
 
 ## Store ownership
 

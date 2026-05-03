@@ -190,7 +190,7 @@ func (bundle *storeBundle) openRecoveryBackup(persisted persistedRecoveryBackup)
 }
 
 func (bundle *storeBundle) recoveryBackupAEAD() (cipher.AEAD, error) {
-	seed := sha256.Sum256(append([]byte("easymatrix recovery backup cache\x00"), bundle.pickleKey...))
+	seed := sha256.Sum256(append([]byte("pickle recovery backup cache\x00"), bundle.pickleKey...))
 	block, err := aes.NewCipher(seed[:])
 	if err != nil {
 		return nil, err

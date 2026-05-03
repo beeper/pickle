@@ -1,16 +1,16 @@
 {
-  "name": "@beeper/easymatrix-chat-adapter",
+  "name": "@beeper/pickle-chat-adapter",
   "version": "0.1.0",
   "description": "Matrix adapter for Chat SDK",
   "type": "module",
-  "homepage": "https://github.com/beeper/EasyMatrix#readme",
+  "homepage": "https://github.com/beeper/Pickle#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/beeper/EasyMatrix.git",
+    "url": "git+https://github.com/beeper/Pickle.git",
     "directory": "packages/chat-adapter"
   },
   "bugs": {
-    "url": "https://github.com/beeper/EasyMatrix/issues"
+    "url": "https://github.com/beeper/Pickle/issues"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "easymatrix": "workspace:*",
+    "@beeper/pickle": "workspace:*",
     "marked": "^18.0.2",
     "node-html-parser": "^7.1.0"
   },

@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createMatrixLogin } from "easymatrix/login";
-import { createMatrixClient, onInvite, onMessage, onReaction } from "easymatrix/node";
-import { createFileMatrixStore } from "@beeper/easymatrix-state-file";
+import { createMatrixLogin } from "@beeper/pickle/login";
+import { createMatrixClient, onInvite, onMessage, onReaction } from "@beeper/pickle/node";
+import { createFileMatrixStore } from "@beeper/pickle-state-file";
 import { FileState } from "../../shared/file-state.mjs";
 import { dummybridgeTextStream, helpText } from "./dummy-runtime.mjs";
 
@@ -152,7 +152,7 @@ async function resolveSession(homeserverUrl, fileState) {
   }
   const login = await createMatrixLogin({
     homeserver: homeserverUrl,
-    initialDeviceDisplayName: "easymatrix dummybridge bot",
+    initialDeviceDisplayName: "pickle dummybridge bot",
   }).password({
     password: process.env.MATRIX_PASSWORD,
     username: process.env.MATRIX_USERNAME,

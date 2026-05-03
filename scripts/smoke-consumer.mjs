@@ -8,7 +8,7 @@ const execFileAsync = promisify(execFile);
 
 const root = new URL("..", import.meta.url);
 const rootPath = root.pathname;
-const temp = await mkdtemp(join(tmpdir(), "easymatrix-consumer-"));
+const temp = await mkdtemp(join(tmpdir(), "pickle-consumer-"));
 const packDir = join(temp, "packs");
 const consumerDir = join(temp, "consumer");
 
@@ -18,9 +18,9 @@ await execFileAsync("pnpm", ["-r", "--filter", "./packages/*", "pack", "--pack-d
 });
 await execFileAsync("npm", ["init", "-y"], { cwd: await mkdirp(consumerDir) });
 
-const coreTarball = join(packDir, "easymatrix-0.1.0.tgz");
-const cloudflareTarball = join(packDir, "easymatrix-cloudflare-0.1.0.tgz");
-const adapterTarball = join(packDir, "easymatrix-chat-adapter-0.1.0.tgz");
+const coreTarball = join(packDir, "beeper-pickle-0.1.0.tgz");
+const cloudflareTarball = join(packDir, "beeper-pickle-cloudflare-0.1.0.tgz");
+const adapterTarball = join(packDir, "beeper-pickle-chat-adapter-0.1.0.tgz");
 
 await execFileAsync("npm", ["install", coreTarball, cloudflareTarball, adapterTarball, "chat@4.26.0"], {
   cwd: consumerDir,
@@ -32,10 +32,10 @@ const { stdout } = await execFileAsync(
     "--input-type=module",
     "--eval",
     `
-      import * as core from "easymatrix";
-      import * as node from "easymatrix/node";
-      import * as cf from "@beeper/easymatrix-cloudflare";
-      import * as adapter from "@beeper/easymatrix-chat-adapter";
+      import * as core from "@beeper/pickle";
+      import * as node from "@beeper/pickle/node";
+      import * as cf from "@beeper/pickle-cloudflare";
+      import * as adapter from "@beeper/pickle-chat-adapter";
       const checks = {
         core: ["createMatrixClient", "createMatrixLogin"].every((key) => key in core),
         node: ["createMatrixClient"].every((key) => key in node),

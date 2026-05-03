@@ -8,7 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const outDir = resolve(root, "e2e/.out/cloudflare-runtime-smoke");
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? "2d6696feb60377216e949e7a39f904a1";
 const name = process.env.BMJS_CLOUDFLARE_SMOKE_NAME ??
-  `easymatrix-cf-smoke-${new Date().toISOString().replaceAll(/\D/g, "").slice(0, 14)}`;
+  `pickle-cf-smoke-${new Date().toISOString().replaceAll(/\D/g, "").slice(0, 14)}`;
 
 await mkdir(outDir, { recursive: true });
 const configPath = resolve(outDir, "wrangler.jsonc");
@@ -31,7 +31,7 @@ await writeFile(configPath, JSON.stringify({
   name,
   vars: {
     MATRIX_SYNC_WEBHOOK_URL: "https://example.invalid/matrix/webhook",
-    SMOKE_WEBHOOK_SECRET: "easymatrix-cloudflare-runtime-smoke",
+    SMOKE_WEBHOOK_SECRET: "pickle-cloudflare-runtime-smoke",
   },
   workers_dev: true,
 }, null, 2));
