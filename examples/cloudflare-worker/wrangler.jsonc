@@ -17,7 +17,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["MatrixClientObject", "MatrixSyncObject"]
+      "new_sqlite_classes": ["MatrixClientObject", "MatrixSyncObject"]
     }
   ],
   "vars": {
