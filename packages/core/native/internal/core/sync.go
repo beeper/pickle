@@ -541,11 +541,12 @@ func (c *Core) processEvent(ctx context.Context, evt *event.Event) {
 		}
 		c.processRedaction(ctx, evt)
 	case event.EventEncrypted:
-		// CryptoHelper owns encrypted timeline events. It waits for missing room
-		// keys, requests sessions, then redispatches the decrypted logical event
-		// through the syncer. Handling encrypted events here would turn a
-		// recoverable missing-session state into an immediate user-visible miss.
-		return
+		if converted := c.convertMaybeEncryptedMessageEvent(ctx, evt); converted != nil {
+			if !c.markTimelineEventEmitted(evt.ID) {
+				return
+			}
+			c.emit(OutboundEvent{"type": "message", "event": converted})
+		}
 	default:
 		_ = ctx
 	}

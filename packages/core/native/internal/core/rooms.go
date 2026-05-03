@@ -185,6 +185,15 @@ func (c *Core) handleFetchRoom(ctx context.Context, payload []byte) ([]byte, err
 			info.Encrypted = encrypted
 		}
 	}
+	var encryption map[string]any
+	if err := retryMatrixVoid(ctx, func() error {
+		return cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StateEncryption, "", &encryption)
+	}); err == nil {
+		info.Encrypted = true
+		info.Raw["encryption"] = encryption
+	} else if !errors.Is(err, mautrix.MNotFound) {
+		return nil, err
+	}
 	var name map[string]any
 	if err := retryMatrixVoid(ctx, func() error {
 		return cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StateRoomName, "", &name)

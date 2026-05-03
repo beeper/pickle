@@ -127,6 +127,9 @@ func (c *Core) postMediaMessage(ctx context.Context, req MatrixSendMediaMessageO
 	if content.Info.IsZero() {
 		content.Info = nil
 	}
+	if err := ensureMegolmRecipients(ctx, cli, id.RoomID(req.RoomID)); err != nil {
+		return nil, err
+	}
 	encrypted := false
 	if cli.StateStore != nil {
 		encrypted, _ = cli.StateStore.IsEncrypted(ctx, id.RoomID(req.RoomID))
@@ -157,6 +160,9 @@ func (c *Core) postMediaMessage(ctx context.Context, req MatrixSendMediaMessageO
 		content.RelatesTo = (&event.RelatesTo{}).SetThread(id.EventID(req.ThreadRootEventID), "")
 	}
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		if err := ensureMegolmRecipients(ctx, cli, id.RoomID(req.RoomID)); err != nil {
+			return nil, err
+		}
 		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
 	})
 	if err != nil {

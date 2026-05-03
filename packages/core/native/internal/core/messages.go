@@ -60,6 +60,9 @@ func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, e
 		contentMap["m.relates_to"] = content.RelatesTo
 	}
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		if err := ensureMegolmRecipients(ctx, cli, id.RoomID(req.RoomID)); err != nil {
+			return nil, err
+		}
 		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, contentMap)
 	})
 	if err != nil {
@@ -180,6 +183,9 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 	}, req.Content)
 	content["m.new_content"] = newContentMap
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		if err := ensureMegolmRecipients(ctx, cli, id.RoomID(req.RoomID)); err != nil {
+			return nil, err
+		}
 		return cli.SendMessageEvent(ctx, id.RoomID(req.RoomID), event.EventMessage, content)
 	})
 	if err != nil {
@@ -250,6 +256,9 @@ func beeperSendEphemeralEvent(ctx context.Context, cli *mautrix.Client, roomID i
 			return nil, fmt.Errorf("failed to check if room is encrypted: %w", err)
 		}
 		if encrypted {
+			if err := ensureMegolmRecipients(ctx, cli, roomID); err != nil {
+				return nil, err
+			}
 			content, err = cli.Crypto.Encrypt(ctx, roomID, eventType, content)
 			if err != nil {
 				return nil, fmt.Errorf("failed to encrypt event: %w", err)
@@ -261,6 +270,50 @@ func beeperSendEphemeralEvent(ctx context.Context, cli *mautrix.Client, roomID i
 	urlPath := cli.BuildURLWithQuery(mautrix.ClientURLPath{"unstable", "com.beeper.ephemeral", "rooms", roomID, "ephemeral", eventType.String(), txnID}, query)
 	_, err = cli.MakeRequest(ctx, http.MethodPut, urlPath, content, &resp)
 	return resp, err
+}
+
+func ensureMegolmRecipients(ctx context.Context, cli *mautrix.Client, roomID id.RoomID) error {
+	if cli == nil || cli.Crypto == nil || cli.StateStore == nil {
+		return nil
+	}
+	encrypted, err := cli.StateStore.IsEncrypted(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if !encrypted {
+		var encryption event.EncryptionEventContent
+		err = retryMatrixVoid(ctx, func() error {
+			return cli.StateEvent(ctx, roomID, event.StateEncryption, "", &encryption)
+		})
+		if errors.Is(err, mautrix.MNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if encryption.Algorithm != id.AlgorithmMegolmV1 {
+			return nil
+		}
+		if err := cli.StateStore.SetEncryptionEvent(ctx, roomID, &encryption); err != nil {
+			return err
+		}
+	}
+	members, err := retryMatrix(ctx, func() (*mautrix.RespJoinedMembers, error) {
+		return cli.JoinedMembers(ctx, roomID)
+	})
+	if err != nil {
+		return err
+	}
+	for userID, member := range members.Joined {
+		if err := cli.StateStore.SetMember(ctx, roomID, userID, &event.MemberEventContent{
+			AvatarURL:   id.ContentURIString(member.AvatarURL),
+			Displayname: member.DisplayName,
+			Membership:  event.MembershipJoin,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type MatrixDeleteMessageOptions struct {

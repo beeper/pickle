@@ -739,11 +739,17 @@ describe("createMatrixClient", () => {
       token: "token",
       wasmModule: {} as WebAssembly.Module,
     });
-    await client.streams.send({
+    const sent = await client.streams.send({
       roomId: "!room:example.com",
       stream: chunks("hel", "lo"),
     });
 
+    expect(sent.eventId).toBe("$message");
+    expect(sent.raw).toEqual({
+      logicalEventId: "$message",
+      raw: {},
+      replacementEventId: "$edit",
+    });
     expect(calls.map((call) => call.operation)).toEqual(["init", "post_message", "edit_message"]);
     expect(calls[1]?.payload).toEqual({
       body: "hel",
@@ -776,12 +782,18 @@ describe("createMatrixClient", () => {
       token: "token",
       wasmModule: {} as WebAssembly.Module,
     });
-    await client.streams.send({
+    const sent = await client.streams.send({
       roomId: "!room:example.com",
       stream: chunks("hel", { text: "lo", type: "markdown_text" }),
       threadRoot: "$thread",
     });
 
+    expect(sent.eventId).toBe("$message");
+    expect(sent.raw).toEqual({
+      logicalEventId: "$message",
+      raw: {},
+      replacementEventId: "$edit",
+    });
     expect(calls.map((call) => call.operation)).toEqual([
       "init",
       "create_beeper_stream",
