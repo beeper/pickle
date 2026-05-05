@@ -1,0 +1,6 @@
+Pickle is a monorepo with package-level licenses:
+
+- pickle: MPL-2.0
+- packages/chat-adapter: MIT
+
+See each package directory for the license that applies to that package.

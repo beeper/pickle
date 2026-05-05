@@ -16,6 +16,7 @@
       "@beeper/pickle-ai-sdk": ["packages/ai-sdk/src/index.ts"],
       "@beeper/pickle-chat-adapter": ["packages/chat-adapter/src/index.ts"],
       "@beeper/pickle-cloudflare": ["packages/cloudflare/src/index.ts"],
+      "@beeper/pickle-dummybot": ["packages/dummybot/src/index.ts"],
       "@beeper/pickle-state-file": ["packages/state-file/src/index.ts"],
       "@beeper/pickle-state-indexeddb": ["packages/state-indexeddb/src/index.ts"],
       "@beeper/pickle-state-memory": ["packages/state-memory/src/index.ts"],
