@@ -36,6 +36,10 @@
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
     },
+    "./streams": {
+      "types": "./dist/streams/index.d.ts",
+      "import": "./dist/streams/index.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"

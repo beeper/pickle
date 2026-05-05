@@ -7,6 +7,7 @@ export default defineConfig({
     "src/beeper/auth.ts",
     "src/helpers.ts",
     "src/node.ts",
+    "src/streams/index.ts",
     "src/types.ts",
   ],
   format: ["esm"],
