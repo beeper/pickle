@@ -84,11 +84,14 @@ await sub.stop();
 ## Login
 
 ```ts
-import { createMatrixLogin } from "@beeper/pickle";
+import { loginWithMatrixPassword, loginWithMatrixToken } from "@beeper/pickle/auth";
 
-const login = createMatrixLogin({ homeserver: "https://matrix.example.org" });
-const session = await login.password({ username: "bot", password: "..." });
-// or: await login.token({ token, type: "m.login.token" | "org.matrix.login.jwt" });
+const session = await loginWithMatrixPassword({
+  homeserver: "https://matrix.example.org",
+  password: "...",
+  username: "bot",
+});
+// or: await loginWithMatrixToken({ homeserver, token, type: "m.login.token" | "org.matrix.login.jwt" });
 
 const client = createMatrixClient({ account: session, store, pickleKey });
 ```

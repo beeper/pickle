@@ -30,7 +30,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsdown",
     "clean": "rm -rf dist",
     "prepublishOnly": "node ../../scripts/guard-pnpm-publish.mjs",
     "test": "vitest run --coverage",
@@ -47,7 +47,7 @@
   "devDependencies": {
     "@types/node": "^25.3.2",
     "chat": "^4.26.0",
-    "tsup": "^8.3.5",
+    "tsdown": "^0.21.10",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
   },

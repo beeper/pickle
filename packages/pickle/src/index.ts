@@ -1,16 +1,6 @@
 export { copyBytes } from "./bytes";
 export { createMatrixClient } from "./client";
 export { onInvite, onMessage, onRawEvent, onReaction } from "./helpers";
-export { createBeeperLogin } from "./beeper-login";
-export { createMatrixLogin } from "./login";
-export type {
-  BeeperEmailTokenOptions,
-  BeeperEmailTokenResult,
-  BeeperLogin,
-  BeeperLoginOptions,
-  BeeperRegisterOptions,
-  BeeperRegisterResult,
-} from "./beeper-login";
 export type {
   MatrixClient,
   MatrixAccountData,
@@ -27,12 +17,6 @@ export type {
   MatrixToDevice,
   MatrixUsers,
 } from "./client-types";
-export type {
-  MatrixLogin,
-  MatrixLoginOptions,
-  MatrixPasswordLoginOptions,
-  MatrixTokenLoginOptions,
-} from "./login";
 export type {
   ApplySyncResponseOptions,
   AccountDataOptions,

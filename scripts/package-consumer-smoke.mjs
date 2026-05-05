@@ -82,18 +82,18 @@ try {
       "--eval",
       `
         import * as pickle from "@beeper/pickle";
-        import * as beeperLogin from "@beeper/pickle/beeper-login";
+        import * as auth from "@beeper/pickle/auth";
+        import * as beeperAuth from "@beeper/pickle/beeper/auth";
         import * as helpers from "@beeper/pickle/helpers";
-        import * as login from "@beeper/pickle/login";
         import * as node from "@beeper/pickle/node";
         import * as cloudflare from "@beeper/pickle-cloudflare";
         import * as adapter from "@beeper/pickle-chat-adapter";
 
         const checks = {
-          pickle: ["createMatrixClient", "createMatrixLogin"].every((key) => key in pickle),
-          beeperLogin: ["createBeeperLogin"].every((key) => key in beeperLogin),
+          pickle: ["createMatrixClient"].every((key) => key in pickle),
+          auth: ["loginWithMatrixPassword", "loginWithMatrixToken"].every((key) => key in auth),
+          beeperAuth: ["createBeeperLogin"].every((key) => key in beeperAuth),
           helpers: ["onMessage", "onReaction", "onInvite", "onRawEvent"].every((key) => key in helpers),
-          login: ["createMatrixLogin"].every((key) => key in login),
           node: ["createMatrixClient"].every((key) => key in node),
           cloudflare: ["createCloudflareKVMatrixStore", "createDurableObjectMatrixStore", "MatrixSyncDurableObject"].every((key) => key in cloudflare),
           adapter: ["createMatrixAdapter", "MatrixAdapter", "MatrixFormatConverter"].every((key) => key in adapter),

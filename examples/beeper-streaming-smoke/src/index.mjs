@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Chat } from "chat";
-import { createMatrixLogin } from "@beeper/pickle";
+import { loginWithMatrixPassword } from "@beeper/pickle/auth";
 import { createMatrixClient } from "@beeper/pickle/node";
 import { createMatrixAdapter } from "@beeper/pickle-chat-adapter";
 import { FileState, MatrixState } from "../../shared/file-state.mjs";
@@ -378,10 +378,9 @@ async function resolveLogin(homeserverUrl, state) {
     return cached;
   }
   console.log("login_session_cache=miss");
-  const login = await createMatrixLogin({
+  const login = await loginWithMatrixPassword({
     homeserver: homeserverUrl,
     initialDeviceDisplayName: "pickle streaming smoke",
-  }).password({
     password: process.env.MATRIX_PASSWORD,
     username: process.env.MATRIX_USERNAME,
   });

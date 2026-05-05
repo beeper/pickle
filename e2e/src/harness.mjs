@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { OUT_DIR, STORE_DIR, ensureOutDirs, sdkDist } from "./config.mjs";
 
 const { createMatrixClient } = await import(sdkDist("packages/pickle/dist/node.js"));
-const { createMatrixLogin } = await import(sdkDist("packages/pickle/dist/login.js"));
+const { loginWithMatrixToken } = await import(sdkDist("packages/pickle/dist/auth.js"));
 const { createFileMatrixStore } = await import(sdkDist("packages/state-file/dist/index.js"));
 
 export async function makeCore(account, label) {
@@ -74,10 +74,9 @@ async function saveCachedSession(label, account) {
 
 async function loginFreshDevice(account, label) {
   return retry(`fresh Matrix login ${label}`, async () => {
-    const session = await createMatrixLogin({
+    const session = await loginWithMatrixToken({
       homeserver: account.homeserverUrl,
       initialDeviceDisplayName: `pickle private e2e ${label}`,
-    }).token({
       token: account.loginToken,
       type: "org.matrix.login.jwt",
     });

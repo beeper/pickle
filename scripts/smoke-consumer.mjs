@@ -33,11 +33,15 @@ const { stdout } = await execFileAsync(
     "--eval",
     `
       import * as pickle from "@beeper/pickle";
+      import * as auth from "@beeper/pickle/auth";
+      import * as beeperAuth from "@beeper/pickle/beeper/auth";
       import * as node from "@beeper/pickle/node";
       import * as cf from "@beeper/pickle-cloudflare";
       import * as adapter from "@beeper/pickle-chat-adapter";
       const checks = {
-        pickle: ["createMatrixClient", "createMatrixLogin"].every((key) => key in pickle),
+        pickle: ["createMatrixClient"].every((key) => key in pickle),
+        auth: ["loginWithMatrixPassword", "loginWithMatrixToken"].every((key) => key in auth),
+        beeperAuth: ["createBeeperLogin"].every((key) => key in beeperAuth),
         node: ["createMatrixClient"].every((key) => key in node),
         cloudflare: ["createCloudflareKVMatrixStore", "createDurableObjectMatrixStore", "MatrixSyncDurableObject"].every((key) => key in cf),
         adapter: ["createMatrixAdapter"].every((key) => key in adapter),

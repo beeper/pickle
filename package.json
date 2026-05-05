@@ -35,7 +35,7 @@
     "@types/mdast": "^4.0.4",
     "@types/node": "^25.3.2",
     "@vitest/coverage-v8": "^4.0.18",
-    "tsup": "^8.3.5",
+    "tsdown": "^0.21.10",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
   }

@@ -1,6 +1,6 @@
 import type { MatrixBeeper, MatrixMessages, MatrixStreams } from "./client-types";
 import { stripUndefined } from "./object";
-import type { MatrixClientOptions, SendMatrixStreamOptions, SentEvent } from "./types";
+import type { MatrixClientOptions, SendMatrixStreamOptions, SendMessageOptions, SentEvent } from "./types";
 
 export function createMatrixStreams(options: {
   beeper: MatrixBeeper;
@@ -104,18 +104,19 @@ async function sendBeeperStream(
     streamType: "com.beeper.llm",
   });
   const turnId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  const target = await client.messages.send(stripUndefined({
+  const targetOptions: SendMessageOptions = {
     content: {
       body: "...",
       "com.beeper.ai": { id: turnId, metadata: { turn_id: turnId }, parts: [], role: "assistant" },
       "com.beeper.stream": stream.descriptor,
       msgtype: "m.text",
     },
-    messageType: "m.text",
+    messageType: "m.text" as const,
     roomId: opts.roomId,
     text: "...",
-    threadRoot: opts.threadRoot,
-  }));
+    ...(opts.threadRoot === undefined ? {} : { threadRoot: opts.threadRoot }),
+  };
+  const target = await client.messages.send(targetOptions);
   await client.beeper.streams.register({
     descriptor: stream.descriptor,
     eventId: target.eventId,
@@ -259,6 +260,11 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
     indexById.set(partId, index);
     return index;
   };
+  const getPart = (index: number) => {
+    const part = state.message.parts[index];
+    if (!part) throw new Error(`missing accumulated message part at index ${index}`);
+    return part;
+  };
   const rememberTool = () => {
     if (!toolCallId) return;
     if (typeof part.toolName === "string" && part.toolName.trim()) state.toolNameByCallId.set(toolCallId, part.toolName);
@@ -301,14 +307,14 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
       return;
     case "text-delta": {
       if (!id || typeof part.delta !== "string") return;
-      const textPart = state.message.parts[ensureStreamingPart("text", state.textIndexById, id)];
+      const textPart = getPart(ensureStreamingPart("text", state.textIndexById, id));
       textPart.text = `${typeof textPart.text === "string" ? textPart.text : ""}${part.delta}`;
       textPart.state = "streaming";
       return;
     }
     case "text-end": {
       if (!id) return;
-      const textPart = state.message.parts[ensureStreamingPart("text", state.textIndexById, id)];
+      const textPart = getPart(ensureStreamingPart("text", state.textIndexById, id));
       textPart.state = "done";
       state.textIndexById.delete(id);
       return;
@@ -318,14 +324,14 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
       return;
     case "reasoning-delta": {
       if (!id || typeof part.delta !== "string") return;
-      const reasoningPart = state.message.parts[ensureStreamingPart("reasoning", state.reasoningIndexById, id)];
+      const reasoningPart = getPart(ensureStreamingPart("reasoning", state.reasoningIndexById, id));
       reasoningPart.text = `${typeof reasoningPart.text === "string" ? reasoningPart.text : ""}${part.delta}`;
       reasoningPart.state = "streaming";
       return;
     }
     case "reasoning-end": {
       if (!id) return;
-      const reasoningPart = state.message.parts[ensureStreamingPart("reasoning", state.reasoningIndexById, id)];
+      const reasoningPart = getPart(ensureStreamingPart("reasoning", state.reasoningIndexById, id));
       reasoningPart.state = "done";
       state.reasoningIndexById.delete(id);
       return;
@@ -343,7 +349,7 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
     case "tool-input-start": {
       const index = ensureToolPart();
       if (index === undefined || !toolCallId) return;
-      const toolPart = state.message.parts[index];
+      const toolPart = getPart(index);
       toolPart.state = "input-streaming";
       toolPart.providerExecuted = part.providerExecuted;
       toolPart.callProviderMetadata = part.providerMetadata;
@@ -357,15 +363,16 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
       const current = state.toolInputTextByCallId.get(toolCallId) ?? "";
       const next = current + part.inputTextDelta;
       state.toolInputTextByCallId.set(toolCallId, next);
-      state.message.parts[index].state = "input-streaming";
-      state.message.parts[index].input = parsePartialJson(next);
+      const toolPart = getPart(index);
+      toolPart.state = "input-streaming";
+      toolPart.input = parsePartialJson(next);
       return;
     }
     case "tool-input-available":
     case "tool-input-error": {
       const index = ensureToolPart();
       if (index === undefined) return;
-      const toolPart = state.message.parts[index];
+      const toolPart = getPart(index);
       toolPart.state = type === "tool-input-error" ? "output-error" : "input-available";
       toolPart.input = part.input;
       toolPart.providerExecuted = part.providerExecuted;
@@ -378,7 +385,7 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
     case "tool-approval-response": {
       const index = ensureToolPart();
       if (index === undefined || typeof part.approvalId !== "string") return;
-      const toolPart = state.message.parts[index];
+      const toolPart = getPart(index);
       toolPart.state = type === "tool-approval-request" ? "approval-requested" : "approval-responded";
       toolPart.approval = stripUndefined({
         approved: part.approved,
@@ -392,7 +399,7 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
     case "tool-output-denied": {
       const index = ensureToolPart();
       if (index === undefined) return;
-      const toolPart = state.message.parts[index];
+      const toolPart = getPart(index);
       toolPart.state = type === "tool-output-available" ? "output-available" : type === "tool-output-error" ? "output-error" : "output-denied";
       if (part.output !== undefined) toolPart.output = part.output;
       if (part.errorText !== undefined) toolPart.errorText = part.errorText;
@@ -437,8 +444,14 @@ function applyDataPart(parts: Record<string, unknown>[], part: Record<string, un
 }
 
 function finalizeAccumulatedAIMessage(state: FinalMessageAccumulator): Record<string, unknown> {
-  for (const index of state.textIndexById.values()) state.message.parts[index].state = "done";
-  for (const index of state.reasoningIndexById.values()) state.message.parts[index].state = "done";
+  for (const index of state.textIndexById.values()) {
+    const part = state.message.parts[index];
+    if (part) part.state = "done";
+  }
+  for (const index of state.reasoningIndexById.values()) {
+    const part = state.message.parts[index];
+    if (part) part.state = "done";
+  }
   state.textIndexById.clear();
   state.reasoningIndexById.clear();
   return {

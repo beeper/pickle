@@ -34,15 +34,17 @@ That's it. The adapter logs in, subscribes, and forwards Matrix events into Chat
 ## Login with password
 
 ```ts
-import { createMatrixLogin } from "@beeper/pickle";
+import { loginWithMatrixPassword } from "@beeper/pickle/auth";
 
-const { accessToken } = await createMatrixLogin({
+const { accessToken } = await loginWithMatrixPassword({
   homeserver: "https://matrix.example.org",
   initialDeviceDisplayName: "my bot",
-}).password({ username: "bot", password: process.env.MATRIX_PASSWORD! });
+  username: "bot",
+  password: process.env.MATRIX_PASSWORD!,
+});
 ```
 
-`createMatrixLogin().token({ token })` works the same way for token / JWT login.
+Use `loginWithMatrixToken()` from `@beeper/pickle/auth` for token / JWT login.
 
 ## Streaming responses
 

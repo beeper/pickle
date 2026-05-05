@@ -39,7 +39,7 @@ const html = `<!doctype html>
     </script>
     <script type="module">
       import { createMatrixClient } from "/sdk/packages/pickle/dist/index.js";
-      import { createMatrixLogin } from "/sdk/packages/pickle/dist/login.js";
+      import { loginWithMatrixToken } from "/sdk/packages/pickle/dist/auth.js";
       import { createIndexedDBMatrixStore } from "/sdk/packages/state-indexeddb/dist/index.js";
 
       const account = ${JSON.stringify(account)};
@@ -58,10 +58,9 @@ const html = `<!doctype html>
       };
 
       async function loginFreshDevice() {
-        return createMatrixLogin({
+        return loginWithMatrixToken({
           homeserver: account.homeserverUrl,
-          initialDeviceDisplayName: "pickle browser smoke " + mode
-        }).token({
+          initialDeviceDisplayName: "pickle browser smoke " + mode,
           token: account.loginToken,
           type: "org.matrix.login.jwt"
         });

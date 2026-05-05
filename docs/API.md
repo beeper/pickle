@@ -26,16 +26,15 @@ type MatrixAccount = {
 };
 ```
 
-`deviceId` is server-assigned and immutable for a given access token. Persist `userId`, `deviceId`, and `accessToken` from your first login — or pass `account: session` from `createMatrixLogin()`.
+`deviceId` is server-assigned and immutable for a given access token. Persist `userId`, `deviceId`, and `accessToken` from your first login — or pass `account: session` from `@beeper/pickle/auth`.
 
 ## Login
 
 ```ts
-import { createMatrixLogin } from "@beeper/pickle";
+import { loginWithMatrixPassword, loginWithMatrixToken } from "@beeper/pickle/auth";
 
-const login = createMatrixLogin({ homeserver, initialDeviceDisplayName: "my bot" });
-const session = await login.password({ username, password });
-const session = await login.token({ token, type: "m.login.token" }); // or "org.matrix.login.jwt"
+const passwordSession = await loginWithMatrixPassword({ homeserver, username, password });
+const tokenSession = await loginWithMatrixToken({ homeserver, token, type: "m.login.token" }); // or "org.matrix.login.jwt"
 ```
 
 ## CLI / one-shot use
@@ -134,18 +133,15 @@ Each account/device store is single-writer. To run multiple bots in one process,
 
 Beeper-only behavior lives under `client.beeper.*` and is only used by the Chat SDK adapter when the homeserver is Beeper or `beeper: true` is passed.
 
-```ts
-import { createBeeperLogin } from "@beeper/pickle/beeper-login";
+For Beeper account login, use the Beeper auth helper. It sends the email login code, exchanges it for a Beeper JWT, then logs into Matrix and verifies `/account/whoami`.
 
-const beeper = createBeeperLogin();
-const token = await beeper.requestEmailToken({ clientSecret, email, sendAttempt: 1 });
-const registered = await beeper.register({
-  auth: {
-    type: "m.login.email.identity",
-    threepid_creds: { sid: token.sid, client_secret: clientSecret },
-  },
-  password,
-  username,
+```ts
+import { createBeeperLogin } from "@beeper/pickle/beeper/auth";
+
+const account = await createBeeperLogin({
+  email,
+  env: "production",
+  getLoginCode: () => readCodeFromUser(),
 });
 ```
 

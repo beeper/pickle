@@ -20,17 +20,17 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./beeper/auth": {
+      "types": "./dist/beeper/auth.d.ts",
+      "import": "./dist/beeper/auth.js"
+    },
     "./helpers": {
       "types": "./dist/helpers.d.ts",
       "import": "./dist/helpers.js"
-    },
-    "./beeper-login": {
-      "types": "./dist/beeper-login.d.ts",
-      "import": "./dist/beeper-login.js"
-    },
-    "./login": {
-      "types": "./dist/login.d.ts",
-      "import": "./dist/login.js"
     },
     "./node": {
       "types": "./dist/node.d.ts",
@@ -52,7 +52,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "npm run generate:types && tsup && npm run build:wasm",
+    "build": "npm run generate:types && tsdown && npm run build:wasm",
     "build:wasm": "mkdir -p dist && cd native && GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -tags goolm -ldflags='-s -w' -o ../dist/pickle.wasm ./cmd/matrix-wasm && cp \"$(go env GOROOT)/lib/wasm/wasm_exec.js\" ../dist/wasm_exec.js",
     "clean": "rm -rf dist",
     "generate:types": "cd native && go run ./cmd/matrix-ts-types",
@@ -61,7 +61,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.3.2",
-    "tsup": "^8.3.5",
+    "tsdown": "^0.21.10",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
   },
