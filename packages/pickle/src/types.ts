@@ -34,6 +34,8 @@ export interface MatrixBeeperStreamDescriptor {
 export type MatrixStream = AsyncIterable<string | Record<string, unknown>>;
 
 export interface SendMatrixStreamOptions {
+  finalAIMessage?: Record<string, unknown>;
+  finalText?: string;
   mode?: "auto" | "beeper" | "edits";
   roomId: string;
   stream: MatrixStream;
@@ -373,6 +375,7 @@ export interface EditMessageOptions {
   messageType?: "m.text" | "m.notice" | "m.emote";
   roomId: string;
   text: string;
+  topLevelContent?: Record<string, unknown>;
 }
 
 export interface RedactMessageOptions {

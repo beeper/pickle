@@ -848,6 +848,16 @@ describe("createMatrixClient", () => {
     ]);
     expect(calls[2]?.payload).toMatchObject({
       body: "...",
+      content: {
+        "com.beeper.ai": {
+          id: expect.any(String),
+          parts: [],
+          role: "assistant",
+        },
+        "com.beeper.stream": {
+          type: "com.beeper.llm",
+        },
+      },
       roomId: "!room:example.com",
       threadRootEventId: "$thread",
     });
@@ -856,13 +866,36 @@ describe("createMatrixClient", () => {
       roomId: "!room:example.com",
     });
     expect(calls[4]?.payload).toMatchObject({
+      content: {
+        "com.beeper.llm.deltas": [{
+          part: {
+            messageMetadata: expect.any(Object),
+            type: "start",
+          },
+          seq: 1,
+          target_event: "$message",
+          turn_id: expect.any(String),
+        }],
+      },
       eventId: "$message",
       roomId: "!room:example.com",
     });
     expect(calls[10]?.payload).toMatchObject({
       body: "hello",
+      content: {
+        "com.beeper.ai": {
+          id: expect.any(String),
+          parts: [{ text: "hello", type: "text" }],
+          role: "assistant",
+        },
+        "com.beeper.stream": null,
+      },
       messageId: "$message",
       roomId: "!room:example.com",
+      topLevelContent: {
+        "com.beeper.dont_render_edited": true,
+        "com.beeper.stream": null,
+      },
     });
   });
 
@@ -894,6 +927,106 @@ describe("createMatrixClient", () => {
 
     expect(calls.map((call) => call.operation)).toContain("create_beeper_stream");
     expect(calls.map((call) => call.operation)).toContain("publish_beeper_stream");
+  });
+
+  it("keeps accumulated UI message parts in the Beeper final edit", async () => {
+    const calls = installRuntime({
+      create_beeper_stream: {
+        descriptor: {
+          device_id: "DEVICE",
+          type: "com.beeper.llm",
+          user_id: "@bot:example.com",
+        },
+      },
+      edit_message: { eventId: "$edit", raw: {}, roomId: "!room:example.com" },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      post_message: { eventId: "$message", raw: {}, roomId: "!room:example.com" },
+      publish_beeper_stream: {},
+      register_beeper_stream: {},
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.beeper.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+
+    await client.streams.send({
+      roomId: "!room:example.com",
+      stream: chunks(
+        { id: "reasoning", type: "reasoning-start" },
+        { delta: "thinking", id: "reasoning", type: "reasoning-delta" },
+        { id: "reasoning", type: "reasoning-end" },
+        { data: { stage: 1 }, id: "status", type: "data-status" },
+        { sourceId: "src-1", title: "Docs", type: "source-url", url: "https://example.com" },
+        { id: "text", type: "text-start" },
+        { delta: "hello", id: "text", type: "text-delta" },
+        { id: "text", type: "text-end" },
+      ),
+    });
+
+    const edit = calls.find((call) => call.operation === "edit_message")?.payload;
+    expect(edit).toMatchObject({
+      body: "hello",
+      content: {
+        "com.beeper.ai": {
+          parts: [
+            { state: "done", text: "thinking", type: "reasoning" },
+            { data: { stage: 1 }, id: "status", type: "data-status" },
+            { sourceId: "src-1", title: "Docs", type: "source-url", url: "https://example.com" },
+            { state: "done", text: "hello", type: "text" },
+          ],
+          role: "assistant",
+        },
+      },
+      topLevelContent: {
+        "com.beeper.dont_render_edited": true,
+      },
+    });
+  });
+
+  it("lets callers override the Beeper final AI message", async () => {
+    const calls = installRuntime({
+      create_beeper_stream: {
+        descriptor: {
+          device_id: "DEVICE",
+          type: "com.beeper.llm",
+          user_id: "@bot:example.com",
+        },
+      },
+      edit_message: { eventId: "$edit", raw: {}, roomId: "!room:example.com" },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      post_message: { eventId: "$message", raw: {}, roomId: "!room:example.com" },
+      publish_beeper_stream: {},
+      register_beeper_stream: {},
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.beeper.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+
+    await client.streams.send({
+      finalAIMessage: {
+        id: "final",
+        parts: [{ text: "override", type: "text" }],
+        role: "assistant",
+      },
+      finalText: "override",
+      roomId: "!room:example.com",
+      stream: chunks("ignored"),
+    });
+
+    const edit = calls.find((call) => call.operation === "edit_message")?.payload;
+    expect(edit).toMatchObject({
+      body: "override",
+      content: {
+        "com.beeper.ai": {
+          id: "final",
+          parts: [{ text: "override", type: "text" }],
+          role: "assistant",
+        },
+      },
+    });
   });
 
   it("normalizes generic stream chunk shapes", async () => {

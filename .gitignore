@@ -3,9 +3,14 @@ dist
 coverage
 .packs
 *.tsbuildinfo
+.env
+.env.*
+!.env.example
+!.env.sample
+.upstream
 packages/core/dist
 packages/chat-adapter/dist
 packages/core/native/dist
 examples/beeper-streaming-smoke/.matrix-store/
 examples/beeper-streaming-smoke/.matrix-state/
-examples/beeper-streaming-smoke/.env
+examples/dummybridge-bot/.matrix-state/

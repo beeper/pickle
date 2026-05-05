@@ -23,16 +23,13 @@ const max = {
 
 export function helpText() {
   return [
-    "**DummyBridge bot commands**",
-    "",
-    "`stream-lorem [chars]` streams long markdown with reasoning, sources, documents, files, metadata, data parts, abort/error/finish states.",
-    "`stream-tools [chars] tool#tag...` demonstrates tool input, deltas, preliminary output, approvals, denial, provider execution, and failures.",
-    "`stream-random [seconds]` emits a deterministic mix of text, tools, artifacts, and approvals.",
-    "`stream-chaos [turns]` runs multiple demo turns back to back.",
-    "",
-    "Useful options: `--reasoning=1200`, `--steps=3`, `--sources=4`, `--documents=3`, `--files=2`, `--meta`, `--data=name`, `--data-transient=name`, `--chunk-chars=48:160`, `--delay-ms=0:250`, `--finish=length`, `--abort`, `--error`, `--seed=42`, `--profile=artifacts`.",
-    "",
-    "Tool tags: `delta`, `prelim`, `approval`, `deny`, `fail`, `inputerror`, `provider`.",
+    "DummyBridge demo commands:",
+    "help",
+    "stream-lorem <chars> [--reasoning=N] [--steps=N] [--sources=N] [--documents=N] [--files=N] [--meta] [--data=name] [--data-transient=name] [--delay-ms=min:max] [--chunk-chars=min:max] [--seed=N] [--finish=stop|length|tool-calls|content-filter|other] [--abort|--error]",
+    "stream-tools <chars> <tool[#fail|#approval|#deny|#delta|#inputerror|#prelim|#provider]>... [common options]",
+    "stream-random [seconds] [--actions=N] [--profile=balanced|tools|artifacts|terminals] [--seed=N] [--delay-ms=min:max] [--allow-abort] [--allow-error] [--allow-approval]",
+    "stream-chaos [turns] [seconds] [--profile=balanced|tools|artifacts|terminals] [--seed=N] [--stagger-ms=min:max] [--max-actions=N] [--allow-abort] [--allow-error] [--allow-approval]",
+    "Notes: plain messages only, new chats create new rooms, and approval-tagged tools wait for user approval.",
   ].join("\n");
 }
 
@@ -53,11 +50,26 @@ export async function* dummybridgeTextStream(input, options = {}) {
   yield* runOne(command, options);
 }
 
+export async function* dummybridgeChaosTurnStream(input, turn, options = {}) {
+  const command = parseCommand(input);
+  if (command.name !== "chaos") {
+    yield* dummybridgeTextStream(input, options);
+    return;
+  }
+  const turnIndex = clamp(Number(turn) || 0, 0, command.turns - 1);
+  yield* runOne({
+    ...command,
+    actions: command.maxActions,
+    name: "random",
+    seed: command.seed + ((turnIndex + 1) * 97),
+  }, options);
+}
+
 export function parseCommand(input) {
   const tokens = String(input || "").trim().split(/\s+/).filter(Boolean);
   const first = normalizeCommand(tokens[0] || "stream-lorem");
   if (first === "help") return { name: "help" };
-  if (first === "stream-chaos") {
+  if (first === "stream-chaos" || first === "stream-choaos") {
     const turns = clamp(readPositionalInt(tokens, 1, 4), 1, max.turns);
     return {
       ...common(tokens),
@@ -86,6 +98,9 @@ export function parseCommand(input) {
       tools: rawTools.slice(0, max.tools).map(parseTool).concat(rawTools.length ? [] : defaultTools()),
     };
   }
+  if (!["stream-lorem", "error", "tools"].includes(first)) {
+    return { name: "help" };
+  }
   return {
     ...common(tokens),
     chars: clamp(readPositionalInt(tokens, 1, first === "error" ? 1200 : 4096), 1, max.chars),
@@ -101,75 +116,125 @@ async function* runOne(command, options = {}) {
   const tools = command.name === "random" ? randomTools(rng, command) : command.tools ?? [];
   const visible = markdownCorpus(command.chars, rng);
   const reasoning = prose(command.reasoning, rng);
+  let reasoningStarted = false;
 
-  yield `<!-- metadata ${JSON.stringify({ command: command.name, model: "dummybridge-js", seed: command.seed })} -->\n`;
-  if (reasoning) {
-    yield `\n<details><summary>Reasoning</summary>\n\n`;
-    for (const chunk of chunks(reasoning, rng, command.chunkMin, command.chunkMax)) {
-      yield chunk;
-      await sleep(sampleInt(rng, command.delayMinMs, command.delayMaxMs), options.signal);
-    }
-    yield `\n\n</details>\n\n`;
-  }
-  yield `I heard: \`${escapeBackticks(command.raw || command.name)}\`\n\n`;
+  yield { messageMetadata: metadata(command.name, command.seed, 0), type: "message-metadata" };
+  yield { id: "text_dummybridge", type: "text-start" };
+  yield { delta: `I heard: \`${escapeBackticks(command.raw || command.name)}\`\n\n`, id: "text_dummybridge", type: "text-delta" };
 
   for (let step = 0; step < steps; step += 1) {
-    yield `\n### Step ${step + 1}/${steps}\n\n`;
-    yield decorations(command, step, steps);
+    yield { type: "start-step" };
+    yield* decorations(command, step, steps);
+    if (reasoning && !reasoningStarted) {
+      yield { id: "reasoning_dummybridge", type: "reasoning-start" };
+      reasoningStarted = true;
+    }
+    if (reasoning) {
+      for (const chunk of chunks(slice(reasoning, steps, step), rng, command.chunkMin, command.chunkMax)) {
+        yield { delta: chunk, id: "reasoning_dummybridge", type: "reasoning-delta" };
+        await sleep(sampleInt(rng, command.delayMinMs, command.delayMaxMs), options.signal);
+      }
+    }
     for (const chunk of chunks(slice(visible, steps, step), rng, command.chunkMin, command.chunkMax)) {
-      yield chunk;
+      yield { delta: chunk, id: "text_dummybridge", type: "text-delta" };
       await sleep(sampleInt(rng, command.delayMinMs, command.delayMaxMs), options.signal);
     }
     if (tools[step]) {
       yield* renderTool(tools[step], step + 1, rng, command, options);
     }
+    yield { type: "finish-step" };
   }
   for (let index = steps; index < tools.length; index += 1) {
     yield* renderTool(tools[index], index + 1, rng, command, options);
   }
+  if (reasoningStarted) yield { id: "reasoning_dummybridge", type: "reasoning-end" };
+  yield { id: "text_dummybridge", type: "text-end" };
 
   if (command.abort) {
-    yield "\n\n**Aborted:** DummyBridge synthetic abort.\n";
+    yield { reason: "DummyBridge synthetic abort", type: "abort" };
     return;
   }
   if (command.error) {
-    yield "\n\n**Error:** DummyBridge synthetic error was emitted.\n";
+    yield { errorText: "DummyBridge synthetic error", type: "error" };
     return;
   }
-  yield `\n\n**Finished:** ${command.finishReason || "stop"}\n`;
+  yield { finishReason: command.finishReason || "stop", messageMetadata: { finish_reason: command.finishReason || "stop", turn_id: "dummybridge" }, type: "finish" };
 }
 
 async function* renderTool(tool, sequence, rng, command, options) {
   const id = `dummy-tool-${sequence}-${slug(tool.name)}`;
-  yield `\n\n#### Tool: ${title(tool.name)}\n\n`;
-  yield `- id: \`${id}\`\n- provider executed: \`${Boolean(tool.provider)}\`\n- tags: ${(tool.tags ?? []).map((tag) => `\`${tag}\``).join(", ") || "_none_"}\n`;
+  const input = { sequence, tags: tool.tags ?? [], tool: tool.name };
+  yield {
+    dynamic: true,
+    providerExecuted: Boolean(tool.provider),
+    title: title(tool.name),
+    toolCallId: id,
+    toolName: tool.name,
+    type: "tool-input-start",
+  };
   if (tool.delta) {
-    yield "- input delta:\n\n```json\n";
-    for (const chunk of chunks(JSON.stringify({ sequence, tool: tool.name, tags: tool.tags ?? [] }, null, 2), rng, command.chunkMin, command.chunkMax)) {
-      yield chunk;
+    for (const chunk of chunks(JSON.stringify(input), rng, command.chunkMin, command.chunkMax)) {
+      yield { inputTextDelta: chunk, toolCallId: id, type: "tool-input-delta" };
       await sleep(sampleInt(rng, command.delayMinMs, command.delayMaxMs), options.signal);
     }
-    yield "\n```\n";
-  }
-  if (tool.inputError) {
-    yield "\nInput error: DummyBridge synthetic input error.\n";
+  } else if (tool.inputError) {
+    yield {
+      dynamic: true,
+      errorText: "DummyBridge synthetic input error",
+      input,
+      providerExecuted: Boolean(tool.provider),
+      toolCallId: id,
+      toolName: tool.name,
+      type: "tool-input-error",
+    };
+  } else {
+    yield {
+      dynamic: true,
+      input,
+      providerExecuted: Boolean(tool.provider),
+      toolCallId: id,
+      toolName: tool.name,
+      type: "tool-input-available",
+    };
   }
   if (tool.prelim) {
-    yield "\nPreliminary output: `{ \"status\": \"streaming\" }`\n";
+    yield {
+      output: { status: "streaming", tool: tool.name },
+      preliminary: true,
+      providerExecuted: Boolean(tool.provider),
+      toolCallId: id,
+      type: "tool-output-available",
+    };
   }
   if (tool.approval || tool.deny) {
-    yield `\nApproval requested for \`${id}\`: ${tool.deny ? "denied" : "approved"} automatically by the demo.\n`;
+    const approvalId = `approval-${sequence}-${slug(tool.name)}`;
+    yield { approvalId, toolCallId: id, type: "tool-approval-request" };
+    yield { approvalId, approved: !tool.deny, reason: tool.deny ? "deny" : "approved", toolCallId: id, type: "tool-approval-response" };
   }
-  if (tool.fail || tool.inputError) {
-    yield "\nTool output error: DummyBridge synthetic tool failure.\n";
+  if (tool.deny) {
+    yield { toolCallId: id, type: "tool-output-denied" };
     return;
   }
-  yield `\nTool output: \`{"status":"ok","sequence":${sequence}}\`\n`;
+  if (tool.fail || tool.inputError) {
+    yield {
+      errorText: "DummyBridge synthetic tool failure",
+      providerExecuted: Boolean(tool.provider),
+      toolCallId: id,
+      type: "tool-output-error",
+    };
+    return;
+  }
+  yield {
+    output: { sequence, status: "ok", tool: tool.name },
+    providerExecuted: Boolean(tool.provider),
+    toolCallId: id,
+    type: "tool-output-available",
+  };
 }
 
 function common(tokens) {
-  const delay = readRange(tokens, "delay-ms", 0, 0);
-  const chunk = readRange(tokens, "chunk-chars", 48, 160);
+  const delay = readRange(tokens, "delay-ms", 30, 150);
+  const chunk = readRange(tokens, "chunk-chars", 24, 96);
   return {
     abort: tokens.includes("--abort"),
     chunkMax: clamp(chunk.max, 1, 512),
@@ -191,21 +256,47 @@ function common(tokens) {
   };
 }
 
-function decorations(command, step, steps) {
-  const lines = [];
-  if (command.meta) lines.push(`Metadata: \`${JSON.stringify({ step: step + 1, seed: command.seed })}\``);
+function metadata(command, seed, step) {
+  return {
+    command,
+    completion_tokens: 200 + step,
+    model: "dummybridge-demo",
+    prompt_tokens: 100 + step,
+    seed,
+    step,
+  };
+}
+
+function* decorations(command, step, steps) {
+  if (command.meta) yield { messageMetadata: metadata("demo", command.seed, step + 1), type: "message-metadata" };
   for (let i = 0; i < split(command.sources, steps, step); i += 1) {
-    lines.push(`Source: [Demo Source ${step + 1}.${i + 1}](https://dummybridge.local/source/${step + 1}-${i + 1})`);
+    yield {
+      sourceId: `source-url-${step + 1}-${i + 1}`,
+      title: `Demo Source ${step + 1}.${i + 1}`,
+      type: "source-url",
+      url: `https://dummybridge.local/source/${step + 1}-${i + 1}`,
+    };
   }
   for (let i = 0; i < split(command.documents, steps, step); i += 1) {
-    lines.push(`Document: \`demo-doc-${step + 1}-${i + 1}.txt\``);
+    yield {
+      filename: `demo-doc-${step + 1}-${i + 1}.txt`,
+      mediaType: "text/plain",
+      sourceId: `source-doc-${step + 1}-${i + 1}`,
+      title: `Demo Document ${step + 1}.${i + 1}`,
+      type: "source-document",
+    };
   }
   for (let i = 0; i < split(command.files, steps, step); i += 1) {
-    lines.push(`File: \`mxc://dummybridge/demo-file-${step + 1}-${i + 1}\``);
+    yield {
+      mediaType: "application/octet-stream",
+      type: "file",
+      url: `mxc://dummybridge/demo-file-${step + 1}-${i + 1}`,
+    };
   }
-  if (step === 0 && command.data) lines.push(`Data part: \`${command.data}\``);
-  if (step === 0 && command.dataTransient) lines.push(`Transient data part: \`${command.dataTransient}\``);
-  return lines.length ? `${lines.map((line) => `- ${line}`).join("\n")}\n\n` : "";
+  if (step === 0 && command.data) yield { data: { mode: "persistent", stage: step + 1 }, type: `data-${command.data}` };
+  if (step === 0 && command.dataTransient) {
+    yield { data: { mode: "transient", stage: step + 1 }, transient: true, type: `data-${command.dataTransient}` };
+  }
 }
 
 function markdownCorpus(chars, rng) {

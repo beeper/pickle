@@ -5,7 +5,7 @@ import { createMatrixLogin } from "@beeper/pickle/login";
 import { createMatrixClient, onInvite, onMessage, onReaction } from "@beeper/pickle/node";
 import { createFileMatrixStore } from "@beeper/pickle-state-file";
 import { FileState } from "../../shared/file-state.mjs";
-import { dummybridgeTextStream, helpText } from "./dummy-runtime.mjs";
+import { dummybridgeChaosTurnStream, dummybridgeTextStream, helpText, parseCommand } from "./dummy-runtime.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 await loadEnvFile(process.env.MATRIX_ENV_FILE || join(root, ".env"));
@@ -33,13 +33,21 @@ const client = createMatrixClient({
 
 const whoami = await client.boot();
 const crypto = await client.crypto.status();
+const allowedUserIds = parseList(env("MATRIX_ALLOWED_USER_IDS", ""));
 console.log(`bot_user_id=${whoami.userId}`);
 console.log(`bot_device_id=${whoami.deviceId}`);
 console.log(`crypto_state=${crypto.state}`);
+if (allowedUserIds.size) {
+  console.log(`allowed_user_ids=${Array.from(allowedUserIds).join(",")}`);
+}
 
 const inFlight = new Set();
 const inviteSub = await onInvite(client, undefined, async (invite) => {
   console.log(`invite room=${invite.roomId} inviter=${invite.inviter ?? ""}`);
+  if (!isAllowed(invite.inviter, allowedUserIds)) {
+    console.log(`invite_ignored room=${invite.roomId} inviter=${invite.inviter ?? ""}`);
+    return;
+  }
   await client.rooms.join({ roomIdOrAlias: invite.roomId }).catch((error) => {
     console.error(`join_failed room=${invite.roomId}`, error);
   });
@@ -55,25 +63,49 @@ const inviteSub = await onInvite(client, undefined, async (invite) => {
 
 const messageSub = await onMessage(client, undefined, async (message) => {
   if (message.sender.isMe || !message.text.trim()) return;
+  if (!isAllowed(message.sender.userId, allowedUserIds)) {
+    console.log(`message_ignored room=${message.roomId} sender=${message.sender.userId} id=${message.eventId}`);
+    return;
+  }
   if (inFlight.has(message.eventId)) return;
   inFlight.add(message.eventId);
   try {
     console.log(`message room=${message.roomId} sender=${message.sender.userId} id=${message.eventId}`);
     await client.typing.set({ roomId: message.roomId, timeoutMs: 15000, typing: true });
     await client.reactions.send({ eventId: message.eventId, key: "👀", roomId: message.roomId }).catch(() => {});
-    const sent = await client.streams.send({
+    const command = parseCommand(message.text);
+    const streamOptions = {
       mode: env("MATRIX_STREAM_MODE", "auto"),
       roomId: message.roomId,
-      stream: dummybridgeTextStream(message.text),
       text: "DummyBridge is thinking...",
       threadRoot: env("MATRIX_REPLY_IN_THREADS", "1") === "1" ? message.eventId : undefined,
       updateIntervalMs: Number(env("MATRIX_STREAM_UPDATE_MS", "500")),
-    });
+    };
+    const sentEvents = [];
+    if (command.name === "chaos") {
+      for (let turn = 0; turn < command.turns; turn += 1) {
+        if (turn > 0) await sleep(sampleInt(command.seed + turn, command.staggerMinMs, command.staggerMaxMs));
+        const sent = await client.streams.send({
+          ...streamOptions,
+          stream: dummybridgeChaosTurnStream(message.text, turn),
+        });
+        sentEvents.push(sent.eventId);
+        await debugSentEvent(client, message.roomId, sent);
+      }
+    } else {
+      const sent = await client.streams.send({
+        ...streamOptions,
+        stream: dummybridgeTextStream(message.text),
+      });
+      sentEvents.push(sent.eventId);
+      await debugSentEvent(client, message.roomId, sent);
+    }
     await client.reactions.send({ eventId: message.eventId, key: "✅", roomId: message.roomId }).catch(() => {});
     await state.appendToList("dummybridge-bot:handled", {
       at: new Date().toISOString(),
       inputEventId: message.eventId,
-      outputEventId: sent.eventId,
+      outputEventId: sentEvents[0],
+      outputEventIds: sentEvents,
       roomId: message.roomId,
       sender: message.sender.userId,
     }, { maxLength: 200 });
@@ -164,6 +196,45 @@ async function resolveSession(homeserverUrl, fileState) {
 
 function env(name, fallback) {
   return process.env[name] || fallback;
+}
+
+function isAllowed(userId, allowedUserIds) {
+  return !allowedUserIds.size || allowedUserIds.has(userId);
+}
+
+function parseList(value) {
+  return new Set(String(value || "").split(",").map((item) => item.trim()).filter(Boolean));
+}
+
+async function debugSentEvent(matrixClient, roomId, sent) {
+  if (env("MATRIX_DEBUG_SENT_EVENTS", "0") !== "1") return;
+  const fetched = await matrixClient.messages.get({ eventId: sent.eventId, roomId }).catch((error) => {
+    console.error(`debug_fetch_failed output=${sent.eventId}`, error);
+    return null;
+  });
+  const content = fetched?.message?.content;
+  const aiValue = content?.["com.beeper.ai"];
+  console.log("debug_sent_event", JSON.stringify({
+    eventId: sent.eventId,
+    hasAI: Boolean(aiValue),
+    aiRole: aiValue?.role,
+    aiType: Array.isArray(aiValue) ? "array" : typeof aiValue,
+    aiValue,
+    aiPartsType: Array.isArray(aiValue?.parts) ? "array" : typeof aiValue?.parts,
+    contentKeys: content ? Object.keys(content).sort() : [],
+    msgtype: content?.msgtype,
+  }));
+}
+
+function sampleInt(seed, min, max) {
+  const low = Math.min(min, max);
+  const high = Math.max(min, max);
+  const x = Math.sin(seed * 9301 + 49297) * 233280;
+  return Math.floor((x - Math.floor(x)) * (high - low + 1)) + low;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
 async function loadEnvFile(path) {

@@ -97,6 +97,7 @@ class DefaultMatrixClient implements MatrixClient {
           messageId: opts.eventId,
           msgtype: opts.messageType,
           roomId: opts.roomId,
+          topLevelContent: opts.topLevelContent,
         }))),
       get: async (opts) => {
         const result = await this.#withCore((core) => core.fetchMessage({

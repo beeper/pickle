@@ -155,13 +155,14 @@ func (c *Core) handleUnsubscribeBeeperStream(payload []byte) ([]byte, error) {
 }
 
 type MatrixEditMessageOptions struct {
-	RoomID        string          `json:"roomId"`
-	MessageID     string          `json:"messageId"`
-	Body          string          `json:"body"`
-	Content       OutboundEvent   `json:"content,omitempty" tstype:"{ [key: string]: unknown }"`
-	FormattedBody string          `json:"formattedBody,omitempty"`
-	Mentions      *MatrixMentions `json:"mentions,omitempty"`
-	MsgType       string          `json:"msgtype,omitempty" tstype:"\"m.text\" | \"m.notice\" | \"m.emote\""`
+	RoomID          string          `json:"roomId"`
+	MessageID       string          `json:"messageId"`
+	Body            string          `json:"body"`
+	Content         OutboundEvent   `json:"content,omitempty" tstype:"{ [key: string]: unknown }"`
+	TopLevelContent OutboundEvent   `json:"topLevelContent,omitempty" tstype:"{ [key: string]: unknown }"`
+	FormattedBody   string          `json:"formattedBody,omitempty"`
+	Mentions        *MatrixMentions `json:"mentions,omitempty"`
+	MsgType         string          `json:"msgtype,omitempty" tstype:"\"m.text\" | \"m.notice\" | \"m.emote\""`
 }
 
 func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, error) {
@@ -180,7 +181,7 @@ func (c *Core) handleEditMessage(ctx context.Context, payload []byte) ([]byte, e
 		MsgType:    newContent.MsgType,
 		NewContent: newContent,
 		RelatesTo:  (&event.RelatesTo{}).SetReplace(id.EventID(req.MessageID)),
-	}, req.Content)
+	}, req.TopLevelContent)
 	content["m.new_content"] = newContentMap
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
 		if err := c.prepareOutboundMegolm(ctx, cli, id.RoomID(req.RoomID)); err != nil {

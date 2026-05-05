@@ -113,6 +113,7 @@ export interface MatrixEditMessageOptions {
   messageId: string;
   body: string;
   content?: { [key: string]: unknown };
+  topLevelContent?: { [key: string]: unknown };
   formattedBody?: string;
   mentions?: MatrixMentions;
   msgtype?: "m.text" | "m.notice" | "m.emote";
