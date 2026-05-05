@@ -1,14 +1,16 @@
-# @beeper/pickle-dummybot
+# dummybot
 
 Dummy Matrix bridge bot for exercising Pickle streaming behavior.
 
 ## Usage
 
 ```sh
+pnpm --dir bots/dummybot build
+
 MATRIX_HOMESERVER_URL=https://matrix.example.org \
 MATRIX_USERNAME=dummybot \
 MATRIX_PASSWORD=... \
-pnpm --filter @beeper/pickle-dummybot exec dummybot
+pnpm --dir bots/dummybot start
 ```
 
 Invite the bot account to a room and send `help` to see the supported dummy stream commands.

@@ -5,7 +5,7 @@
     "outDir": "./dist",
     "paths": {
       "@beeper/pickle": ["../../packages/pickle/dist/index.d.ts"],
-      "@beeper/pickle/login": ["../../packages/pickle/dist/login.d.ts"],
+      "@beeper/pickle/auth": ["../../packages/pickle/dist/auth.d.ts"],
       "@beeper/pickle/node": ["../../packages/pickle/dist/node.d.ts"],
       "@beeper/pickle-state-file": ["../../packages/state-file/dist/index.d.ts"]
     }

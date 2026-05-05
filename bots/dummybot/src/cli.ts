@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createMatrixLogin } from "@beeper/pickle/login";
+import { loginWithMatrixPassword } from "@beeper/pickle/auth";
 import { createMatrixClient, onInvite, onMessage, onReaction } from "@beeper/pickle/node";
 import { createFileMatrixStore } from "@beeper/pickle-state-file";
 import { nanoid } from "nanoid";
@@ -145,7 +145,9 @@ async function resolveSession(homeserverUrl: string, fileState: JsonState): Prom
   const cacheKey = "dummybridge-bot:login-session";
   const cached = await fileState.get<Session & { homeserver?: string; username?: string }>(cacheKey);
   if (cached?.homeserver === homeserverUrl && cached.username === process.env.MATRIX_USERNAME) return cached;
-  const login = await createMatrixLogin({ homeserver: homeserverUrl, initialDeviceDisplayName: "pickle dummybridge bot" }).password({
+  const login = await loginWithMatrixPassword({
+    homeserver: homeserverUrl,
+    initialDeviceDisplayName: "pickle dummybridge bot",
     password: process.env.MATRIX_PASSWORD,
     username: process.env.MATRIX_USERNAME,
   });
