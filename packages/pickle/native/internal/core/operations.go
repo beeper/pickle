@@ -25,6 +25,10 @@ const (
 	opAppserviceEnsureJoined = "appservice_ensure_joined"
 	// ts:operation appserviceCreateRoom appservice_create_room MatrixAppserviceCreateRoomOptions MatrixCreateRoomResult
 	opAppserviceCreateRoom = "appservice_create_room"
+	// ts:operation appserviceCreatePortalRoom appservice_create_portal_room MatrixAppserviceCreatePortalRoomOptions MatrixCreateRoomResult
+	opAppserviceCreatePortalRoom = "appservice_create_portal_room"
+	// ts:operation appserviceCreateManagementRoom appservice_create_management_room MatrixAppserviceCreateManagementRoomOptions MatrixCreateRoomResult
+	opAppserviceCreateManagementRoom = "appservice_create_management_room"
 	// ts:operation appserviceSendMessage appservice_send_message MatrixAppserviceSendMessageOptions MatrixRawMessage
 	opAppserviceSendMessage = "appservice_send_message"
 	// ts:operation appserviceBatchSend appservice_batch_send MatrixAppserviceBatchSendOptions MatrixAppserviceBatchSendResult

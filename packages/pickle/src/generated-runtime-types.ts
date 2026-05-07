@@ -55,34 +55,43 @@ export interface MatrixAppserviceRoomUserOptions {
   userId: string;
 }
 export interface MatrixAppserviceCreateRoomOptions extends MatrixCreateRoomOptions {
-  beeperAutoJoinInvites?: boolean;
-  beeperBridgeAccountId?: string;
-  beeperBridgeName?: string;
-  beeperInitialMembers?: string[];
-  beeperLocalRoomId?: string;
-  beeperPortal?: MatrixAppserviceBeeperPortalCreateOptions;
-  meowCreateTs?: number /* int64 */;
-  meowRoomId?: string;
   userId?: string;
 }
 export interface MatrixAppservicePortalKey {
   id: string;
   receiver?: string;
 }
-export interface MatrixAppserviceBeeperPortalCreateOptions {
-  bridgeType?: string;
-  channelAvatarUrl?: string;
-  channelId: string;
-  channelName?: string;
+export interface MatrixAppserviceBridgeName {
+  beeperBridgeType?: string;
+  defaultCommandPrefix?: string;
+  defaultPort?: number /* int */;
+  displayName: string;
+  networkIcon?: string;
+  networkId: string;
+  networkUrl?: string;
+}
+export interface MatrixAppserviceCreatePortalRoomOptions {
+  avatarUrl?: string;
+  autoJoinInvites?: boolean;
+  bridge: MatrixAppserviceBridgeName;
+  bridgeName?: string;
+  initialMembers?: string[];
+  invite?: string[];
   isDirect?: boolean;
   messageRequest?: boolean;
-  networkAvatarUrl?: string;
-  networkId: string;
-  networkName: string;
-  networkUrl?: string;
-  portalKey?: MatrixAppservicePortalKey;
-  receiver?: string;
+  name?: string;
+  portalKey: MatrixAppservicePortalKey;
   roomType?: string;
+  topic?: string;
+  userId?: string;
+}
+export interface MatrixAppserviceCreateManagementRoomOptions {
+  autoJoinInvites?: boolean;
+  initialMembers?: string[];
+  invite?: string[];
+  name?: string;
+  topic?: string;
+  userId?: string;
 }
 export interface MatrixAppserviceSendMessageOptions {
   content: { [key: string]: unknown };

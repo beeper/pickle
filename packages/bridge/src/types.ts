@@ -2,13 +2,11 @@ import type {
   MatrixAttachment,
   MatrixAppserviceBatchSendOptions,
   MatrixAppserviceBatchSendResult,
-  MatrixAppserviceCreateRoomOptions,
   MatrixAppserviceInitOptions,
   MatrixAppserviceSendMessageOptions,
   MatrixAccount,
   MatrixClient,
   MatrixClientOptions,
-  CreateRoomOptions,
   MatrixEventSender,
   MatrixMessageEvent,
   MatrixReactionEvent,
@@ -610,17 +608,11 @@ export interface QueueRemoteEventResult {
   queued: boolean;
 }
 
-export interface BridgeCreatePortalRoomOptions extends CreateRoomOptions {
-  avatarUrl?: string;
-  beeperAutoJoinInvites?: boolean;
-  beeperBridgeAccountId?: string;
-  beeperBridgeName?: string;
-  beeperInitialMembers?: string[];
-  beeperLocalRoomId?: string;
+export interface BridgeCreatePortalRoomOptions {
+  info?: ChatInfo;
+  invite?: UserID[];
   messageRequest?: boolean;
   metadata?: unknown;
-  meowCreateTs?: number;
-  meowRoomId?: string;
   portalKey: PortalKey;
   roomType?: "dm" | "group_dm" | "default" | "space" | string;
   userId?: string;
@@ -628,8 +620,11 @@ export interface BridgeCreatePortalRoomOptions extends CreateRoomOptions {
 
 export interface BridgeBackfillOptions extends MatrixAppserviceBatchSendOptions {}
 
-export interface BridgeCreateManagementRoomOptions extends Omit<CreateRoomOptions, "isDirect"> {
+export interface BridgeCreateManagementRoomOptions {
+  invite?: UserID[];
   metadata?: unknown;
+  name?: string;
+  topic?: string;
   userId?: string;
 }
 
@@ -656,7 +651,6 @@ export interface MatrixCommandResponse {
 }
 
 export type {
-  MatrixAppserviceCreateRoomOptions,
   MatrixAppserviceInitOptions,
   MatrixAppserviceSendMessageOptions,
 };

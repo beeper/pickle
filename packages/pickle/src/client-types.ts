@@ -73,6 +73,8 @@ import type {
 import type {
   MatrixAppserviceBatchSendOptions,
   MatrixAppserviceBatchSendResult,
+  MatrixAppserviceCreateManagementRoomOptions,
+  MatrixAppserviceCreatePortalRoomOptions,
   MatrixAppserviceCreateRoomOptions,
   MatrixAppserviceInfo,
   MatrixAppserviceInitOptions,
@@ -110,6 +112,8 @@ export interface MatrixClient {
 
 export interface MatrixAppservice {
   batchSend(options: MatrixAppserviceBatchSendOptions): Promise<MatrixAppserviceBatchSendResult>;
+  createManagementRoom(options: MatrixAppserviceCreateManagementRoomOptions): Promise<CreateRoomResult>;
+  createPortalRoom(options: MatrixAppserviceCreatePortalRoomOptions): Promise<CreateRoomResult>;
   createRoom(options: MatrixAppserviceCreateRoomOptions): Promise<CreateRoomResult>;
   ensureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void>;
   ensureRegistered(options: MatrixAppserviceUserOptions): Promise<void>;

@@ -5,6 +5,8 @@ import type {
   MatrixApplySyncResponseOptions,
   MatrixAppserviceBatchSendOptions,
   MatrixAppserviceBatchSendResult,
+  MatrixAppserviceCreateManagementRoomOptions,
+  MatrixAppserviceCreatePortalRoomOptions,
   MatrixAppserviceCreateRoomOptions,
   MatrixAppserviceInfo,
   MatrixAppserviceInitOptions,
@@ -97,6 +99,8 @@ export interface MatrixCoreOperations {
   appserviceEnsureRegistered(options: MatrixAppserviceUserOptions): Promise<void>;
   appserviceEnsureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void>;
   appserviceCreateRoom(options: MatrixAppserviceCreateRoomOptions): Promise<MatrixCreateRoomResult>;
+  appserviceCreatePortalRoom(options: MatrixAppserviceCreatePortalRoomOptions): Promise<MatrixCreateRoomResult>;
+  appserviceCreateManagementRoom(options: MatrixAppserviceCreateManagementRoomOptions): Promise<MatrixCreateRoomResult>;
   appserviceSendMessage(options: MatrixAppserviceSendMessageOptions): Promise<MatrixRawMessage>;
   appserviceBatchSend(options: MatrixAppserviceBatchSendOptions): Promise<MatrixAppserviceBatchSendResult>;
   applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void>;
@@ -200,6 +204,14 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   appserviceCreateRoom(options: MatrixAppserviceCreateRoomOptions): Promise<MatrixCreateRoomResult> {
     return this.call<MatrixCreateRoomResult>("appservice_create_room", options);
+  }
+
+  appserviceCreatePortalRoom(options: MatrixAppserviceCreatePortalRoomOptions): Promise<MatrixCreateRoomResult> {
+    return this.call<MatrixCreateRoomResult>("appservice_create_portal_room", options);
+  }
+
+  appserviceCreateManagementRoom(options: MatrixAppserviceCreateManagementRoomOptions): Promise<MatrixCreateRoomResult> {
+    return this.call<MatrixCreateRoomResult>("appservice_create_management_room", options);
   }
 
   appserviceSendMessage(options: MatrixAppserviceSendMessageOptions): Promise<MatrixRawMessage> {

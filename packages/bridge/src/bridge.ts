@@ -12,7 +12,6 @@ import type {
   BridgeCreateManagementRoomOptions,
   BridgeCreatePortalRoomOptions,
   BackfillingNetworkAPI,
-  MatrixAppserviceCreateRoomOptions,
   MatrixAppserviceSendMessageOptions,
   LoginProcess,
   NetworkAPI,
@@ -222,26 +221,14 @@ export class RuntimeBridge implements PickleBridge {
   async createManagementRoom(options: BridgeCreateManagementRoomOptions): Promise<ManagementRoom> {
     this.#requestContext();
     const invite = autoJoinInvite(options.invite, this.#beeperOptions?.ownerUserId);
-    const createOptions = stripUndefined({
-      beeperAutoJoinInvites: this.#beeperOptions ? true : undefined,
-      beeperInitialMembers: this.#beeperOptions ? invite : undefined,
-      creationContent: options.creationContent,
-      initialState: options.initialState?.map((state) => ({
-        content: state.content,
-        stateKey: state.stateKey ?? "",
-        type: state.type,
-      })),
+    const result = await this.#matrixClient.appservice.createManagementRoom(stripUndefined({
+      autoJoinInvites: this.#beeperOptions ? true : undefined,
+      initialMembers: this.#beeperOptions ? invite : undefined,
       invite,
-      isDirect: false,
       name: options.name,
-      preset: options.preset,
-      roomAliasName: options.roomAliasName,
-      roomVersion: options.roomVersion,
       topic: options.topic,
       userId: options.userId,
-      visibility: options.visibility,
-    });
-    const result = await this.#matrixClient.appservice.createRoom(createOptions as MatrixAppserviceCreateRoomOptions);
+    }));
     const room: ManagementRoom = {
       metadata: options.metadata,
       mxid: result.roomId,
@@ -253,47 +240,22 @@ export class RuntimeBridge implements PickleBridge {
   async createPortalRoom(options: BridgeCreatePortalRoomOptions): Promise<Portal> {
     this.#requestContext();
     const invite = autoJoinInvite(options.invite, this.#beeperOptions?.ownerUserId);
-    const network = this.connector.getName();
-    const createOptions = stripUndefined({
-      beeperAutoJoinInvites: options.beeperAutoJoinInvites ?? (this.#beeperOptions ? true : undefined),
-      beeperBridgeAccountId: options.beeperBridgeAccountId ?? (this.#beeperOptions ? options.portalKey.receiver : undefined),
-      beeperBridgeName: options.beeperBridgeName ?? this.#beeperOptions?.bridge,
-      beeperInitialMembers: options.beeperInitialMembers ?? (this.#beeperOptions ? invite : undefined),
-      beeperLocalRoomId: options.beeperLocalRoomId,
-      beeperPortal: this.#beeperOptions ? stripUndefined({
-        bridgeType: this.#beeperOptions.bridgeType ?? network.beeperBridgeType ?? network.networkId,
-        channelAvatarUrl: options.avatarUrl,
-        channelId: options.portalKey.id,
-        channelName: options.name,
-        isDirect: options.isDirect,
-        messageRequest: options.messageRequest,
-        networkAvatarUrl: network.networkIcon,
-        networkId: network.networkId,
-        networkName: network.displayName,
-        networkUrl: network.networkUrl,
-        portalKey: options.portalKey,
-        receiver: options.portalKey.receiver,
-        roomType: options.roomType,
-      }) : undefined,
-      creationContent: options.creationContent,
-      initialState: options.initialState?.map((state) => ({
-        content: state.content,
-        stateKey: state.stateKey ?? "",
-        type: state.type,
-      })),
+    const info = options.info ?? {};
+    const result = await this.#matrixClient.appservice.createPortalRoom(stripUndefined({
+      autoJoinInvites: this.#beeperOptions ? true : undefined,
+      avatarUrl: info.avatar?.mxc,
+      bridge: this.connector.getName(),
+      bridgeName: this.#beeperOptions?.bridge,
+      initialMembers: this.#beeperOptions ? invite : undefined,
       invite,
-      isDirect: options.isDirect,
-      meowCreateTs: options.meowCreateTs,
-      meowRoomId: options.meowRoomId,
-      name: options.name,
-      preset: options.preset,
-      roomAliasName: options.roomAliasName,
-      roomVersion: options.roomVersion,
-      topic: options.topic,
+      isDirect: options.roomType === "dm",
+      messageRequest: options.messageRequest,
+      name: info.name,
+      portalKey: options.portalKey,
+      roomType: options.roomType,
+      topic: info.topic,
       userId: options.userId,
-      visibility: options.visibility,
-    });
-    const result = await this.#matrixClient.appservice.createRoom(createOptions as MatrixAppserviceCreateRoomOptions);
+    }));
     const portal: Portal = {
       id: options.portalKey.id,
       metadata: options.metadata,
@@ -1453,13 +1415,19 @@ function stringContent(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function stripUndefined<T extends Record<string, unknown>>(value: T): T {
+type StripUndefined<T extends object> = {
+  [K in keyof T as undefined extends T[K] ? never : K]: T[K];
+} & {
+  [K in keyof T as undefined extends T[K] ? K : never]?: Exclude<T[K], undefined>;
+};
+
+function stripUndefined<T extends Record<string, unknown>>(value: T): StripUndefined<T> {
   for (const key of Object.keys(value)) {
     if (value[key] === undefined) {
       delete value[key];
     }
   }
-  return value;
+  return value as StripUndefined<T>;
 }
 
 function domainFromUserID(userId: string): string {

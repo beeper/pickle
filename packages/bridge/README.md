@@ -24,7 +24,7 @@ await bridge.start();
 const login = { id: "example-login" };
 await bridge.loadUserLogin(login);
 const portal = await bridge.createPortalRoom({
-  name: "Remote room",
+  info: { name: "Remote room" },
   portalKey: { id: "remote-room-id", receiver: login.id },
   userId: "@example_alice:example.com",
 });

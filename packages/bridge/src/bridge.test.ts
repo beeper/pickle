@@ -246,7 +246,7 @@ describe("RuntimeBridge", () => {
 
     await bridge.start();
     const portal = await bridge.createPortalRoom({
-      name: "Remote room",
+      info: { name: "Remote room" },
       portalKey: { id: "remote-room", receiver: "login:a" },
       userId: "@test_alice:example",
     });
@@ -260,7 +260,8 @@ describe("RuntimeBridge", () => {
     });
 
     expect(client.appservice.init).toHaveBeenCalledOnce();
-    expect(client.appservice.createRoom).toHaveBeenCalledWith(expect.objectContaining({
+    expect(client.appservice.createPortalRoom).toHaveBeenCalledWith(expect.objectContaining({
+      bridge: expect.objectContaining({ networkId: "test" }),
       name: "Remote room",
       userId: "@test_alice:example",
     }));
@@ -299,33 +300,24 @@ describe("RuntimeBridge", () => {
       name: "Test management",
     });
     await bridge.createPortalRoom({
-      name: "Remote room",
+      info: { name: "Remote room" },
       portalKey: { id: "remote-room", receiver: "login:a" },
       userId: "@test_bob:example",
     });
 
-    expect(client.appservice.createRoom).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      beeperAutoJoinInvites: true,
-      beeperInitialMembers: ["@alice:example"],
+    expect(client.appservice.createManagementRoom).toHaveBeenCalledWith(expect.objectContaining({
+      autoJoinInvites: true,
+      initialMembers: ["@alice:example"],
       invite: ["@alice:example"],
-      isDirect: false,
     }));
-    expect(client.appservice.createRoom).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      beeperAutoJoinInvites: true,
-      beeperBridgeAccountId: "login:a",
-      beeperBridgeName: "test",
-      beeperInitialMembers: ["@alice:example"],
-      beeperPortal: {
-        bridgeType: "test",
-        channelId: "remote-room",
-        channelName: "Remote room",
-        networkId: "test",
-        networkName: "Test",
-        portalKey: { id: "remote-room", receiver: "login:a" },
-        receiver: "login:a",
-      },
+    expect(client.appservice.createPortalRoom).toHaveBeenCalledWith(expect.objectContaining({
+      autoJoinInvites: true,
+      bridge: expect.objectContaining({ displayName: "Test", networkId: "test" }),
+      bridgeName: "test",
+      initialMembers: ["@alice:example"],
       invite: ["@alice:example"],
       name: "Remote room",
+      portalKey: { id: "remote-room", receiver: "login:a" },
       userId: "@test_bob:example",
     }));
   });
@@ -575,9 +567,8 @@ describe("RuntimeBridge", () => {
       type: "m.room.message",
     });
 
-    expect(client.appservice.createRoom).toHaveBeenCalledWith(expect.objectContaining({
+    expect(client.appservice.createManagementRoom).toHaveBeenCalledWith(expect.objectContaining({
       invite: ["@alice:example"],
-      isDirect: false,
       name: "Commands",
     }));
     expect(result).toEqual({ dispatched: true, eventId: "$cmd", handlers: 1, kind: "message", roomId: "!created:example" });
@@ -1010,6 +1001,8 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
     accountData: {} as MatrixClient["accountData"],
     appservice: {
       batchSend: vi.fn(async () => ({ eventIds: ["$backfilled"], raw: {} })),
+      createManagementRoom: vi.fn(async () => ({ raw: {}, roomId: "!created:example" })),
+      createPortalRoom: vi.fn(async () => ({ raw: {}, roomId: "!created:example" })),
       createRoom: vi.fn(async () => ({ raw: {}, roomId: "!created:example" })),
       ensureJoined: vi.fn(async () => {}),
       ensureRegistered: vi.fn(async () => {}),

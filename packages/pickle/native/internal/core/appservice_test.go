@@ -8,38 +8,25 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-func TestApplyBeeperPortalCreateDefaultsBuildsBridgeRoomRequest(t *testing.T) {
-	core := New(nil)
-	core.appservice = &matrixAppservice{
+func TestMakePortalCreateRoomRequestBuildsBridgeV2Room(t *testing.T) {
+	appservice := &matrixAppservice{
 		botUserID:        id.UserID("@testbot:example"),
 		homeserverDomain: "example",
 	}
-	req := MatrixAppserviceCreateRoomOptions{
-		MatrixCreateRoomOptions: MatrixCreateRoomOptions{
-			Invite: []string{"@alice:example"},
+	req := MatrixAppserviceCreatePortalRoomOptions{
+		AutoJoinInvites: true,
+		Bridge: MatrixAppserviceBridgeName{
+			BeeperBridgeType: "test",
+			DisplayName:      "Test",
+			NetworkID:        "test",
 		},
-		BeeperAutoJoinInvites: true,
-		BeeperBridgeAccountID: "login:a",
-		BeeperBridgeName:      "test",
-		BeeperInitialMembers:  []string{"@alice:example"},
-		BeeperPortal: &MatrixAppserviceBeeperPortalCreateOptions{
-			BridgeType:  "test",
-			ChannelID:   "remote-room",
-			ChannelName: "Remote room",
-			NetworkID:   "test",
-			NetworkName: "Test",
-			PortalKey:   &MatrixAppservicePortalKey{ID: "remote-room", Receiver: "login:a"},
-			Receiver:    "login:a",
-		},
-		UserID: "@test_bob:example",
+		BridgeName:     "test",
+		InitialMembers: []string{"@alice:example"},
+		Invite:         []string{"@alice:example"},
+		Name:           "Remote room",
+		PortalKey:      MatrixAppservicePortalKey{ID: "remote-room", Receiver: "login:a"},
 	}
-	createReq := makeCreateRoomRequest(req.MatrixCreateRoomOptions)
-	createReq.BeeperInitialMembers = toUserIDs(req.BeeperInitialMembers)
-	createReq.BeeperAutoJoinInvites = req.BeeperAutoJoinInvites
-	createReq.BeeperBridgeName = req.BeeperBridgeName
-	createReq.BeeperBridgeAccountID = req.BeeperBridgeAccountID
-
-	core.applyBeeperPortalCreateDefaults(createReq, req)
+	createReq := appservice.makePortalCreateRoomRequest(req, id.UserID("@test_bob:example"))
 
 	if createReq.BeeperLocalRoomID != id.RoomID("!remote-room.login:a:example") {
 		t.Fatalf("unexpected local room ID: %s", createReq.BeeperLocalRoomID)
@@ -47,8 +34,8 @@ func TestApplyBeeperPortalCreateDefaultsBuildsBridgeRoomRequest(t *testing.T) {
 	if createReq.MeowRoomID != createReq.BeeperLocalRoomID {
 		t.Fatalf("expected fi.mau room ID to match local room ID, got %s", createReq.MeowRoomID)
 	}
-	assertHasUserID(t, createReq.Invite, "@testbot:example")
-	assertHasUserID(t, createReq.BeeperInitialMembers, "@testbot:example")
+	assertHasUserID(t, createReq.Invite, "@alice:example")
+	assertHasUserID(t, createReq.BeeperInitialMembers, "@alice:example")
 	if createReq.PowerLevelOverride == nil || createReq.PowerLevelOverride.Users[id.UserID("@testbot:example")] != 9001 {
 		t.Fatalf("expected bridge bot power level override, got %#v", createReq.PowerLevelOverride)
 	}

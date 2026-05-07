@@ -73,6 +73,8 @@ class DefaultMatrixClient implements MatrixClient {
     };
     this.appservice = {
       batchSend: (opts) => this.#withCore((core) => core.appserviceBatchSend(opts)),
+      createManagementRoom: (opts) => this.#withCore((core) => core.appserviceCreateManagementRoom(stripUndefined(opts))),
+      createPortalRoom: (opts) => this.#withCore((core) => core.appserviceCreatePortalRoom(stripUndefined(opts))),
       createRoom: (opts) => this.#withCore((core) => core.appserviceCreateRoom(stripUndefined(opts))),
       ensureJoined: (opts) => this.#withCore((core) => core.appserviceEnsureJoined(opts)),
       ensureRegistered: (opts) => this.#withCore((core) => core.appserviceEnsureRegistered(opts)),

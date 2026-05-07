@@ -68,15 +68,7 @@ type MatrixAppserviceRoomUserOptions struct {
 
 type MatrixAppserviceCreateRoomOptions struct {
 	MatrixCreateRoomOptions
-	BeeperAutoJoinInvites bool                                       `json:"beeperAutoJoinInvites,omitempty"`
-	BeeperBridgeAccountID string                                     `json:"beeperBridgeAccountId,omitempty"`
-	BeeperBridgeName      string                                     `json:"beeperBridgeName,omitempty"`
-	BeeperInitialMembers  []string                                   `json:"beeperInitialMembers,omitempty"`
-	BeeperLocalRoomID     string                                     `json:"beeperLocalRoomId,omitempty"`
-	BeeperPortal          *MatrixAppserviceBeeperPortalCreateOptions `json:"beeperPortal,omitempty"`
-	MeowCreateTS          int64                                      `json:"meowCreateTs,omitempty"`
-	MeowRoomID            string                                     `json:"meowRoomId,omitempty"`
-	UserID                string                                     `json:"userId,omitempty"`
+	UserID string `json:"userId,omitempty"`
 }
 
 type MatrixAppservicePortalKey struct {
@@ -84,20 +76,39 @@ type MatrixAppservicePortalKey struct {
 	Receiver string `json:"receiver,omitempty"`
 }
 
-type MatrixAppserviceBeeperPortalCreateOptions struct {
-	BridgeType       string                     `json:"bridgeType,omitempty"`
-	ChannelAvatarURL string                     `json:"channelAvatarUrl,omitempty"`
-	ChannelID        string                     `json:"channelId"`
-	ChannelName      string                     `json:"channelName,omitempty"`
-	IsDirect         bool                       `json:"isDirect,omitempty"`
-	MessageRequest   bool                       `json:"messageRequest,omitempty"`
-	NetworkAvatarURL string                     `json:"networkAvatarUrl,omitempty"`
-	NetworkID        string                     `json:"networkId"`
-	NetworkName      string                     `json:"networkName"`
-	NetworkURL       string                     `json:"networkUrl,omitempty"`
-	PortalKey        *MatrixAppservicePortalKey `json:"portalKey,omitempty"`
-	Receiver         string                     `json:"receiver,omitempty"`
-	RoomType         string                     `json:"roomType,omitempty"`
+type MatrixAppserviceBridgeName struct {
+	BeeperBridgeType     string `json:"beeperBridgeType,omitempty"`
+	DefaultCommandPrefix string `json:"defaultCommandPrefix,omitempty"`
+	DefaultPort          int    `json:"defaultPort,omitempty"`
+	DisplayName          string `json:"displayName"`
+	NetworkIcon          string `json:"networkIcon,omitempty"`
+	NetworkID            string `json:"networkId"`
+	NetworkURL           string `json:"networkUrl,omitempty"`
+}
+
+type MatrixAppserviceCreatePortalRoomOptions struct {
+	AvatarURL       string                     `json:"avatarUrl,omitempty"`
+	AutoJoinInvites bool                       `json:"autoJoinInvites,omitempty"`
+	Bridge          MatrixAppserviceBridgeName `json:"bridge"`
+	BridgeName      string                     `json:"bridgeName,omitempty"`
+	InitialMembers  []string                   `json:"initialMembers,omitempty"`
+	Invite          []string                   `json:"invite,omitempty"`
+	IsDirect        bool                       `json:"isDirect,omitempty"`
+	MessageRequest  bool                       `json:"messageRequest,omitempty"`
+	Name            string                     `json:"name,omitempty"`
+	PortalKey       MatrixAppservicePortalKey  `json:"portalKey"`
+	RoomType        string                     `json:"roomType,omitempty"`
+	Topic           string                     `json:"topic,omitempty"`
+	UserID          string                     `json:"userId,omitempty"`
+}
+
+type MatrixAppserviceCreateManagementRoomOptions struct {
+	AutoJoinInvites bool     `json:"autoJoinInvites,omitempty"`
+	InitialMembers  []string `json:"initialMembers,omitempty"`
+	Invite          []string `json:"invite,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	Topic           string   `json:"topic,omitempty"`
+	UserID          string   `json:"userId,omitempty"`
 }
 
 type MatrixAppserviceSendMessageOptions struct {
@@ -189,14 +200,6 @@ func (c *Core) handleAppserviceCreateRoom(ctx context.Context, payload []byte) (
 		return nil, err
 	}
 	createReq := makeCreateRoomRequest(req.MatrixCreateRoomOptions)
-	createReq.MeowRoomID = id.RoomID(req.MeowRoomID)
-	createReq.MeowCreateTS = req.MeowCreateTS
-	createReq.BeeperInitialMembers = toUserIDs(req.BeeperInitialMembers)
-	createReq.BeeperAutoJoinInvites = req.BeeperAutoJoinInvites
-	createReq.BeeperLocalRoomID = id.RoomID(req.BeeperLocalRoomID)
-	createReq.BeeperBridgeName = req.BeeperBridgeName
-	createReq.BeeperBridgeAccountID = req.BeeperBridgeAccountID
-	c.applyBeeperPortalCreateDefaults(createReq, req)
 	resp, err := intent.CreateRoom(ctx, createReq)
 	if err != nil {
 		return nil, err
@@ -204,69 +207,114 @@ func (c *Core) handleAppserviceCreateRoom(ctx context.Context, payload []byte) (
 	return json.Marshal(MatrixCreateRoomResult{Raw: resp, RoomID: resp.RoomID.String()})
 }
 
-func (c *Core) applyBeeperPortalCreateDefaults(createReq *mautrix.ReqCreateRoom, req MatrixAppserviceCreateRoomOptions) {
-	if req.BeeperPortal == nil {
-		return
+func (c *Core) handleAppserviceCreatePortalRoom(ctx context.Context, payload []byte) ([]byte, error) {
+	var req MatrixAppserviceCreatePortalRoomOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
 	}
-	as, err := c.requireAppservice()
+	intent, err := c.requireAppserviceIntent(req.UserID)
 	if err != nil {
-		return
+		return nil, err
 	}
-	portal := req.BeeperPortal
+	if err := c.appservice.ensureRegistered(ctx, intent); err != nil {
+		return nil, err
+	}
+	createReq := c.appservice.makePortalCreateRoomRequest(req, intent.UserID)
+	resp, err := intent.CreateRoom(ctx, createReq)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(MatrixCreateRoomResult{Raw: resp, RoomID: resp.RoomID.String()})
+}
+
+func (c *Core) handleAppserviceCreateManagementRoom(ctx context.Context, payload []byte) ([]byte, error) {
+	var req MatrixAppserviceCreateManagementRoomOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	intent, err := c.requireAppserviceIntent(req.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.appservice.ensureRegistered(ctx, intent); err != nil {
+		return nil, err
+	}
+	createReq := c.appservice.makeManagementCreateRoomRequest(req)
+	resp, err := intent.CreateRoom(ctx, createReq)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(MatrixCreateRoomResult{Raw: resp, RoomID: resp.RoomID.String()})
+}
+
+func (as *matrixAppservice) makePortalCreateRoomRequest(req MatrixAppserviceCreatePortalRoomOptions, _ id.UserID) *mautrix.ReqCreateRoom {
 	bridgeBot := as.botUserID
-	creator := id.UserID(req.UserID)
-	if creator == "" {
-		creator = bridgeBot
+	roomType := req.RoomType
+	if roomType == "" && req.IsDirect {
+		roomType = "dm"
+	} else if roomType == "" {
+		roomType = "default"
 	}
-	receiver := portal.Receiver
-	if receiver == "" {
-		receiver = req.BeeperBridgeAccountID
+	localRoomID := as.deterministicPortalRoomID(req.PortalKey)
+	bridgeName := req.BridgeName
+	if bridgeName == "" {
+		bridgeName = req.Bridge.NetworkID
 	}
-	channelID := portal.ChannelID
-	if channelID == "" {
-		channelID = req.BeeperBridgeAccountID
+	createReq := &mautrix.ReqCreateRoom{
+		BeeperBridgeAccountID: req.PortalKey.Receiver,
+		BeeperBridgeName:      bridgeName,
+		BeeperLocalRoomID:     localRoomID,
+		CreationContent:       map[string]any{},
+		InitialState:          make([]*event.Event, 0, 5),
+		Invite:                toUserIDs(req.Invite),
+		IsDirect:              req.IsDirect,
+		MeowRoomID:            localRoomID,
+		Name:                  req.Name,
+		PowerLevelOverride:    defaultBridgePowerLevels(bridgeBot),
+		Preset:                "private_chat",
+		Topic:                 req.Topic,
+		Visibility:            "private",
 	}
-	portalID := channelID
-	if portal.PortalKey != nil && portal.PortalKey.ID != "" {
-		portalID = portal.PortalKey.ID
-		if receiver == "" {
-			receiver = portal.PortalKey.Receiver
-		}
+	if req.AutoJoinInvites {
+		createReq.BeeperAutoJoinInvites = true
+		createReq.BeeperInitialMembers = toUserIDs(req.InitialMembers)
+		createReq.Invite = appendMissingUserIDs(createReq.Invite, createReq.BeeperInitialMembers...)
 	}
-	if createReq.BeeperLocalRoomID == "" && portalID != "" {
-		createReq.BeeperLocalRoomID = id.RoomID(fmt.Sprintf("!%s.%s:%s", portalID, receiver, as.homeserverDomain))
+	if roomType == "space" {
+		createReq.CreationContent["type"] = event.RoomTypeSpace
 	}
-	if createReq.MeowRoomID == "" {
-		createReq.MeowRoomID = createReq.BeeperLocalRoomID
-	}
-	if createReq.BeeperBridgeName == "" {
-		createReq.BeeperBridgeName = req.BeeperBridgeName
-	}
-	if createReq.BeeperBridgeAccountID == "" {
-		createReq.BeeperBridgeAccountID = receiver
-	}
-	createReq.PowerLevelOverride = defaultBridgePowerLevels(bridgeBot)
-	bridgeInfoStateKey := createReq.BeeperBridgeName
+	bridgeInfoStateKey := bridgeName
 	if bridgeInfoStateKey == "" {
-		bridgeInfoStateKey = portal.NetworkID
+		bridgeInfoStateKey = req.Bridge.NetworkID
 	}
-	if portal.RoomType == "" {
-		if portal.IsDirect {
-			portal.RoomType = "dm"
-		} else {
-			portal.RoomType = "default"
-		}
-	}
-	bridgeInfo := bridgeInfoContent(portal, bridgeBot, creator)
+	bridgeInfo := bridgeInfoContent(req, bridgeBot, roomType)
 	createReq.InitialState = append(createReq.InitialState,
 		bridgeStateEvent(event.StateHalfShotBridge, bridgeInfoStateKey, bridgeInfo),
 		bridgeStateEvent(event.StateBridge, bridgeInfoStateKey, bridgeInfo),
 		functionalMembersStateEvent(bridgeBot),
 	)
-	if createReq.BeeperAutoJoinInvites {
-		createReq.Invite = appendMissingUserIDs(createReq.Invite, bridgeBot)
-		createReq.BeeperInitialMembers = appendMissingUserIDs(createReq.BeeperInitialMembers, bridgeBot)
+	return createReq
+}
+
+func (as *matrixAppservice) makeManagementCreateRoomRequest(req MatrixAppserviceCreateManagementRoomOptions) *mautrix.ReqCreateRoom {
+	createReq := &mautrix.ReqCreateRoom{
+		Invite:     toUserIDs(req.Invite),
+		IsDirect:   false,
+		Name:       req.Name,
+		Preset:     "private_chat",
+		Topic:      req.Topic,
+		Visibility: "private",
 	}
+	if req.AutoJoinInvites {
+		createReq.BeeperAutoJoinInvites = true
+		createReq.BeeperInitialMembers = toUserIDs(req.InitialMembers)
+		createReq.Invite = appendMissingUserIDs(createReq.Invite, createReq.BeeperInitialMembers...)
+	}
+	return createReq
+}
+
+func (as *matrixAppservice) deterministicPortalRoomID(portalKey MatrixAppservicePortalKey) id.RoomID {
+	return id.RoomID(fmt.Sprintf("!%s.%s:%s", portalKey.ID, portalKey.Receiver, as.homeserverDomain))
 }
 
 func defaultBridgePowerLevels(bridgeBot id.UserID) *event.PowerLevelsEventContent {
@@ -284,30 +332,30 @@ func defaultBridgePowerLevels(bridgeBot id.UserID) *event.PowerLevelsEventConten
 	}
 }
 
-func bridgeInfoContent(portal *MatrixAppserviceBeeperPortalCreateOptions, bridgeBot id.UserID, creator id.UserID) event.BridgeEventContent {
-	bridgeType := portal.BridgeType
+func bridgeInfoContent(req MatrixAppserviceCreatePortalRoomOptions, bridgeBot id.UserID, roomType string) event.BridgeEventContent {
+	bridgeType := req.Bridge.BeeperBridgeType
 	if bridgeType == "" {
-		bridgeType = portal.NetworkID
+		bridgeType = req.Bridge.NetworkID
 	}
 	content := event.BridgeEventContent{
 		BridgeBot: bridgeBot,
-		Creator:   creator,
+		Creator:   bridgeBot,
 		Protocol: event.BridgeInfoSection{
 			ID:          bridgeType,
-			DisplayName: portal.NetworkName,
-			AvatarURL:   id.ContentURIString(portal.NetworkAvatarURL),
-			ExternalURL: portal.NetworkURL,
+			DisplayName: req.Bridge.DisplayName,
+			AvatarURL:   id.ContentURIString(req.Bridge.NetworkIcon),
+			ExternalURL: req.Bridge.NetworkURL,
 		},
 		Channel: event.BridgeInfoSection{
-			ID:             portal.ChannelID,
-			DisplayName:    portal.ChannelName,
-			AvatarURL:      id.ContentURIString(portal.ChannelAvatarURL),
-			Receiver:       portal.Receiver,
-			MessageRequest: portal.MessageRequest,
+			ID:             req.PortalKey.ID,
+			DisplayName:    req.Name,
+			AvatarURL:      id.ContentURIString(req.AvatarURL),
+			Receiver:       req.PortalKey.Receiver,
+			MessageRequest: req.MessageRequest,
 		},
-		BeeperRoomTypeV2: portal.RoomType,
+		BeeperRoomTypeV2: roomType,
 	}
-	if portal.IsDirect {
+	if req.IsDirect || roomType == "dm" || roomType == "group_dm" {
 		content.BeeperRoomType = "dm"
 	}
 	return content
@@ -332,13 +380,23 @@ func functionalMembersStateEvent(bridgeBot id.UserID) *event.Event {
 	}
 }
 
-func appendMissingUserIDs(input []id.UserID, userID id.UserID) []id.UserID {
-	for _, existing := range input {
-		if existing == userID {
-			return input
+func appendMissingUserIDs(input []id.UserID, userIDs ...id.UserID) []id.UserID {
+	for _, userID := range userIDs {
+		if userID == "" {
+			continue
+		}
+		found := false
+		for _, existing := range input {
+			if existing == userID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			input = append(input, userID)
 		}
 	}
-	return append(input, userID)
+	return input
 }
 
 func (c *Core) handleAppserviceSendMessage(ctx context.Context, payload []byte) ([]byte, error) {

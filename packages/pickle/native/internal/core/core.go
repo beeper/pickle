@@ -91,6 +91,10 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleAppserviceEnsureJoined(ctx, payload)
 	case opAppserviceCreateRoom:
 		return c.handleAppserviceCreateRoom(ctx, payload)
+	case opAppserviceCreatePortalRoom:
+		return c.handleAppserviceCreatePortalRoom(ctx, payload)
+	case opAppserviceCreateManagementRoom:
+		return c.handleAppserviceCreateManagementRoom(ctx, payload)
 	case opAppserviceSendMessage:
 		return c.handleAppserviceSendMessage(ctx, payload)
 	case opAppserviceBatchSend:
