@@ -11,15 +11,16 @@ const sourceRoot = root.endsWith("/dist/src") ? resolve(root, "../..") : resolve
 
 await loadEnv(resolve(sourceRoot, ".env"));
 
-const serverName = "beeper.local";
 const senderLocalpart = optionalEnv("DUMMYBRIDGE_SENDER_LOCALPART", "dummybridgebot") ?? "dummybridgebot";
+const account = await loginWithPassword({
+  password: requiredEnv("BEEPER_PASSWORD"),
+  username: requiredEnv("BEEPER_USERNAME"),
+});
+const serverName = domainFromUserId(account.userId);
 
 const bridgeOptions = {
-  account: await loginWithPassword({
-    password: requiredEnv("BEEPER_PASSWORD"),
-    username: requiredEnv("BEEPER_USERNAME"),
-  }),
-  bridge: optionalEnv("DUMMYBRIDGE_BRIDGE_NAME", "dummybridge") ?? "dummybridge",
+  account,
+  bridge: optionalEnv("DUMMYBRIDGE_BRIDGE_NAME", "sh-dummybridge") ?? "sh-dummybridge",
   connector: new DummyConnector({ senderLocalpart, serverName }),
 };
 const bridge = await createBeeperBridge(bridgeOptions);
@@ -27,6 +28,20 @@ const bridge = await createBeeperBridge(bridgeOptions);
 await bridge.start();
 const login = { id: LOGIN_ID };
 await bridge.loadUserLogin(login);
+
+const existingManagementRoomId = optionalEnv("DUMMYBRIDGE_MANAGEMENT_ROOM_ID");
+if (existingManagementRoomId) {
+  bridge.registerManagementRoom({ mxid: existingManagementRoomId });
+  console.log(`registered existing management room ${existingManagementRoomId}`);
+} else if (optionalEnv("DUMMYBRIDGE_CREATE_MANAGEMENT_ROOM") === "1") {
+  const inviteUser = optionalEnv("DUMMYBRIDGE_INVITE_USER");
+  const room = await bridge.createManagementRoom({
+    invite: inviteUser ? [inviteUser] : [],
+    name: "Pickle DummyBridge Commands",
+    topic: "Send dummy help for commands.",
+  });
+  console.log(`created management room ${room.mxid}`);
+}
 
 const ghostMxid = makeGhostMxid("alice", serverName, senderLocalpart);
 const existingRoomId = optionalEnv("DUMMYBRIDGE_PORTAL_ROOM_ID");
@@ -75,4 +90,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     await bridge.stop();
     process.exit(0);
   });
+}
+
+function domainFromUserId(userId: string): string {
+  const index = userId.indexOf(":");
+  if (index === -1 || index === userId.length - 1) {
+    throw new Error(`Cannot infer Matrix server name from ${userId}`);
+  }
+  return userId.slice(index + 1);
 }

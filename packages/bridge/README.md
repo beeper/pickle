@@ -29,14 +29,7 @@ const portal = await bridge.createPortalRoom({
   userId: "@example_alice:example.com",
 });
 
-await bridge.backfill({
-  roomId: portal.mxid!,
-  events: [{
-    sender: "@example_alice:example.com",
-    timestamp: Date.now() - 60_000,
-    content: { msgtype: "m.text", body: "historical hello" },
-  }],
-});
+await bridge.backfillMessages(login, { portal });
 
 bridge.queueRemoteEvent(login, createRemoteMessage({
   data: { text: "hello" },

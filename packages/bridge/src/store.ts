@@ -1,16 +1,25 @@
 import type { MatrixStore, MatrixAccount, SentEvent } from "@beeper/pickle";
-import type { Portal, UserLogin } from "./types";
+import type { BridgeState, BridgeStatus, Ghost, MessageRequest, Portal, UserLogin } from "./types";
 
 export interface BridgeDataStore {
   deletePortal(portalKey: string): Promise<void>;
   getAccount(key: string): Promise<MatrixAccount | null>;
+  getBridgeState(): Promise<BridgeState | null>;
+  getBridgeStatus(): Promise<BridgeStatus | null>;
+  getGhost(id: string): Promise<Ghost | null>;
   getMessage(key: string): Promise<SentEvent | null>;
+  getMessageRequest(portalKey: string): Promise<MessageRequest | null>;
   getPortal(portalKey: string): Promise<Portal | null>;
   getPortalByMXID(mxid: string): Promise<Portal | null>;
   getUserLogin(id: string): Promise<UserLogin | null>;
+  listGhosts(): Promise<Ghost[]>;
   listPortals(): Promise<Portal[]>;
   setAccount(key: string, account: MatrixAccount): Promise<void>;
+  setBridgeState(state: BridgeState): Promise<void>;
+  setBridgeStatus(status: BridgeStatus): Promise<void>;
+  setGhost(ghost: Ghost): Promise<void>;
   setMessage(key: string, message: SentEvent): Promise<void>;
+  setMessageRequest(request: MessageRequest): Promise<void>;
   setPortal(portal: Portal): Promise<void>;
   setUserLogin(login: UserLogin): Promise<void>;
 }
@@ -32,8 +41,24 @@ export class MatrixBridgeDataStore implements BridgeDataStore {
     return this.#get(key("account", accountKey));
   }
 
+  getBridgeState(): Promise<BridgeState | null> {
+    return this.#get(key("bridge-state", "current"));
+  }
+
+  getBridgeStatus(): Promise<BridgeStatus | null> {
+    return this.#get(key("bridge-status", "current"));
+  }
+
+  getGhost(id: string): Promise<Ghost | null> {
+    return this.#get(key("ghost", id));
+  }
+
   getMessage(messageKey: string): Promise<SentEvent | null> {
     return this.#get(key("message", messageKey));
+  }
+
+  getMessageRequest(portalKey: string): Promise<MessageRequest | null> {
+    return this.#get(key("message-request", portalKey));
   }
 
   getPortal(portalKey: string): Promise<Portal | null> {
@@ -49,6 +74,12 @@ export class MatrixBridgeDataStore implements BridgeDataStore {
     return this.#get(key("user-login", id));
   }
 
+  async listGhosts(): Promise<Ghost[]> {
+    const keys = await this.#store.list("pickle-bridge:ghost:");
+    const ghosts = await Promise.all(keys.map((item) => this.#get<Ghost>(item)));
+    return ghosts.filter((item): item is Ghost => item !== null);
+  }
+
   async listPortals(): Promise<Portal[]> {
     const keys = await this.#store.list("pickle-bridge:portal:");
     const portals = await Promise.all(keys.map((item) => this.#get<Portal>(item)));
@@ -59,8 +90,24 @@ export class MatrixBridgeDataStore implements BridgeDataStore {
     return this.#set(key("account", accountKey), account);
   }
 
+  setBridgeState(state: BridgeState): Promise<void> {
+    return this.#set(key("bridge-state", "current"), state);
+  }
+
+  setBridgeStatus(status: BridgeStatus): Promise<void> {
+    return this.#set(key("bridge-status", "current"), status);
+  }
+
+  setGhost(ghost: Ghost): Promise<void> {
+    return this.#set(key("ghost", ghost.id), ghost);
+  }
+
   setMessage(messageKey: string, message: SentEvent): Promise<void> {
     return this.#set(key("message", messageKey), message);
+  }
+
+  setMessageRequest(request: MessageRequest): Promise<void> {
+    return this.#set(key("message-request", portalStoreKey(request)), request);
   }
 
   async setPortal(portal: Portal): Promise<void> {

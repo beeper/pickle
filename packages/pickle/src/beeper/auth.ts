@@ -1,4 +1,4 @@
-import { loginWithPassword, loginWithMatrixToken, type MatrixAuthenticatedAccount } from "../auth";
+import { loginWithMatrixToken, type MatrixAuthenticatedAccount } from "../auth";
 
 export type BeeperEnvironment = "production" | "staging" | "dev" | "local";
 
@@ -9,15 +9,6 @@ export interface BeeperAuthOptions {
   getLoginCode?: () => Promise<string> | string;
   initialDeviceDisplayName?: string;
   metadata?: Record<string, unknown>;
-}
-
-export interface BeeperPasswordAuthOptions {
-  baseDomain?: string;
-  fetch?: typeof fetch;
-  initialDeviceDisplayName?: string;
-  metadata?: Record<string, unknown>;
-  password: string;
-  username: string;
 }
 
 export interface BeeperAuthStartResult {
@@ -56,18 +47,6 @@ export async function createBeeperLogin(options: BeeperAuthOptions): Promise<Mat
     token: token.loginToken,
     type: "org.matrix.login.jwt",
   });
-}
-
-export function loginWithBeeperPassword(options: BeeperPasswordAuthOptions): Promise<MatrixAuthenticatedAccount> {
-  const loginOptions: Parameters<typeof loginWithPassword>[0] = {
-    initialDeviceDisplayName: options.initialDeviceDisplayName ?? "Pickle",
-    metadata: { ...options.metadata, beeper: true },
-    password: options.password,
-    username: options.username,
-  };
-  if (options.baseDomain !== undefined) loginOptions.baseDomain = options.baseDomain;
-  if (options.fetch !== undefined) loginOptions.fetch = options.fetch;
-  return loginWithPassword(loginOptions);
 }
 
 async function getLoginCode(options: BeeperAuthOptions): Promise<string> {

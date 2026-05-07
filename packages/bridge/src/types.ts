@@ -13,7 +13,11 @@ import type {
   MatrixMessageEvent,
   MatrixReactionEvent,
   MatrixStore,
+  SendMediaMessageOptions,
   SentEvent,
+  UploadMediaOptions,
+  UploadMediaResult,
+  UserInfo as MatrixUserInfo,
 } from "@beeper/pickle";
 import type { BridgeDataStore } from "./store";
 
@@ -78,6 +82,10 @@ export interface BridgeConnector<TConfig = unknown> {
   start(ctx: BridgeStartContext): Promise<void> | void;
 }
 
+export interface CommandHandlingBridgeConnector<TConfig = unknown> extends BridgeConnector<TConfig> {
+  handleCommand(ctx: BridgeRequestContext, command: MatrixCommand): Promise<MatrixCommandResponse> | MatrixCommandResponse;
+}
+
 export interface StoppableNetwork extends BridgeConnector {
   stop(): Promise<void> | void;
 }
@@ -137,6 +145,14 @@ export interface ChatViewingNetworkAPI extends NetworkAPI {
 
 export interface BackfillingNetworkAPI extends NetworkAPI {
   fetchMessages(ctx: BridgeRequestContext, params: FetchMessagesParams): Promise<FetchMessagesResponse>;
+}
+
+export interface IdentifierResolvingNetworkAPI extends NetworkAPI {
+  resolveIdentifier(ctx: BridgeRequestContext, identifier: ResolveIdentifierParams): Promise<ResolveIdentifierResponse>;
+}
+
+export interface MessageRequestHandlingNetworkAPI extends NetworkAPI {
+  handleMessageRequest(ctx: BridgeRequestContext, request: MessageRequest): Promise<MessageRequest>;
 }
 
 export interface StickerImportingNetworkAPI extends NetworkAPI {
@@ -234,24 +250,27 @@ export type MatrixOutboundNetworkAPI =
   | DeleteChatHandlingNetworkAPI;
 
 export interface LoginProcess {
-  cancel(): Promise<void> | void;
-  start(ctx: BridgeRequestContext): Promise<LoginStep>;
+  cancel(ctx?: BridgeRequestContext): Promise<void> | void;
+  start(ctx?: BridgeRequestContext): Promise<LoginStep>;
 }
 
 export interface LoginProcessWithOverride extends LoginProcess {
-  startWithOverride(ctx: BridgeRequestContext, override: UserLogin): Promise<LoginStep>;
+  startWithOverride(override: UserLogin): Promise<LoginStep>;
+  startWithOverride(ctx: BridgeRequestContext | undefined, override: UserLogin): Promise<LoginStep>;
 }
 
 export interface LoginProcessDisplayAndWait extends LoginProcess {
-  wait(ctx: BridgeRequestContext): Promise<LoginStep>;
+  wait(ctx?: BridgeRequestContext): Promise<LoginStep>;
 }
 
 export interface LoginProcessUserInput extends LoginProcess {
-  submitUserInput(ctx: BridgeRequestContext, input: Record<string, string>): Promise<LoginStep>;
+  submitUserInput(input: LoginUserInput): Promise<LoginStep>;
+  submitUserInput(ctx: BridgeRequestContext | undefined, input: LoginUserInput): Promise<LoginStep>;
 }
 
 export interface LoginProcessCookies extends LoginProcess {
-  submitCookies(ctx: BridgeRequestContext, cookies: Record<string, string>): Promise<LoginStep>;
+  submitCookies(cookies: LoginCookieInput): Promise<LoginStep>;
+  submitCookies(ctx: BridgeRequestContext | undefined, cookies: LoginCookieInput): Promise<LoginStep>;
 }
 
 export interface LoginFlow {
@@ -262,6 +281,8 @@ export interface LoginFlow {
 
 export type LoginStepType = "user_input" | "cookies" | "display_and_wait" | "complete";
 export type LoginDisplayType = "qr" | "emoji" | "code" | "nothing";
+export type LoginUserInput = Record<string, string>;
+export type LoginCookieInput = Record<string, string>;
 export type LoginInputFieldType =
   | "username"
   | "password"
@@ -477,15 +498,37 @@ export interface PickleBridge {
   readonly client: MatrixClient | null;
   readonly connector: BridgeConnector;
   readonly context: BridgeContext | null;
+  acceptMessageRequest(portalKey: PortalKey): Promise<MessageRequest>;
   createLogin(user: BridgeUser, flowId: string): Promise<LoginProcess>;
+  createManagementRoom(options: BridgeCreateManagementRoomOptions): Promise<ManagementRoom>;
   backfill(options: BridgeBackfillOptions): Promise<MatrixAppserviceBatchSendResult>;
+  backfillMessages(login: UserLogin, params: FetchMessagesParams): Promise<MatrixAppserviceBatchSendResult>;
   createPortalRoom(options: BridgeCreatePortalRoomOptions): Promise<Portal>;
+  downloadMedia(options: DownloadMediaOptions): Promise<DownloadMediaResult>;
   flushRemoteEvents(): Promise<void>;
+  getBridgeState(): BridgeState | null;
+  getBridgeStatus(): BridgeStatus | null;
+  getGhost(id: GhostID): Ghost | null;
+  getMessageRequest(portalKey: PortalKey): Promise<MessageRequest | null>;
+  getOwnProfile(): Promise<UserProfile>;
+  getPortal(portalKey: PortalKey): Portal | null;
+  getPortalByMXID(mxid: RoomID): Portal | null;
+  getUserInfo(userId: UserID): Promise<MatrixUserInfo>;
   loadUserLogin(login: UserLogin): Promise<NetworkAPI>;
   queueRemoteEvent(login: UserLogin, event: RemoteEvent): QueueRemoteEventResult;
+  registerGhost(ghost: Ghost): void;
+  registerManagementRoom(room: ManagementRoom): void;
   registerPortal(portal: Portal): void;
+  resolveIdentifier(login: UserLogin, identifier: ResolveIdentifierParams): Promise<ResolveIdentifierResponse>;
+  sendMedia(options: BridgeSendMediaOptions): Promise<SentEvent>;
+  setBridgeState(state: BridgeState): Promise<void>;
+  setBridgeStatus(status: BridgeStatus): Promise<void>;
+  setMessageRequest(request: MessageRequest): Promise<void>;
+  setOwnProfile(profile: UserProfileUpdate): Promise<void>;
+  setPortalMetadata(portalKey: PortalKey, metadata: unknown): Promise<Portal>;
   start(): Promise<void>;
   stop(): Promise<void>;
+  uploadMedia(options: UploadMediaOptions): Promise<UploadMediaResult>;
 }
 
 export interface CreateBridgeOptions {
@@ -501,7 +544,6 @@ export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "ap
   baseDomain?: string;
   bridge: string;
   getOnly?: boolean;
-  homeserverDomain?: string;
   matrix: Partial<Omit<BridgeMatrixConfig, "account">> & Pick<BridgeMatrixConfig, "store">;
 }
 
@@ -568,6 +610,33 @@ export interface BridgeCreatePortalRoomOptions extends CreateRoomOptions {
 }
 
 export interface BridgeBackfillOptions extends MatrixAppserviceBatchSendOptions {}
+
+export interface BridgeCreateManagementRoomOptions extends Omit<CreateRoomOptions, "isDirect"> {
+  metadata?: unknown;
+  userId?: string;
+}
+
+export interface ManagementRoom {
+  metadata?: unknown;
+  mxid: RoomID;
+}
+
+export interface MatrixCommand {
+  args: string[];
+  body: string;
+  command: string;
+  event: MatrixMessageEvent;
+  prefix: string;
+  room: ManagementRoom;
+  sender: MatrixEventSender;
+  text: string;
+}
+
+export interface MatrixCommandResponse {
+  content?: Record<string, unknown>;
+  handled: boolean;
+  text?: string;
+}
 
 export type {
   MatrixAppserviceCreateRoomOptions,
@@ -685,10 +754,60 @@ export interface Portal {
 }
 
 export interface Ghost {
+  avatar?: Avatar;
+  displayName?: string;
   id: GhostID;
   metadata?: unknown;
   mxid?: string;
 }
+
+export type BridgeState = "starting" | "running" | "stopping" | "stopped" | "degraded" | "error";
+
+export interface BridgeStatus {
+  message?: string;
+  metadata?: unknown;
+  state: BridgeState;
+  updatedAt: Date;
+}
+
+export interface MessageRequest {
+  metadata?: unknown;
+  portalKey: PortalKey;
+  requestedBy?: UserID;
+  status: "pending" | "accepted" | "rejected";
+  updatedAt: Date;
+}
+
+export interface ResolveIdentifierParams {
+  createDM?: boolean;
+  identifier: string;
+  type?: "phone" | "username" | "mxid" | "email";
+}
+
+export interface ResolveIdentifierResponse {
+  ghost?: Ghost;
+  metadata?: unknown;
+  portal?: Portal;
+  userId?: UserID;
+}
+
+export interface UserProfile {
+  avatarUrl?: string;
+  displayName?: string;
+}
+
+export interface UserProfileUpdate extends UserProfile {}
+
+export interface DownloadMediaOptions {
+  contentUri: string;
+  params?: Record<string, string>;
+}
+
+export interface DownloadMediaResult extends GetMediaResponse {
+  bytes?: Uint8Array;
+}
+
+export interface BridgeSendMediaOptions extends SendMediaMessageOptions {}
 
 export interface Message {
   id: MessageID;

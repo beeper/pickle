@@ -3,7 +3,7 @@ import { createFileMatrixStore } from "@beeper/pickle-state-file";
 import { resolve } from "node:path";
 import {
   RuntimeBridge,
-  createBeeperBridge as createRuntimeBeeperBridge,
+  createBeeperBridgeWithClient,
 } from "./bridge";
 import { createBridgeDataStore } from "./store";
 export { BeeperBridgeManagerClient, createBeeperAppService, createBeeperAppServiceInit, createBeeperBridgeManagerClient, fetchBeeperBridges } from "./beeper";
@@ -21,14 +21,20 @@ export function createBridge(options: CreateNodeBridgeOptions): PickleBridge {
 
 export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions): Promise<PickleBridge> {
   const store = options.matrix?.store ?? createFileMatrixStore(defaultDataDir(options));
-  return createRuntimeBeeperBridge({
+  const matrix = {
+    ...options.matrix,
+    store,
+  };
+  return createBeeperBridgeWithClient({
     ...options,
     dataStore: options.dataStore ?? createBridgeDataStore(store),
-    matrix: {
-      ...options.matrix,
-      store,
-    },
-  });
+    matrix,
+  }, createMatrixClient({
+    ...matrix,
+    account: options.account,
+    homeserver: matrix.homeserver ?? options.account.homeserver,
+    token: matrix.token ?? options.account.accessToken,
+  }));
 }
 
 function defaultDataDir(options: { bridge: string; dataDir?: string }): string {

@@ -1,5 +1,5 @@
 import { createMatrixClient } from "@beeper/pickle";
-import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixReactionEvent, MatrixSubscription, SentEvent } from "@beeper/pickle";
+import type { MatrixAppserviceBatchSendOptions, MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixReactionEvent, MatrixSubscription, SentEvent } from "@beeper/pickle";
 import { createBeeperAppServiceInit } from "./beeper";
 import type {
   BridgeContext,
@@ -8,7 +8,9 @@ import type {
   CreateBeeperBridgeOptions,
   CreateBridgeOptions,
   BridgeBackfillOptions,
+  BridgeCreateManagementRoomOptions,
   BridgeCreatePortalRoomOptions,
+  BackfillingNetworkAPI,
   MatrixAppserviceCreateRoomOptions,
   MatrixAppserviceSendMessageOptions,
   LoginProcess,
@@ -19,13 +21,38 @@ import type {
   RemoteEvent,
   UserLogin,
   BridgeUser,
+  BridgeSendMediaOptions,
+  BridgeState,
+  BridgeStatus,
+  DownloadMediaOptions,
+  DownloadMediaResult,
+  Ghost,
   MatrixDispatchResult,
   MatrixMessage,
   MatrixReaction,
   MatrixRedaction,
   MatrixTyping,
   MatrixIntent,
+  MatrixCommand,
+  MatrixCommandResponse,
+  ManagementRoom,
+  MessageRequest,
+  MessageRequestHandlingNetworkAPI,
   RemoteMessage,
+  RemoteBackfill,
+  RemoteChatDelete,
+  RemoteChatInfoChange,
+  UserProfile,
+  UserProfileUpdate,
+  ResolveIdentifierParams,
+  ResolveIdentifierResponse,
+  IdentifierResolvingNetworkAPI,
+  LoginCookieInput,
+  LoginProcessCookies,
+  LoginProcessDisplayAndWait,
+  LoginProcessUserInput,
+  LoginProcessWithOverride,
+  LoginUserInput,
 } from "./types";
 
 type GenericMatrixEvent = Extract<MatrixClientEvent, { content: Record<string, unknown>; kind: string }>;
@@ -41,14 +68,23 @@ export async function createBeeperBridge(options: CreateBeeperBridgeOptions): Pr
     homeserver: options.matrix.homeserver ?? options.account.homeserver,
     token: options.matrix.token ?? options.account.accessToken,
   };
-  const client = createMatrixClient(matrix);
+  return createBeeperBridgeWithClient({ ...options, matrix }, createMatrixClient(matrix));
+}
+
+export async function createBeeperBridgeWithClient(options: CreateBeeperBridgeOptions, client: MatrixClient): Promise<PickleBridge> {
+  const matrix = {
+    ...options.matrix,
+    account: options.account,
+    homeserver: options.matrix.homeserver ?? options.account.homeserver,
+    token: options.matrix.token ?? options.account.accessToken,
+  };
   const appservice = await createBeeperAppServiceInit(beeperAppServiceOptions({
     address: options.address,
     baseDomain: options.baseDomain,
     bridge: options.bridge,
     getOnly: options.getOnly,
     homeserver: matrix.homeserver,
-    homeserverDomain: options.homeserverDomain ?? domainFromUserID(options.account.userId),
+    homeserverDomain: domainFromUserID(options.account.userId),
     token: options.account.accessToken,
   }));
   const runtimeOptions: CreateBridgeOptions = {
@@ -66,11 +102,15 @@ export class RuntimeBridge implements PickleBridge {
   readonly #dataStore: CreateBridgeOptions["dataStore"];
   readonly #networkClients = new Map<string, NetworkAPI>();
   readonly #messages = new Map<string, SentEvent>();
+  readonly #ghosts = new Map<string, Ghost>();
+  readonly #messageRequests = new Map<string, MessageRequest>();
+  readonly #managementRooms = new Map<string, ManagementRoom>();
   readonly #portalsByKey = new Map<string, Portal>();
   readonly #portalsByRoom = new Map<string, Portal>();
   readonly #remoteEvents: Array<{ event: RemoteEvent; login: UserLogin }> = [];
   readonly #matrixClient: MatrixClient;
   readonly #subscriptions = new Set<MatrixSubscription>();
+  #bridgeStatus: BridgeStatus | null = null;
   #context: BridgeContext | null = null;
   #drainPromise: Promise<void> | null = null;
   #started = false;
@@ -93,6 +133,7 @@ export class RuntimeBridge implements PickleBridge {
 
   async start(): Promise<void> {
     if (this.#started) return;
+    await this.setBridgeState("starting");
     const whoami = await this.#matrixClient.boot();
     this.#ownUserId = whoami.userId;
     if (this.#appserviceOptions) {
@@ -106,9 +147,11 @@ export class RuntimeBridge implements PickleBridge {
     await this.connector.start(this.#context);
     await this.#subscribeMatrixEvents();
     this.#started = true;
+    await this.setBridgeState("running");
   }
 
   async stop(): Promise<void> {
+    await this.setBridgeState("stopping");
     const subscriptions = Array.from(this.#subscriptions);
     this.#subscriptions.clear();
     await Promise.allSettled(subscriptions.map((subscription) => subscription.stop()));
@@ -121,10 +164,40 @@ export class RuntimeBridge implements PickleBridge {
     await this.#matrixClient.close();
     this.#context = null;
     this.#started = false;
+    await this.setBridgeState("stopped");
   }
 
   async createLogin(user: BridgeUser, flowId: string): Promise<LoginProcess> {
-    return this.connector.createLogin(this.#requestContext(), user, flowId);
+    const process = await this.connector.createLogin(this.#requestContext(), user, flowId);
+    return bindLoginProcess(process, () => this.#requestContext());
+  }
+
+  async createManagementRoom(options: BridgeCreateManagementRoomOptions): Promise<ManagementRoom> {
+    this.#requestContext();
+    const createOptions = stripUndefined({
+      creationContent: options.creationContent,
+      initialState: options.initialState?.map((state) => ({
+        content: state.content,
+        stateKey: state.stateKey ?? "",
+        type: state.type,
+      })),
+      invite: options.invite,
+      isDirect: false,
+      name: options.name,
+      preset: options.preset,
+      roomAliasName: options.roomAliasName,
+      roomVersion: options.roomVersion,
+      topic: options.topic,
+      userId: options.userId,
+      visibility: options.visibility,
+    });
+    const result = await this.#matrixClient.appservice.createRoom(createOptions as MatrixAppserviceCreateRoomOptions);
+    const room: ManagementRoom = {
+      metadata: options.metadata,
+      mxid: result.roomId,
+    };
+    this.registerManagementRoom(room);
+    return room;
   }
 
   async createPortalRoom(options: BridgeCreatePortalRoomOptions): Promise<Portal> {
@@ -170,6 +243,20 @@ export class RuntimeBridge implements PickleBridge {
     return this.#matrixClient.appservice.batchSend(options);
   }
 
+  async backfillMessages(login: UserLogin, params: Parameters<BackfillingNetworkAPI["fetchMessages"]>[1]) {
+    const client = await this.loadUserLogin(login);
+    if (!hasMethod(client, "fetchMessages")) {
+      throw new Error(`Login ${login.id} does not support backfill`);
+    }
+    const response = await (client as BackfillingNetworkAPI).fetchMessages(this.#requestContext(), params);
+    const portal = params.portal;
+    if (!portal.mxid) {
+      throw new Error(`Cannot backfill portal ${portalKeyString(portal.portalKey)} without a Matrix room`);
+    }
+    const events = await this.#convertBackfillMessages(portal, response.messages.map((message) => message.event));
+    return this.backfill({ events, roomId: portal.mxid });
+  }
+
   async loadUserLogin(login: UserLogin): Promise<NetworkAPI> {
     const existing = this.#networkClients.get(login.id);
     if (existing) return existing;
@@ -179,6 +266,120 @@ export class RuntimeBridge implements PickleBridge {
     await this.#dataStore?.setUserLogin(login);
     await client.connect({ ...this.#requestContext(), login });
     return client;
+  }
+
+  getBridgeState(): BridgeState | null {
+    return this.#bridgeStatus?.state ?? null;
+  }
+
+  getBridgeStatus(): BridgeStatus | null {
+    return this.#bridgeStatus;
+  }
+
+  async setBridgeState(state: BridgeState): Promise<void> {
+    await this.setBridgeStatus({ state, updatedAt: new Date() });
+  }
+
+  async setBridgeStatus(status: BridgeStatus): Promise<void> {
+    this.#bridgeStatus = status;
+    await this.#dataStore?.setBridgeStatus(status);
+    await this.#dataStore?.setBridgeState(status.state);
+  }
+
+  getGhost(id: string): Ghost | null {
+    return this.#ghosts.get(id) ?? null;
+  }
+
+  registerGhost(ghost: Ghost): void {
+    this.#ghosts.set(ghost.id, ghost);
+    void this.#dataStore?.setGhost(ghost).catch((error: unknown) => {
+      defaultLogger("warn", "ghost_store_failed", { error });
+    });
+  }
+
+  getPortal(portalKey: { id: string; receiver?: string }): Portal | null {
+    return this.#portalsByKey.get(portalKeyString(portalKey)) ?? null;
+  }
+
+  getPortalByMXID(mxid: string): Portal | null {
+    return this.#portalsByRoom.get(mxid) ?? null;
+  }
+
+  async setPortalMetadata(portalKey: { id: string; receiver?: string }, metadata: unknown): Promise<Portal> {
+    const portal = this.getPortal(portalKey);
+    if (!portal) throw new Error(`No portal registered for ${portalKeyString(portalKey)}`);
+    const updated = { ...portal, metadata };
+    this.registerPortal(updated);
+    return updated;
+  }
+
+  async getMessageRequest(portalKey: { id: string; receiver?: string }): Promise<MessageRequest | null> {
+    const key = portalKeyString(portalKey);
+    return this.#messageRequests.get(key) ?? (await this.#dataStore?.getMessageRequest(key)) ?? null;
+  }
+
+  async setMessageRequest(request: MessageRequest): Promise<void> {
+    const key = portalKeyString(request.portalKey);
+    this.#messageRequests.set(key, request);
+    await this.#dataStore?.setMessageRequest(request);
+  }
+
+  async acceptMessageRequest(portalKey: { id: string; receiver?: string }): Promise<MessageRequest> {
+    const request = await this.getMessageRequest(portalKey);
+    if (!request) throw new Error(`No message request for ${portalKeyString(portalKey)}`);
+    const next: MessageRequest = { ...request, status: "accepted", updatedAt: new Date() };
+    const client = next.portalKey.receiver ? this.#networkClients.get(next.portalKey.receiver) : undefined;
+    const handled = client && hasMethod(client, "handleMessageRequest")
+      ? await (client as MessageRequestHandlingNetworkAPI).handleMessageRequest(this.#requestContext(), next)
+      : next;
+    await this.setMessageRequest(handled);
+    return handled;
+  }
+
+  async resolveIdentifier(login: UserLogin, identifier: ResolveIdentifierParams): Promise<ResolveIdentifierResponse> {
+    const client = await this.loadUserLogin(login);
+    if (!hasMethod(client, "resolveIdentifier")) {
+      throw new Error(`Login ${login.id} does not support identifier resolution`);
+    }
+    return (client as IdentifierResolvingNetworkAPI).resolveIdentifier(this.#requestContext(), identifier);
+  }
+
+  getUserInfo(userId: string) {
+    return this.#matrixClient.users.get({ userId });
+  }
+
+  async getOwnProfile(): Promise<UserProfile> {
+    const [displayName, avatarUrl] = await Promise.all([
+      this.#matrixClient.users.getOwnDisplayName(),
+      this.#matrixClient.users.getOwnAvatarUrl(),
+    ]);
+    const profile: UserProfile = {};
+    if (avatarUrl.avatarUrl !== undefined) profile.avatarUrl = avatarUrl.avatarUrl;
+    if (displayName.displayName !== undefined) profile.displayName = displayName.displayName;
+    return profile;
+  }
+
+  async setOwnProfile(profile: UserProfileUpdate): Promise<void> {
+    await Promise.all([
+      profile.displayName === undefined ? undefined : this.#matrixClient.users.setOwnDisplayName({ displayName: profile.displayName }),
+      profile.avatarUrl === undefined ? undefined : this.#matrixClient.users.setOwnAvatarUrl({ avatarUrl: profile.avatarUrl }),
+    ]);
+  }
+
+  uploadMedia(options: Parameters<MatrixClient["media"]["upload"]>[0]) {
+    return this.#matrixClient.media.upload(options);
+  }
+
+  async downloadMedia(options: DownloadMediaOptions): Promise<DownloadMediaResult> {
+    if (hasMethod(this.connector, "download")) {
+      return this.connector.download(this.#requestContext(), options.contentUri, options.params ?? {}) as Promise<DownloadMediaResult>;
+    }
+    const result = await this.#matrixClient.media.download({ contentUri: options.contentUri });
+    return { body: result.bytes, bytes: result.bytes };
+  }
+
+  sendMedia(options: BridgeSendMediaOptions): Promise<SentEvent> {
+    return this.#matrixClient.messages.sendMedia(options);
   }
 
   queueRemoteEvent(login: UserLogin, event: RemoteEvent): QueueRemoteEventResult {
@@ -195,6 +396,10 @@ export class RuntimeBridge implements PickleBridge {
     void this.#dataStore?.setPortal(portal).catch((error: unknown) => {
       defaultLogger("warn", "portal_store_failed", { error });
     });
+  }
+
+  registerManagementRoom(room: ManagementRoom): void {
+    this.#managementRooms.set(room.mxid, room);
   }
 
   async flushRemoteEvents(): Promise<void> {
@@ -257,6 +462,10 @@ export class RuntimeBridge implements PickleBridge {
     if (event.sender.isMe || event.sender.userId === this.#ownUserId) {
       return { dispatched: false, eventId: event.eventId, handlers: 0, kind: event.kind, roomId: event.roomId };
     }
+    const command = this.#parseManagementCommand(event);
+    if (command) {
+      return this.#dispatchMatrixCommand(command);
+    }
     const portal = this.#portalForRoom(event.roomId);
     const msg: MatrixMessage = {
       attachments: event.attachments,
@@ -274,6 +483,42 @@ export class RuntimeBridge implements PickleBridge {
       await client.handleMatrixMessage(this.#requestContext(), msg);
     }
     return { dispatched: handlers > 0, eventId: event.eventId, handlers, kind: event.kind, roomId: event.roomId };
+  }
+
+  async #dispatchMatrixCommand(command: MatrixCommand): Promise<MatrixDispatchResult> {
+    if (!hasMethod(this.connector, "handleCommand")) {
+      return { dispatched: false, eventId: command.event.eventId, handlers: 0, kind: command.event.kind, roomId: command.event.roomId };
+    }
+    const response = await this.connector.handleCommand(this.#requestContext(), command) as MatrixCommandResponse;
+    if (response?.text || response?.content) {
+      await this.#matrixIntent().sendMessage(command.event.roomId, response.content ?? {
+        body: response.text,
+        msgtype: "m.notice",
+      });
+    }
+    return { dispatched: response?.handled ?? true, eventId: command.event.eventId, handlers: 1, kind: command.event.kind, roomId: command.event.roomId };
+  }
+
+  #parseManagementCommand(event: MatrixMessageEvent): MatrixCommand | null {
+    const room = this.#managementRooms.get(event.roomId);
+    if (!room) return null;
+    const text = event.text || stringContent(event.content.body);
+    if (!text) return null;
+    const prefix = this.connector.getName().defaultCommandPrefix ?? "";
+    const body = prefix && text.startsWith(prefix) ? text.slice(prefix.length).trimStart() : text.trim();
+    if (!body) return null;
+    const [command = "", ...args] = body.split(/\s+/);
+    if (!command) return null;
+    return {
+      args,
+      body,
+      command,
+      event,
+      prefix,
+      room,
+      sender: event.sender,
+      text,
+    };
   }
 
   async #dispatchMatrixReaction(event: MatrixReactionEvent): Promise<MatrixDispatchResult> {
@@ -380,6 +625,18 @@ export class RuntimeBridge implements PickleBridge {
       await this.#handleRemoteMessage(event as RemoteMessage);
       return;
     }
+    if (type === "backfill") {
+      await this.#handleRemoteBackfill(event as RemoteBackfill);
+      return;
+    }
+    if (type === "chat_info_change") {
+      await this.#handleRemoteChatInfoChange(event as RemoteChatInfoChange);
+      return;
+    }
+    if (type === "chat_delete") {
+      await this.#handleRemoteChatDelete(event as RemoteChatDelete);
+      return;
+    }
     this.#context?.log("debug", "remote_event_ignored", { type });
   }
 
@@ -401,6 +658,59 @@ export class RuntimeBridge implements PickleBridge {
       this.#messages.set(messageKey, message);
       await this.#dataStore?.setMessage(messageKey, message);
     }
+  }
+
+  async #handleRemoteBackfill(event: RemoteBackfill): Promise<void> {
+    const portal = this.#portalForRemoteEvent(event);
+    if (!portal?.mxid) {
+      throw new Error(`No Matrix room registered for portal ${portalKeyString(event.getPortalKey())}`);
+    }
+    const response = await event.getBackfillData(this.#requestContext(), portal);
+    const events = await this.#convertBackfillMessages(portal, response.messages.map((message) => message.event));
+    await this.backfill({ events, roomId: portal.mxid });
+  }
+
+  async #handleRemoteChatInfoChange(event: RemoteChatInfoChange): Promise<void> {
+    const portal = this.#portalForRemoteEvent(event);
+    if (!portal) return;
+    const change = await event.getChatInfoChange(this.#requestContext());
+    const metadata = {
+      ...(typeof portal.metadata === "object" && portal.metadata !== null ? portal.metadata : {}),
+      chatInfo: change,
+    };
+    await this.setPortalMetadata(portal.portalKey, metadata);
+  }
+
+  async #handleRemoteChatDelete(event: RemoteChatDelete): Promise<void> {
+    const portal = this.#portalForRemoteEvent(event);
+    if (!portal) return;
+    if (event.deleteOnlyForMe()) {
+      await this.setPortalMetadata(portal.portalKey, {
+        ...(typeof portal.metadata === "object" && portal.metadata !== null ? portal.metadata : {}),
+        deletedForMe: true,
+      });
+      return;
+    }
+    this.#portalsByKey.delete(portalKeyString(portal.portalKey));
+    if (portal.mxid) this.#portalsByRoom.delete(portal.mxid);
+    await this.#dataStore?.deletePortal(portalKeyString(portal.portalKey));
+  }
+
+  async #convertBackfillMessages(portal: Portal, messages: RemoteMessage[]): Promise<MatrixAppserviceBatchSendOptions["events"]> {
+    const events: MatrixAppserviceBatchSendOptions["events"] = [];
+    for (const message of messages) {
+      const converted = await message.convertMessage(this.#requestContext(), portal, this.#matrixIntent());
+      for (const part of converted.parts) {
+        const event: MatrixAppserviceBatchSendOptions["events"][number] = {
+          content: part.content,
+          sender: message.getSender().sender,
+        };
+        const timestamp = eventTimestamp(message);
+        if (timestamp !== undefined) event.timestamp = timestamp;
+        events.push(event);
+      }
+    }
+    return events;
   }
 
   #matrixIntent(): MatrixIntent {
@@ -447,6 +757,55 @@ function hasMethod<T extends string>(value: object, method: T): value is object 
   return method in value && typeof (value as Record<string, unknown>)[method] === "function";
 }
 
+function bindLoginProcess(process: LoginProcess, getContext: () => BridgeRequestContext): LoginProcess {
+  const bound: LoginProcess = {
+    cancel: (ctx?: BridgeRequestContext) => process.cancel(ctx ?? getContext()),
+    start: (ctx?: BridgeRequestContext) => process.start(ctx ?? getContext()),
+  };
+
+  if (hasMethod(process, "startWithOverride")) {
+    const processWithOverride = process as LoginProcessWithOverride;
+    Object.assign(bound, {
+      startWithOverride: (ctxOrOverride?: BridgeRequestContext | UserLogin, override?: UserLogin) => {
+        const ctx = override ? ctxOrOverride as BridgeRequestContext | undefined : undefined;
+        const login = override ?? ctxOrOverride as UserLogin;
+        return processWithOverride.startWithOverride(ctx ?? getContext(), login);
+      },
+    });
+  }
+
+  if (hasMethod(process, "wait")) {
+    const waitingProcess = process as LoginProcessDisplayAndWait;
+    Object.assign(bound, {
+      wait: (ctx?: BridgeRequestContext) => waitingProcess.wait(ctx ?? getContext()),
+    });
+  }
+
+  if (hasMethod(process, "submitUserInput")) {
+    const inputProcess = process as LoginProcessUserInput;
+    Object.assign(bound, {
+      submitUserInput: (ctxOrInput?: BridgeRequestContext | LoginUserInput, input?: LoginUserInput) => {
+        const ctx = input ? ctxOrInput as BridgeRequestContext | undefined : undefined;
+        const values = input ?? ctxOrInput as LoginUserInput;
+        return inputProcess.submitUserInput(ctx ?? getContext(), values);
+      },
+    });
+  }
+
+  if (hasMethod(process, "submitCookies")) {
+    const cookieProcess = process as LoginProcessCookies;
+    Object.assign(bound, {
+      submitCookies: (ctxOrCookies?: BridgeRequestContext | LoginCookieInput, cookies?: LoginCookieInput) => {
+        const ctx = cookies ? ctxOrCookies as BridgeRequestContext | undefined : undefined;
+        const values = cookies ?? ctxOrCookies as LoginCookieInput;
+        return cookieProcess.submitCookies(ctx ?? getContext(), values);
+      },
+    });
+  }
+
+  return bound;
+}
+
 function portalKeyString(portalKey: { id: string; receiver?: string }): string {
   return `${portalKey.receiver ?? ""}\u0000${portalKey.id}`;
 }
@@ -471,6 +830,10 @@ function eventTimestamp(event: RemoteEvent): number | undefined {
     return timestamp instanceof Date ? timestamp.getTime() : undefined;
   }
   return undefined;
+}
+
+function stringContent(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function stripUndefined<T extends Record<string, unknown>>(value: T): T {

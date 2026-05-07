@@ -9,6 +9,7 @@ It demonstrates the bridge shape needed to:
 - initialize an appservice registration
 - load a user login
 - create or register a portal room
+- create or register a management room and handle `dummy ...` commands
 - backfill historical events
 - receive Matrix messages and echo them back through appservice ghost users
 - fetch/register Beeper appservice credentials from the Matrix login
@@ -44,3 +45,18 @@ To attach to an existing portal room instead:
 ```sh
 DUMMYBRIDGE_PORTAL_ROOM_ID='!room:example' pnpm --filter @beeper/pickle-example-dummybridge start
 ```
+
+To create a management room for commands:
+
+```sh
+DUMMYBRIDGE_CREATE_MANAGEMENT_ROOM=1 DUMMYBRIDGE_INVITE_USER='@you:example' pnpm --filter @beeper/pickle-example-dummybridge start
+```
+
+Or attach to an existing management room:
+
+```sh
+DUMMYBRIDGE_MANAGEMENT_ROOM_ID='!room:example' pnpm --filter @beeper/pickle-example-dummybridge start
+```
+
+Send `dummy help` in that room to list commands such as `create-room`, `message`,
+`messages`, `ghost`, `kick-me`, `file`, `media`, `cat`, and `avatar`.
