@@ -609,12 +609,15 @@ export interface QueueRemoteEventResult {
 }
 
 export interface BridgeCreatePortalRoomOptions {
+  avatarUrl?: string;
   info?: ChatInfo;
   invite?: UserID[];
   messageRequest?: boolean;
   metadata?: unknown;
+  name?: string;
   portalKey: PortalKey;
   roomType?: "dm" | "group_dm" | "default" | "space" | string;
+  topic?: string;
   userId?: string;
 }
 

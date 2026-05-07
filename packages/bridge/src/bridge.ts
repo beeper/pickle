@@ -241,19 +241,21 @@ export class RuntimeBridge implements PickleBridge {
     this.#requestContext();
     const invite = autoJoinInvite(options.invite, this.#beeperOptions?.ownerUserId);
     const info = options.info ?? {};
+    const name = info.name ?? options.name;
+    const topic = info.topic ?? options.topic;
     const result = await this.#matrixClient.appservice.createPortalRoom(stripUndefined({
       autoJoinInvites: this.#beeperOptions ? true : undefined,
-      avatarUrl: info.avatar?.mxc,
+      avatarUrl: info.avatar?.mxc ?? options.avatarUrl,
       bridge: this.connector.getName(),
       bridgeName: this.#beeperOptions?.bridge,
       initialMembers: this.#beeperOptions ? invite : undefined,
       invite,
       isDirect: options.roomType === "dm",
       messageRequest: options.messageRequest,
-      name: info.name,
+      name,
       portalKey: options.portalKey,
       roomType: options.roomType,
-      topic: info.topic,
+      topic,
       userId: options.userId,
     }));
     const portal: Portal = {
