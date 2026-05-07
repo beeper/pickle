@@ -1,8 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createBeeperAppServiceInit, createBridge } from "@beeper/pickle-bridge/node";
-import type { BeeperClientOptions, CreateAppServiceOptions } from "@beeper/pickle-bridge/node";
+import { createBeeperBridge } from "@beeper/pickle-bridge/node";
 import type { Portal } from "@beeper/pickle-bridge/types";
 import { DummyConnector, LOGIN_ID, PORTAL_ID, makeGhostMxid } from "./connector";
 import { loadEnv, optionalEnv, requiredEnv } from "./env";
@@ -19,37 +18,30 @@ const token = requiredEnv("MATRIX_ACCESS_TOKEN");
 const serverName = requiredEnv("MATRIX_SERVER_NAME");
 const senderLocalpart = optionalEnv("DUMMYBRIDGE_SENDER_LOCALPART", "dummybridgebot") ?? "dummybridgebot";
 
-const appservice = process.env.BEEPER_ACCESS_TOKEN
-  ? await createBeeperAppServiceInit(beeperAppServiceOptions({
-    address: optionalEnv("DUMMYBRIDGE_URL"),
-    baseDomain: optionalEnv("BEEPER_BASE_DOMAIN", "beeper.com"),
-    bridge: optionalEnv("DUMMYBRIDGE_AS_ID", "dummybridge") ?? "dummybridge",
-    homeserver,
-    homeserverDomain: serverName,
-    token: requiredEnv("BEEPER_ACCESS_TOKEN"),
-  }))
-  : localAppService({
-    homeserver,
-    id: optionalEnv("DUMMYBRIDGE_AS_ID", "dummybridge") ?? "dummybridge",
-    senderLocalpart,
-    serverName,
-    url: optionalEnv("DUMMYBRIDGE_URL", "http://localhost:29300") ?? "http://localhost:29300",
-  });
-
 const state = new FileState(resolve(dataDir, "state.json"));
 await state.connect();
 await mkdir(dataDir, { recursive: true });
 
-const bridge = createBridge({
-  appservice,
+const bridge = await createBeeperBridge(beeperBridgeOptions());
+
+function beeperBridgeOptions(): Parameters<typeof createBeeperBridge>[0] {
+  const address = optionalEnv("DUMMYBRIDGE_URL");
+  const baseDomain = optionalEnv("BEEPER_BASE_DOMAIN", "beeper.com");
+  const output: Parameters<typeof createBeeperBridge>[0] = {
+  bridge: optionalEnv("DUMMYBRIDGE_BRIDGE_NAME", "dummybridge") ?? "dummybridge",
   connector: new DummyConnector({ senderLocalpart, serverName }),
+  homeserverDomain: serverName,
   matrix: {
     homeserver,
     store: new MatrixState(state, "dummybridge-matrix"),
     token,
     wasmPath: resolve(sourceRoot, "../../packages/pickle/dist/pickle.wasm"),
   },
-});
+  };
+  if (address !== undefined) output.address = address;
+  if (baseDomain !== undefined) output.baseDomain = baseDomain;
+  return output;
+}
 
 await bridge.start();
 const login = { id: LOGIN_ID };
@@ -103,56 +95,4 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     await state.disconnect();
     process.exit(0);
   });
-}
-
-function localAppService(options: {
-  homeserver: string;
-  id: string;
-  senderLocalpart: string;
-  serverName: string;
-  url: string;
-}) {
-  return {
-    homeserver: options.homeserver,
-    homeserverDomain: options.serverName,
-    registration: {
-      asToken: requiredEnv("DUMMYBRIDGE_AS_TOKEN"),
-      hsToken: requiredEnv("DUMMYBRIDGE_HS_TOKEN"),
-      id: options.id,
-      namespaces: {
-        aliases: [],
-        rooms: [],
-        users: [{
-          exclusive: true,
-          regex: `@${options.senderLocalpart}_.*:${escapeRegex(options.serverName)}`,
-        }],
-      },
-      rateLimited: false,
-      senderLocalpart: options.senderLocalpart,
-      url: options.url,
-    },
-  };
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function beeperAppServiceOptions(input: {
-  address: string | undefined;
-  baseDomain: string | undefined;
-  bridge: string;
-  homeserver: string;
-  homeserverDomain: string;
-  token: string;
-}): BeeperClientOptions & CreateAppServiceOptions {
-  const output: BeeperClientOptions & CreateAppServiceOptions = {
-    bridge: input.bridge,
-    homeserver: input.homeserver,
-    homeserverDomain: input.homeserverDomain,
-    token: input.token,
-  };
-  if (input.address !== undefined) output.address = input.address;
-  if (input.baseDomain !== undefined) output.baseDomain = input.baseDomain;
-  return output;
 }

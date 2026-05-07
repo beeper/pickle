@@ -492,6 +492,15 @@ export interface CreateBridgeOptions {
   matrix: BridgeMatrixConfig;
 }
 
+export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "appservice"> {
+  address?: string;
+  baseDomain?: string;
+  bridge: string;
+  getOnly?: boolean;
+  homeserverDomain?: string;
+  token?: string;
+}
+
 export interface BridgeMatrixConfig extends Pick<MatrixClientOptions, "account" | "beeper" | "fetch" | "homeserver" | "logger" | "pickleKey" | "randomBytes" | "recoveryKey" | "store" | "token" | "verifyRecoveryOnStart" | "wasmBytes" | "wasmModule" | "wasmUrl"> {
   store: MatrixStore;
 }
@@ -502,6 +511,10 @@ export interface NodeBridgeMatrixConfig extends Omit<BridgeMatrixConfig, "wasmUr
 }
 
 export interface CreateNodeBridgeOptions extends Omit<CreateBridgeOptions, "matrix"> {
+  matrix: NodeBridgeMatrixConfig;
+}
+
+export interface CreateNodeBeeperBridgeOptions extends Omit<CreateBeeperBridgeOptions, "matrix"> {
   matrix: NodeBridgeMatrixConfig;
 }
 

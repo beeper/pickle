@@ -1,9 +1,11 @@
 import { createMatrixClient } from "@beeper/pickle";
 import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixReactionEvent, MatrixSubscription, SentEvent } from "@beeper/pickle";
+import { createBeeperAppServiceInit } from "./beeper";
 import type {
   BridgeContext,
   BridgeLogger,
   BridgeRequestContext,
+  CreateBeeperBridgeOptions,
   CreateBridgeOptions,
   BridgeBackfillOptions,
   BridgeCreatePortalRoomOptions,
@@ -30,6 +32,23 @@ type GenericMatrixEvent = Extract<MatrixClientEvent, { content: Record<string, u
 
 export function createBridge(options: CreateBridgeOptions): PickleBridge {
   return new RuntimeBridge(options, createMatrixClient(options.matrix));
+}
+
+export async function createBeeperBridge(options: CreateBeeperBridgeOptions): Promise<PickleBridge> {
+  const client = createMatrixClient(options.matrix);
+  const whoami = await client.boot();
+  const token = options.token ?? options.matrix.token;
+  if (!token) throw new Error("createBeeperBridge requires a Matrix access token");
+  const appservice = await createBeeperAppServiceInit(beeperAppServiceOptions({
+    address: options.address,
+    baseDomain: options.baseDomain,
+    bridge: options.bridge,
+    getOnly: options.getOnly,
+    homeserver: options.matrix.homeserver,
+    homeserverDomain: options.homeserverDomain ?? domainFromUserID(whoami.userId),
+    token,
+  }));
+  return new RuntimeBridge({ appservice, connector: options.connector, matrix: options.matrix }, client);
 }
 
 export class RuntimeBridge implements PickleBridge {
@@ -441,4 +460,33 @@ function stripUndefined<T extends Record<string, unknown>>(value: T): T {
     }
   }
   return value;
+}
+
+function domainFromUserID(userId: string): string {
+  const index = userId.indexOf(":");
+  if (index === -1 || index === userId.length - 1) {
+    throw new Error(`Cannot infer homeserver domain from Matrix user ID ${userId}`);
+  }
+  return userId.slice(index + 1);
+}
+
+function beeperAppServiceOptions(input: {
+  address: string | undefined;
+  baseDomain: string | undefined;
+  bridge: string;
+  getOnly: boolean | undefined;
+  homeserver: string | undefined;
+  homeserverDomain: string;
+  token: string;
+}) {
+  const output = {
+    bridge: input.bridge,
+    homeserverDomain: input.homeserverDomain,
+    token: input.token,
+  } as Parameters<typeof createBeeperAppServiceInit>[0];
+  if (input.address !== undefined) output.address = input.address;
+  if (input.baseDomain !== undefined) output.baseDomain = input.baseDomain;
+  if (input.getOnly !== undefined) output.getOnly = input.getOnly;
+  if (input.homeserver !== undefined) output.homeserver = input.homeserver;
+  return output;
 }

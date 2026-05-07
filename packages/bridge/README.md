@@ -5,23 +5,10 @@ Bridge-building runtime for Pickle. This package is intentionally separate from
 bridgev2-shaped connector interfaces and bridge runtime orchestration.
 
 ```ts
-import { createBeeperAppServiceInit, createBridge, createRemoteMessage } from "@beeper/pickle-bridge/node";
+import { createBeeperBridge, createRemoteMessage } from "@beeper/pickle-bridge/node";
 
-const appservice = process.env.BEEPER_ACCESS_TOKEN
-  ? await createBeeperAppServiceInit({
-    bridge: "sh-example",
-    homeserver: process.env.MATRIX_HOMESERVER!,
-    homeserverDomain: process.env.MATRIX_SERVER_NAME!,
-    token: process.env.BEEPER_ACCESS_TOKEN,
-  })
-  : {
-    homeserver: process.env.MATRIX_HOMESERVER!,
-    homeserverDomain: process.env.MATRIX_SERVER_NAME!,
-    registration,
-  };
-
-const bridge = createBridge({
-  appservice,
+const bridge = await createBeeperBridge({
+  bridge: "sh-example",
   matrix: {
     homeserver: process.env.MATRIX_HOMESERVER!,
     token: process.env.MATRIX_ACCESS_TOKEN!,
