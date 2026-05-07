@@ -1,12 +1,19 @@
-import type { MatrixClient, MatrixClientEvent, MatrixSubscription } from "@beeper/pickle";
+import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle";
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeBridge } from "./bridge";
 import { createRemoteMessage } from "./events";
+import type { BridgeDataStore } from "./store";
 import type {
   BridgeConnector,
   BridgeContext,
   BridgeMatrixConfig,
+  BackfillQueueResult,
+  BackfillQueueTask,
+  FetchMessagesParams,
+  FetchMessagesResponse,
   MatrixMessage,
+  MessageCheckpoint,
+  MessageCheckpoints,
   NetworkAPI,
   LoginProcessCookies,
   LoginProcessDisplayAndWait,
@@ -51,6 +58,51 @@ describe("RuntimeBridge", () => {
     expect(connector.loadUserLogin).toHaveBeenCalledOnce();
     expect(network.connect).toHaveBeenCalledOnce();
     expect(login.client).toBe(network);
+  });
+
+  it("auto-loads persisted user logins on startup", async () => {
+    const client = createFakeMatrixClient();
+    const network = createFakeNetworkAPI();
+    const connector = createFakeConnector(network);
+    const dataStore = createFakeBridgeDataStore([{ id: "login:a", remoteName: "Alice", userId: "@alice:example" }]);
+    const bridge = new RuntimeBridge({ connector, dataStore, matrix: matrixConfig() }, client);
+
+    await bridge.start();
+
+    expect(dataStore.listUserLogins).toHaveBeenCalledOnce();
+    expect(connector.loadUserLogin).toHaveBeenCalledWith(bridge.context, expect.objectContaining({ id: "login:a" }));
+    expect(network.connect).toHaveBeenCalledWith(expect.objectContaining({
+      login: expect.objectContaining({ id: "login:a" }),
+    }));
+  });
+
+  it("persists bridgev2 lifecycle payloads and per-login state", async () => {
+    const client = createFakeMatrixClient();
+    const network = createFakeNetworkAPI();
+    const connector = createFakeConnector(network);
+    const dataStore = createFakeBridgeDataStore();
+    const bridge = new RuntimeBridge({ connector, dataStore, matrix: matrixConfig() }, client);
+
+    await bridge.start();
+    await bridge.loadUserLogin({ id: "login:a", remoteName: "Alice", userId: "@alice:example" });
+
+    expect(dataStore.setBridgeStatus).toHaveBeenLastCalledWith(expect.objectContaining({
+      bridgeState: expect.objectContaining({
+        source: "bridge",
+        state_event: "RUNNING",
+        timestamp: expect.any(Number),
+        ttl: 21600,
+      }),
+      logins: {
+        "login:a": expect.objectContaining({
+          remote_id: "login:a",
+          remote_name: "Alice",
+          state_event: "CONNECTED",
+          user_id: "@alice:example",
+        }),
+      },
+      state: "running",
+    }));
   });
 
   it("binds login process lifecycle calls to the bridge request context", async () => {
@@ -261,6 +313,108 @@ describe("RuntimeBridge", () => {
     expect(result.eventIds).toEqual(["$backfilled"]);
   });
 
+  it("forwards bridgev2-style backfill pagination params to the loaded network API", async () => {
+    const client = createFakeMatrixClient();
+    const network = {
+      ...createFakeNetworkAPI(),
+      fetchMessages: vi.fn(async (_ctx, params: FetchMessagesParams): Promise<FetchMessagesResponse> => ({
+        cursor: "next-cursor",
+        forward: params.forward,
+        hasMore: true,
+        markRead: true,
+        messages: [],
+        progress: {
+          approximate: 0.5,
+          remainingCount: 10,
+          totalCount: 20,
+        },
+      })),
+    };
+    const connector = createFakeConnector(network);
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+    const login: UserLogin = { id: "login:a" };
+    const portal = { id: "remote-room", mxid: "!room:example", portalKey: { id: "remote-room", receiver: login.id } };
+    const task: BackfillQueueTask = {
+      batchCount: 2,
+      cursor: "prev-cursor",
+      pending: true,
+      portalKey: portal.portalKey,
+      userLoginId: login.id,
+    };
+
+    await bridge.start();
+    await bridge.backfillMessages(login, {
+      count: 25,
+      cursor: "prev-cursor",
+      forward: true,
+      portal,
+      task,
+      threadRoot: "thread-root",
+    });
+
+    expect(network.fetchMessages).toHaveBeenCalledWith(expect.objectContaining({ bridge }), {
+      count: 25,
+      cursor: "prev-cursor",
+      forward: true,
+      portal,
+      task,
+      threadRoot: "thread-root",
+    });
+    expect(client.appservice.batchSend).toHaveBeenCalledWith({ events: [], roomId: "!room:example" });
+  });
+
+  it("defines bridgev2-style backfill queue results and message checkpoint envelopes", () => {
+    const task = {
+      batchCount: 3,
+      bridgeId: "dummy",
+      completedAt: new Date("2026-01-01T00:10:00.000Z"),
+      cursor: "cursor",
+      dispatchedAt: new Date("2026-01-01T00:00:00.000Z"),
+      done: false,
+      nextDispatchAt: new Date("2026-01-01T00:11:00.000Z"),
+      oldestMessageId: "message-oldest",
+      pending: true,
+      portalKey: { id: "remote-room", receiver: "login:a" },
+      userLoginId: "login:a",
+    } satisfies BackfillQueueTask;
+    const result = {
+      cursor: "next-cursor",
+      forward: false,
+      hasMore: true,
+      markRead: true,
+      pending: true,
+      progress: {
+        approximate: 0.25,
+        remainingCount: 75,
+        totalCount: 100,
+      },
+      queued: true,
+      task,
+    } satisfies BackfillQueueResult;
+    const checkpoint = {
+      eventId: "$event",
+      eventType: "m.room.message",
+      reportedBy: "BRIDGE",
+      retryNum: 0,
+      roomId: "!room:example",
+      status: "SUCCESS",
+      step: "REMOTE",
+      timestamp: Date.parse("2026-01-01T00:00:00.000Z"),
+    } satisfies MessageCheckpoint;
+    const envelope = {
+      checkpoints: [checkpoint],
+    } satisfies MessageCheckpoints;
+
+    expect(result).toMatchObject({
+      cursor: "next-cursor",
+      markRead: true,
+      pending: true,
+      progress: { approximate: 0.25 },
+      queued: true,
+    });
+    expect(envelope.checkpoints).toEqual([checkpoint]);
+  });
+
   it("registers ghosts and manages portal metadata/message requests/status", async () => {
     const client = createFakeMatrixClient();
     const connector = createFakeConnector(createFakeNetworkAPI());
@@ -433,6 +587,177 @@ describe("RuntimeBridge", () => {
       path: expect.stringContaining("/rooms/!management%3Aexample/send/m.room.message/"),
     }));
   });
+
+  it("handles built-in commands before connector command fallback", async () => {
+    const client = createFakeMatrixClient();
+    const connector = {
+      ...createFakeConnector(createFakeNetworkAPI()),
+      handleCommand: vi.fn(async () => ({ handled: true, text: "connector help" })),
+    };
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+
+    await bridge.start();
+    bridge.registerManagementRoom({ mxid: "!management:example" });
+    const result = await bridge.dispatchMatrixEvent(messageEvent({
+      body: "help",
+      eventId: "$help",
+      roomId: "!management:example",
+      sender: "@alice:example",
+    }));
+
+    expect(result).toEqual({ dispatched: true, eventId: "$help", handlers: 1, kind: "message", roomId: "!management:example" });
+    expect(connector.handleCommand).not.toHaveBeenCalled();
+    expect(client.raw.request).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.objectContaining({ body: expect.stringContaining("Available commands:") }),
+    }));
+  });
+
+  it("requires the command prefix outside management rooms and owner implicit management", async () => {
+    const client = createFakeMatrixClient();
+    const connector = {
+      ...createFakeConnector(createFakeNetworkAPI()),
+      handleCommand: vi.fn(async () => ({ handled: true, text: "pong" })),
+    };
+    const bridge = new RuntimeBridge({
+      appservice: {
+        homeserver: "https://matrix.example",
+        homeserverDomain: "example",
+        registration: {
+          asToken: "as",
+          hsToken: "hs",
+          id: "test",
+          namespaces: { users: [{ exclusive: true, regex: "@test_.*:example" }] },
+          senderLocalpart: "testbot",
+          url: "http://localhost:29300",
+        },
+      },
+      connector,
+      matrix: matrixConfig(),
+    }, client);
+
+    await bridge.start();
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "test help",
+      eventId: "$prefixed",
+      roomId: "!ordinary:example",
+      sender: "@alice:example",
+    }));
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "help",
+      eventId: "$unprefixed",
+      roomId: "!ordinary:example",
+      sender: "@alice:example",
+    }));
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "help",
+      eventId: "$owner",
+      roomId: "!owner-dm:example",
+      sender: "@bridge:example",
+    }));
+
+    expect(connector.handleCommand).not.toHaveBeenCalled();
+    expect(client.appservice.sendMessage).toHaveBeenCalledTimes(2);
+    expect(client.appservice.sendMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      content: expect.objectContaining({ body: expect.stringContaining("Available commands:") }),
+    }));
+    expect(client.appservice.sendMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      content: expect.objectContaining({ body: expect.stringContaining("Available commands:") }),
+    }));
+  });
+
+  it("promotes and persists management rooms through the built-in command", async () => {
+    const client = createFakeMatrixClient();
+    const connector = createFakeConnector(createFakeNetworkAPI());
+    const dataStore = {
+      ...createFakeDataStore(),
+      setManagementRoom: vi.fn(async () => {}),
+    };
+    const bridge = new RuntimeBridge({ connector, dataStore, matrix: matrixConfig() }, client);
+
+    await bridge.start();
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "test set-management-room",
+      eventId: "$set",
+      roomId: "!ordinary:example",
+      sender: "@alice:example",
+    }));
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "help",
+      eventId: "$help",
+      roomId: "!ordinary:example",
+      sender: "@alice:example",
+    }));
+
+    expect(dataStore.setManagementRoom).toHaveBeenCalledWith({ mxid: "!ordinary:example" });
+    expect(client.raw.request).toHaveBeenCalledTimes(2);
+    expect(client.raw.request).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      body: expect.objectContaining({ body: expect.stringContaining("Available commands:") }),
+    }));
+  });
+
+  it("handles login lifecycle built-ins", async () => {
+    const client = createFakeMatrixClient();
+    const network = createFakeNetworkAPI();
+    const connector = {
+      ...createFakeConnector(network),
+      getLoginFlows: () => [{ description: "Password login", id: "password", name: "Password" }],
+    };
+    const pendingProcess = {
+      cancel: vi.fn(async () => {}),
+      start: vi.fn(async () => ({ instructions: "Scan the code", stepId: "qr", type: "display_and_wait" as const })),
+    };
+    const completeProcess = {
+      cancel: vi.fn(async () => {}),
+      start: vi.fn(async () => loginStep("completed")),
+    };
+    connector.createLogin
+      .mockResolvedValueOnce(pendingProcess)
+      .mockResolvedValueOnce(completeProcess);
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+
+    await bridge.start();
+    bridge.registerManagementRoom({ mxid: "!management:example" });
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "login password",
+      eventId: "$login-pending",
+      roomId: "!management:example",
+      sender: "@alice:example",
+    }));
+    const startedBody = commandReplyBody(client, 0);
+    const pendingLoginId = /Login started: (login-\S+)/.exec(startedBody)?.[1];
+    expect(pendingLoginId).toBeTruthy();
+
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: `cancel-login ${pendingLoginId}`,
+      eventId: "$cancel",
+      roomId: "!management:example",
+      sender: "@alice:example",
+    }));
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "login password",
+      eventId: "$login-complete",
+      roomId: "!management:example",
+      sender: "@alice:example",
+    }));
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "list-logins",
+      eventId: "$list",
+      roomId: "!management:example",
+      sender: "@alice:example",
+    }));
+    await bridge.dispatchMatrixEvent(messageEvent({
+      body: "logout login:a",
+      eventId: "$logout",
+      roomId: "!management:example",
+      sender: "@alice:example",
+    }));
+
+    expect(pendingProcess.cancel).toHaveBeenCalledOnce();
+    expect(connector.loadUserLogin).toHaveBeenCalledWith(expect.objectContaining({ bridge }), expect.objectContaining({ id: "login:a" }));
+    expect(commandReplyBody(client, 3)).toContain("login:a");
+    expect(network.disconnect).toHaveBeenCalledOnce();
+    expect(commandReplyBody(client, 4)).toBe("Logged out: login:a");
+  });
 });
 
 function matrixConfig(): BridgeMatrixConfig {
@@ -446,6 +771,35 @@ function matrixConfig(): BridgeMatrixConfig {
     },
     token: "token",
     wasmModule: {} as WebAssembly.Module,
+  };
+}
+
+function createFakeBridgeDataStore(logins: UserLogin[] = []): BridgeDataStore & {
+  listUserLogins: ReturnType<typeof vi.fn>;
+  setBridgeStatus: ReturnType<typeof vi.fn>;
+} {
+  return {
+    deletePortal: vi.fn(async () => {}),
+    getAccount: vi.fn(async () => null),
+    getBridgeState: vi.fn(async () => null),
+    getBridgeStatus: vi.fn(async () => null),
+    getGhost: vi.fn(async () => null),
+    getMessage: vi.fn(async () => null),
+    getMessageRequest: vi.fn(async () => null),
+    getPortal: vi.fn(async () => null),
+    getPortalByMXID: vi.fn(async () => null),
+    getUserLogin: vi.fn(async (id: string) => logins.find((login) => login.id === id) ?? null),
+    listGhosts: vi.fn(async () => []),
+    listPortals: vi.fn(async () => []),
+    listUserLogins: vi.fn(async () => logins),
+    setAccount: vi.fn(async () => {}),
+    setBridgeState: vi.fn(async () => {}),
+    setBridgeStatus: vi.fn(async () => {}),
+    setGhost: vi.fn(async () => {}),
+    setMessage: vi.fn(async () => {}),
+    setMessageRequest: vi.fn(async () => {}),
+    setPortal: vi.fn(async () => {}),
+    setUserLogin: vi.fn(async () => {}),
   };
 }
 
@@ -492,6 +846,53 @@ function loginStep(stepId: string) {
     instructions: stepId,
     stepId,
     type: "complete" as const,
+  };
+}
+
+function messageEvent(options: { body: string; eventId: string; roomId: string; sender: string }): MatrixMessageEvent {
+  return {
+    attachments: [],
+    class: "message",
+    content: { body: options.body, msgtype: "m.text" },
+    edited: false,
+    encrypted: false,
+    eventId: options.eventId,
+    kind: "message",
+    messageType: "m.text",
+    raw: {},
+    roomId: options.roomId,
+    sender: { isMe: false, userId: options.sender },
+    text: options.body,
+    type: "m.room.message",
+  };
+}
+
+function commandReplyBody(client: ReturnType<typeof createFakeMatrixClient>, index: number): string {
+  return (client.raw.request as ReturnType<typeof vi.fn>).mock.calls[index]?.[0]?.body?.body;
+}
+
+function createFakeDataStore() {
+  return {
+    deletePortal: vi.fn(async () => {}),
+    getAccount: vi.fn(async () => null),
+    getBridgeState: vi.fn(async () => null),
+    getBridgeStatus: vi.fn(async () => null),
+    getGhost: vi.fn(async () => null),
+    getMessage: vi.fn(async () => null),
+    getMessageRequest: vi.fn(async () => null),
+    getPortal: vi.fn(async () => null),
+    getPortalByMXID: vi.fn(async () => null),
+    getUserLogin: vi.fn(async () => null),
+    listGhosts: vi.fn(async () => []),
+    listPortals: vi.fn(async () => []),
+    setAccount: vi.fn(async () => {}),
+    setBridgeState: vi.fn(async () => {}),
+    setBridgeStatus: vi.fn(async () => {}),
+    setGhost: vi.fn(async () => {}),
+    setMessage: vi.fn(async () => {}),
+    setMessageRequest: vi.fn(async () => {}),
+    setPortal: vi.fn(async () => {}),
+    setUserLogin: vi.fn(async () => {}),
   };
 }
 

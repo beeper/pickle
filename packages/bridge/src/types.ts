@@ -31,6 +31,7 @@ export type PartID = string;
 export type ReactionID = string;
 export type AvatarID = string;
 export type MediaID = string;
+export type PaginationCursor = string;
 export type TransactionID = string;
 export type RawTransactionID = string;
 export type RoomID = string;
@@ -503,6 +504,7 @@ export interface PickleBridge {
   createManagementRoom(options: BridgeCreateManagementRoomOptions): Promise<ManagementRoom>;
   backfill(options: BridgeBackfillOptions): Promise<MatrixAppserviceBatchSendResult>;
   backfillMessages(login: UserLogin, params: FetchMessagesParams): Promise<MatrixAppserviceBatchSendResult>;
+  queueBackfill(login: UserLogin, params: BackfillQueueParams): Promise<BackfillQueueResult>;
   createPortalRoom(options: BridgeCreatePortalRoomOptions): Promise<Portal>;
   downloadMedia(options: DownloadMediaOptions): Promise<DownloadMediaResult>;
   flushRemoteEvents(): Promise<void>;
@@ -523,6 +525,7 @@ export interface PickleBridge {
   sendMedia(options: BridgeSendMediaOptions): Promise<SentEvent>;
   setBridgeState(state: BridgeState): Promise<void>;
   setBridgeStatus(status: BridgeStatus): Promise<void>;
+  sendMessageCheckpoints(checkpoints: MessageCheckpoint[]): boolean;
   setMessageRequest(request: MessageRequest): Promise<void>;
   setOwnProfile(profile: UserProfileUpdate): Promise<void>;
   setPortalMetadata(portalKey: PortalKey, metadata: unknown): Promise<Portal>;
@@ -765,7 +768,44 @@ export interface Ghost {
 
 export type BridgeState = "starting" | "running" | "stopping" | "stopped" | "degraded" | "error";
 
+export type BridgeStateEvent =
+  | "STARTING"
+  | "UNCONFIGURED"
+  | "RUNNING"
+  | "BRIDGE_UNREACHABLE"
+  | "CONNECTING"
+  | "BACKFILLING"
+  | "CONNECTED"
+  | "TRANSIENT_DISCONNECT"
+  | "BAD_CREDENTIALS"
+  | "UNKNOWN_ERROR"
+  | "LOGGED_OUT";
+
+export interface RemoteProfile {
+  avatar?: Avatar;
+  displayName?: string;
+  metadata?: unknown;
+}
+
+export interface BridgeStatePayload {
+  error?: string;
+  info?: Record<string, unknown>;
+  message?: string;
+  reason?: string;
+  remote_id?: UserLoginID;
+  remote_name?: string;
+  remote_profile?: RemoteProfile;
+  source?: string;
+  state_event: BridgeStateEvent;
+  timestamp: number;
+  ttl: number;
+  user_action?: string;
+  user_id?: UserID;
+}
+
 export interface BridgeStatus {
+  bridgeState?: BridgeStatePayload;
+  logins?: Record<UserLoginID, BridgeStatePayload>;
   message?: string;
   metadata?: unknown;
   state: BridgeState;
@@ -980,6 +1020,44 @@ export interface MatrixDeleteChat {
   portal: Portal;
 }
 
+export type MessageCheckpointReportedBy = "ASMUX" | "BRIDGE" | "HUNGRYSERV";
+export type MessageCheckpointStatus =
+  | "SUCCESS"
+  | "WILL_RETRY"
+  | "PERM_FAILURE"
+  | "UNSUPPORTED"
+  | "TIMEOUT"
+  | "DELIVERED"
+  | "DELIVERY_FAILED";
+export type MessageCheckpointStep =
+  | "CLIENT"
+  | "HOMESERVER"
+  | "BRIDGE"
+  | "DECRYPTED"
+  | "REMOTE"
+  | "COMMAND";
+
+export interface MessageCheckpoint {
+  clientType?: string;
+  clientVersion?: string;
+  eventId: EventID;
+  eventType: string;
+  info?: string;
+  manualRetryCount?: number;
+  messageType?: string;
+  originalEventId?: EventID;
+  reportedBy: MessageCheckpointReportedBy;
+  retryNum: number;
+  roomId: RoomID;
+  status: MessageCheckpointStatus;
+  step: MessageCheckpointStep;
+  timestamp: Date | number;
+}
+
+export interface MessageCheckpoints {
+  checkpoints: MessageCheckpoint[];
+}
+
 export interface ChatInfo {
   avatar?: Avatar;
   name?: string;
@@ -1004,15 +1082,23 @@ export interface Avatar {
 
 export interface FetchMessagesParams {
   anchorMessage?: Message;
+  bundledData?: unknown;
+  count?: number;
+  cursor?: PaginationCursor;
   forward?: boolean;
   limit?: number;
   portal: Portal;
+  task?: BackfillQueueTask;
+  threadRoot?: MessageID;
 }
 
 export interface FetchMessagesResponse {
+  cursor?: PaginationCursor;
   forward?: boolean;
   hasMore?: boolean;
+  markRead?: boolean;
   messages: BackfillMessage[];
+  progress?: BackfillProgress;
 }
 
 export interface BackfillMessage {
@@ -1022,4 +1108,42 @@ export interface BackfillMessage {
 
 export interface BackfillReaction {
   event: RemoteReaction;
+}
+
+export interface BackfillProgress {
+  approximate?: number;
+  remainingCount?: number;
+  totalCount?: number;
+}
+
+export interface BackfillQueueTask {
+  batchCount?: number;
+  bridgeId?: BridgeID;
+  completedAt?: Date;
+  cursor?: PaginationCursor;
+  dispatchedAt?: Date;
+  done?: boolean;
+  nextDispatchAt?: Date;
+  oldestMessageId?: MessageID;
+  pending?: boolean;
+  portalKey: PortalKey;
+  userLoginId: UserLoginID;
+}
+
+export interface BackfillQueueParams extends FetchMessagesParams {
+  login?: UserLogin;
+  markRead?: boolean;
+  pending?: boolean;
+  progress?: BackfillProgress;
+}
+
+export interface BackfillQueueResult {
+  cursor?: PaginationCursor;
+  forward?: boolean;
+  hasMore?: boolean;
+  markRead?: boolean;
+  pending?: boolean;
+  progress?: BackfillProgress;
+  queued: boolean;
+  task?: BackfillQueueTask;
 }

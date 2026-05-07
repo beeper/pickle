@@ -55,6 +55,14 @@ import type {
   LoginProcessWithOverride,
   LoginStep,
   LoginUserInput,
+  BridgeStateEvent,
+  BridgeStatePayload,
+  BackfillQueueParams,
+  BackfillQueueResult,
+  ChatViewingNetworkAPI,
+  MessageCheckpoint,
+  MessageCheckpointStatus,
+  MessageCheckpointStep,
 } from "./types";
 
 type GenericMatrixEvent = Extract<MatrixClientEvent, { content: Record<string, unknown>; kind: string }>;
@@ -117,6 +125,7 @@ export class RuntimeBridge implements PickleBridge {
   readonly #portalsByRoom = new Map<string, Portal>();
   readonly #remoteEvents: Array<{ event: RemoteEvent; login: UserLogin }> = [];
   readonly #userLogins = new Map<string, UserLogin>();
+  readonly #loginStates = new Map<string, BridgeStatePayload>();
   readonly #matrixClient: MatrixClient;
   readonly #subscriptions = new Set<MatrixSubscription>();
   #appserviceWebsocket: AppserviceWebsocket | null = null;
@@ -144,6 +153,7 @@ export class RuntimeBridge implements PickleBridge {
 
   async start(): Promise<void> {
     if (this.#started) return;
+    await this.#loadPersistedStatus();
     await this.setBridgeState("starting");
     const whoami = await this.#matrixClient.boot();
     this.#ownerUserId = whoami.userId;
@@ -164,6 +174,7 @@ export class RuntimeBridge implements PickleBridge {
       await this.connector.validateConfig();
     }
     await this.connector.init(this.#context);
+    await this.#loadPersistedUserLogins();
     await this.connector.start(this.#context);
     await this.#subscribeMatrixEvents();
     this.#startAppserviceWebsocket();
@@ -174,6 +185,9 @@ export class RuntimeBridge implements PickleBridge {
 
   async stop(): Promise<void> {
     await this.setBridgeState("stopping");
+    for (const login of this.#userLogins.values()) {
+      await this.#setLoginBridgeState(login, "BRIDGE_UNREACHABLE");
+    }
     const subscriptions = Array.from(this.#subscriptions);
     this.#subscriptions.clear();
     await Promise.allSettled(subscriptions.map((subscription) => subscription.stop()));
@@ -278,18 +292,67 @@ export class RuntimeBridge implements PickleBridge {
       throw new Error(`Cannot backfill portal ${portalKeyString(portal.portalKey)} without a Matrix room`);
     }
     const events = await this.#convertBackfillMessages(portal, response.messages.map((message) => message.event));
-    return this.backfill({ events, roomId: portal.mxid });
+    const result = await this.backfill({ events, roomId: portal.mxid });
+    if (response.markRead && hasMethod(client, "markChatViewed")) {
+      await (client as ChatViewingNetworkAPI).markChatViewed(this.#requestContext(), portal);
+    }
+    return result;
+  }
+
+  async queueBackfill(login: UserLogin, params: BackfillQueueParams): Promise<BackfillQueueResult> {
+    const client = await this.loadUserLogin(login);
+    if (!hasMethod(client, "fetchMessages")) {
+      throw new Error(`Login ${login.id} does not support backfill`);
+    }
+    const task = params.task ?? {
+      cursor: params.cursor,
+      pending: params.pending,
+      portalKey: params.portal.portalKey,
+      userLoginId: login.id,
+    };
+    await this.#setLoginBridgeState(login, "BACKFILLING", { message: `Backfilling ${portalKeyString(params.portal.portalKey)}` });
+    const response = await (client as BackfillingNetworkAPI).fetchMessages(this.#requestContext(), { ...params, task });
+    const portal = params.portal;
+    if (!portal.mxid) {
+      throw new Error(`Cannot backfill portal ${portalKeyString(portal.portalKey)} without a Matrix room`);
+    }
+    const events = await this.#convertBackfillMessages(portal, response.messages.map((message) => message.event));
+    await this.backfill({ events, roomId: portal.mxid });
+    if ((response.markRead ?? params.markRead) && hasMethod(client, "markChatViewed")) {
+      await (client as ChatViewingNetworkAPI).markChatViewed(this.#requestContext(), portal);
+    }
+    await this.#setLoginBridgeState(login, "CONNECTED");
+    return {
+      cursor: response.cursor,
+      forward: response.forward,
+      hasMore: response.hasMore,
+      markRead: response.markRead ?? params.markRead,
+      pending: params.pending,
+      progress: response.progress ?? params.progress,
+      queued: false,
+      task: {
+        ...task,
+        completedAt: new Date(),
+        cursor: response.cursor ?? task.cursor,
+        done: !response.hasMore,
+        pending: false,
+      },
+    };
   }
 
   async loadUserLogin(login: UserLogin): Promise<NetworkAPI> {
     const existing = this.#networkClients.get(login.id);
     if (existing) return existing;
+    await this.#setLoginBridgeState(login, "CONNECTING");
     const client = await this.connector.loadUserLogin(this.#requestContext(), login);
     login.client = client;
     this.#userLogins.set(login.id, login);
     this.#networkClients.set(login.id, client);
-    await this.#dataStore?.setUserLogin(login);
+    if (this.#dataStore && hasMethod(this.#dataStore, "setUserLogin")) {
+      await this.#dataStore.setUserLogin(login);
+    }
     await client.connect({ ...this.#requestContext(), login });
+    await this.#setLoginBridgeState(login, "CONNECTED");
     defaultLogger("info", "user_login_loaded", { loginId: login.id, remoteName: login.remoteName, userId: login.userId });
     this.#sendCurrentBridgeStatus();
     return client;
@@ -308,11 +371,21 @@ export class RuntimeBridge implements PickleBridge {
   }
 
   async setBridgeStatus(status: BridgeStatus): Promise<void> {
-    this.#bridgeStatus = status;
-    await this.#dataStore?.setBridgeStatus(status);
-    await this.#dataStore?.setBridgeState(status.state);
+    const bridgeState = status.bridgeState ?? bridgeStatePayload(bridgeStateEvent(status.state), undefined, status);
+    const logins = status.logins ?? this.#loginStatesRecord();
+    this.#bridgeStatus = { ...status, bridgeState, logins };
+    if (this.#dataStore && hasMethod(this.#dataStore, "setBridgeStatus")) {
+      await this.#dataStore.setBridgeStatus(this.#bridgeStatus);
+    }
+    if (this.#dataStore && hasMethod(this.#dataStore, "setBridgeState")) {
+      await this.#dataStore.setBridgeState(status.state);
+    }
     defaultLogger("info", "bridge_state_updated", { state: status.state });
     this.#sendCurrentBridgeStatus();
+  }
+
+  sendMessageCheckpoints(checkpoints: MessageCheckpoint[]): boolean {
+    return this.#sendMessageCheckpoints(checkpoints);
   }
 
   getGhost(id: string): Ghost | null {
@@ -427,8 +500,12 @@ export class RuntimeBridge implements PickleBridge {
     });
   }
 
-  registerManagementRoom(room: ManagementRoom): void {
+  registerManagementRoom(room: ManagementRoom, persist = true): void {
     this.#managementRooms.set(room.mxid, room);
+    if (!persist) return;
+    void this.#persistManagementRoom(room).catch((error: unknown) => {
+      defaultLogger("warn", "management_room_store_failed", { error });
+    });
   }
 
   async flushRemoteEvents(): Promise<void> {
@@ -480,6 +557,45 @@ export class RuntimeBridge implements PickleBridge {
     };
     if (this.#dataStore) context.dataStore = this.#dataStore;
     return context;
+  }
+
+  async #loadPersistedStatus(): Promise<void> {
+    if (!this.#dataStore || !hasMethod(this.#dataStore, "getBridgeStatus")) return;
+    const status = await this.#dataStore.getBridgeStatus();
+    if (!status) return;
+    this.#bridgeStatus = status;
+    for (const [loginId, state] of Object.entries(status.logins ?? {})) {
+      this.#loginStates.set(loginId, state);
+    }
+  }
+
+  async #loadPersistedUserLogins(): Promise<void> {
+    if (!this.#dataStore || !hasMethod(this.#dataStore, "listUserLogins")) return;
+    const logins = await this.#dataStore.listUserLogins();
+    if (!logins?.length) return;
+    for (const login of logins) {
+      try {
+        await this.loadUserLogin(login);
+      } catch (error: unknown) {
+        await this.#setLoginBridgeState(login, "UNKNOWN_ERROR", { error: errorMessage(error) });
+        defaultLogger("warn", "user_login_load_failed", { error, loginId: login.id });
+      }
+    }
+  }
+
+  async #setLoginBridgeState(login: UserLogin, stateEvent: BridgeStateEvent, options: { error?: string; message?: string; reason?: string } = {}): Promise<void> {
+    const payload = bridgeStatePayload(stateEvent, login, options);
+    this.#loginStates.set(login.id, payload);
+    if (this.#bridgeStatus) {
+      this.#bridgeStatus = { ...this.#bridgeStatus, logins: this.#loginStatesRecord() };
+      if (this.#dataStore && hasMethod(this.#dataStore, "setBridgeStatus")) {
+        await this.#dataStore.setBridgeStatus(this.#bridgeStatus);
+      }
+    }
+  }
+
+  #loginStatesRecord(): Record<string, BridgeStatePayload> {
+    return Object.fromEntries(this.#loginStates);
   }
 
   async #subscribeMatrixEvents(): Promise<void> {
@@ -572,7 +688,14 @@ export class RuntimeBridge implements PickleBridge {
     }
     const command = this.#parseManagementCommand(event);
     if (command) {
-      return this.#dispatchMatrixCommand(command);
+      try {
+        const result = await this.#dispatchMatrixCommand(command);
+        this.#sendMatrixEventCheckpoint(event, "COMMAND", result.dispatched ? "SUCCESS" : "UNSUPPORTED");
+        return result;
+      } catch (error: unknown) {
+        this.#sendMatrixEventCheckpoint(event, "COMMAND", "PERM_FAILURE", errorMessage(error));
+        throw error;
+      }
     }
     const portal = this.#portalForRoom(event.roomId);
     const msg: MatrixMessage = {
@@ -585,16 +708,30 @@ export class RuntimeBridge implements PickleBridge {
       ...(event.threadRoot ? { threadRoot: { id: event.threadRoot } } : {}),
     };
     let handlers = 0;
-    for (const client of this.#networkClients.values()) {
-      if (!hasMethod(client, "handleMatrixMessage")) continue;
-      handlers += 1;
-      defaultLogger("debug", "matrix_message_to_network", { eventId: event.eventId, loginHandlers: handlers, roomId: event.roomId });
-      await client.handleMatrixMessage(this.#requestContext(), msg);
+    try {
+      for (const client of this.#networkClients.values()) {
+        if (!hasMethod(client, "handleMatrixMessage")) continue;
+        handlers += 1;
+        defaultLogger("debug", "matrix_message_to_network", { eventId: event.eventId, loginHandlers: handlers, roomId: event.roomId });
+        await client.handleMatrixMessage(this.#requestContext(), msg);
+      }
+      this.#sendMatrixEventCheckpoint(event, "BRIDGE", handlers > 0 ? "SUCCESS" : "UNSUPPORTED");
+    } catch (error: unknown) {
+      this.#sendMatrixEventCheckpoint(event, "BRIDGE", "PERM_FAILURE", errorMessage(error));
+      throw error;
     }
     return { dispatched: handlers > 0, eventId: event.eventId, handlers, kind: event.kind, roomId: event.roomId };
   }
 
   async #dispatchMatrixCommand(command: MatrixCommand): Promise<MatrixDispatchResult> {
+    const builtinResponse = await this.#handleBuiltinCommand(command);
+    if (builtinResponse) {
+      await this.#sendCommandReply(command.event.roomId, builtinResponse.content ?? {
+        body: builtinResponse.text ?? "",
+        msgtype: "m.notice",
+      });
+      return { dispatched: true, eventId: command.event.eventId, handlers: 1, kind: command.event.kind, roomId: command.event.roomId };
+    }
     if (!hasMethod(this.connector, "handleCommand")) {
       return { dispatched: false, eventId: command.event.eventId, handlers: 0, kind: command.event.kind, roomId: command.event.roomId };
     }
@@ -611,11 +748,14 @@ export class RuntimeBridge implements PickleBridge {
   #parseManagementCommand(event: MatrixMessageEvent): MatrixCommand | null {
     const explicitRoom = this.#managementRooms.get(event.roomId);
     if (!explicitRoom && this.#portalsByRoom.has(event.roomId)) return null;
-    const room = explicitRoom ?? this.#implicitManagementRoom(event);
     const text = event.text || stringContent(event.content.body);
     if (!text) return null;
     const prefix = this.connector.getName().defaultCommandPrefix ?? "";
-    const body = prefix && text.startsWith(prefix) ? text.slice(prefix.length).trimStart() : text.trim();
+    const hasPrefix = Boolean(prefix && text.startsWith(prefix));
+    const implicitRoom = !explicitRoom && this.#isImplicitManagementEvent(event);
+    if (!explicitRoom && !implicitRoom && !hasPrefix) return null;
+    const room = explicitRoom ?? (implicitRoom ? this.#implicitManagementRoom(event) : { mxid: event.roomId });
+    const body = hasPrefix ? text.slice(prefix.length).trimStart() : text.trim();
     if (!body) return null;
     const [command = "", ...args] = body.split(/\s+/);
     if (!command) return null;
@@ -638,10 +778,126 @@ export class RuntimeBridge implements PickleBridge {
     };
   }
 
+  #isImplicitManagementEvent(event: MatrixMessageEvent): boolean {
+    return Boolean(this.#ownerUserId && event.sender.userId === this.#ownerUserId);
+  }
+
   #implicitManagementRoom(event: MatrixMessageEvent): ManagementRoom {
     const room: ManagementRoom = { mxid: event.roomId };
     this.registerManagementRoom(room);
     return room;
+  }
+
+  async #handleBuiltinCommand(command: MatrixCommand): Promise<MatrixCommandResponse | null> {
+    switch (command.command) {
+      case "help":
+        return { handled: true, text: this.#managementHelpText(command) };
+      case "list-logins":
+        return { handled: true, text: this.#listLoginsText() };
+      case "login":
+        return this.#handleLoginCommand(command);
+      case "logout":
+        return this.#handleLogoutCommand(command);
+      case "cancel-login":
+        return this.#handleCancelLoginCommand(command);
+      case "set-management-room":
+        return this.#handleSetManagementRoomCommand(command);
+      default:
+        return null;
+    }
+  }
+
+  #managementHelpText(command: MatrixCommand): string {
+    const commands = [
+      "help",
+      "list-logins",
+      "login <flow-id>",
+      "logout <login-id>",
+      "cancel-login <login-id>",
+      "set-management-room",
+    ];
+    const prefix = this.connector.getName().defaultCommandPrefix;
+    const prefixHelp = command.room.mxid === command.event.roomId && this.#managementRooms.has(command.event.roomId)
+      ? ""
+      : prefix ? ` Prefix commands with ${prefix} outside management rooms.` : "";
+    return `Available commands: ${commands.join(", ")}.${prefixHelp}`;
+  }
+
+  #listLoginsText(): string {
+    const logins = Array.from(this.#userLogins.values());
+    if (logins.length === 0) return "No logins.";
+    return logins.map((login) => {
+      const details = [login.remoteName, login.userId].filter(Boolean).join(" ");
+      return details ? `${login.id} (${details})` : login.id;
+    }).join("\n");
+  }
+
+  async #handleLoginCommand(command: MatrixCommand): Promise<MatrixCommandResponse> {
+    const flowId = command.args[0];
+    if (!flowId) {
+      const flows = this.connector.getLoginFlows();
+      if (flows.length === 0) return { handled: true, text: "No login flows are available." };
+      return { handled: true, text: `Usage: login <flow-id>\nAvailable flows:\n${flows.map((flow) => `${flow.id}: ${flow.name}`).join("\n")}` };
+    }
+    const process = await this.createLogin({ id: command.sender.userId }, flowId);
+    const step = await process.start();
+    if (step.type === "complete" && step.complete?.userLoginId) {
+      await this.loadUserLogin({ id: step.complete.userLoginId, userId: command.sender.userId });
+      return { handled: true, text: `Login complete: ${step.complete.userLoginId}` };
+    }
+    const loginId = randomID("login");
+    this.#provisioningLogins.set(loginId, { nextStep: step, process });
+    return { handled: true, text: `Login started: ${loginId}\n${loginStepText(step)}` };
+  }
+
+  async #handleLogoutCommand(command: MatrixCommand): Promise<MatrixCommandResponse> {
+    const loginId = command.args[0];
+    if (!loginId) return { handled: true, text: "Usage: logout <login-id>" };
+    const client = this.#networkClients.get(loginId);
+    const login = this.#userLogins.get(loginId);
+    if (!client && !login) return { handled: true, text: `Login not found: ${loginId}` };
+    if (client) await client.disconnect();
+    this.#networkClients.delete(loginId);
+    this.#userLogins.delete(loginId);
+    await this.#deleteStoredUserLogin(loginId);
+    this.#sendCurrentBridgeStatus();
+    return { handled: true, text: `Logged out: ${loginId}` };
+  }
+
+  async #handleCancelLoginCommand(command: MatrixCommand): Promise<MatrixCommandResponse> {
+    const loginId = command.args[0];
+    if (!loginId) return { handled: true, text: "Usage: cancel-login <login-id>" };
+    const login = this.#provisioningLogins.get(loginId);
+    if (!login) return { handled: true, text: `Login not found: ${loginId}` };
+    await login.process.cancel(this.#requestContext());
+    this.#provisioningLogins.delete(loginId);
+    return { handled: true, text: `Cancelled login: ${loginId}` };
+  }
+
+  async #handleSetManagementRoomCommand(command: MatrixCommand): Promise<MatrixCommandResponse> {
+    this.registerManagementRoom(command.room, false);
+    await this.#persistManagementRoom(command.room);
+    return { handled: true, text: `Management room registered: ${command.room.mxid}` };
+  }
+
+  async #deleteStoredUserLogin(loginId: string): Promise<void> {
+    if (!this.#dataStore) return;
+    const store = this.#dataStore as object;
+    if (hasMethod(store, "deleteUserLogin")) {
+      await store.deleteUserLogin(loginId);
+    } else if (hasMethod(store, "removeUserLogin")) {
+      await store.removeUserLogin(loginId);
+    }
+  }
+
+  async #persistManagementRoom(room: ManagementRoom): Promise<void> {
+    if (!this.#dataStore) return;
+    const store = this.#dataStore as object;
+    if (hasMethod(store, "setManagementRoom")) {
+      await store.setManagementRoom(room);
+    } else if (hasMethod(store, "registerManagementRoom")) {
+      await store.registerManagementRoom(room);
+    }
   }
 
   async #dispatchMatrixReaction(event: MatrixReactionEvent): Promise<MatrixDispatchResult> {
@@ -883,13 +1139,44 @@ export class RuntimeBridge implements PickleBridge {
   #sendCurrentBridgeStatus(): void {
     const websocket = this.#appserviceWebsocket;
     if (!websocket) return;
-    const logins = Array.from(this.#userLogins.values());
-    const stateEvent = bridgeStateEvent(this.#bridgeStatus?.state ?? (logins.length > 0 ? "running" : "starting"));
-    let sent = websocket.send("bridge_status", bridgeStatePayload(stateEvent)) ? 1 : 0;
-    for (const login of logins) {
-      if (websocket.send("bridge_status", bridgeStatePayload("CONNECTED", login))) sent += 1;
+    const bridgeState = this.#bridgeStatus?.bridgeState
+      ?? bridgeStatePayload(bridgeStateEvent(this.#bridgeStatus?.state ?? "starting"));
+    const logins = Object.values(this.#bridgeStatus?.logins ?? this.#loginStatesRecord());
+    let sent = websocket.send("bridge_status", bridgeState) ? 1 : 0;
+    for (const loginState of logins) {
+      if (websocket.send("bridge_status", loginState)) sent += 1;
     }
-    defaultLogger("debug", "bridge_status_sent", { loginCount: logins.length, sent, stateEvent });
+    defaultLogger("debug", "bridge_status_sent", { loginCount: logins.length, sent, stateEvent: bridgeState.state_event });
+  }
+
+  #sendMatrixEventCheckpoint(
+    event: MatrixMessageEvent,
+    step: MessageCheckpointStep,
+    status: MessageCheckpointStatus,
+    info?: string
+  ): boolean {
+    const checkpoint = stripUndefined({
+      eventId: event.eventId,
+      eventType: event.type,
+      info,
+      messageType: event.messageType,
+      reportedBy: "BRIDGE",
+      retryNum: 0,
+      roomId: event.roomId,
+      status,
+      step,
+      timestamp: Date.now(),
+    }) as MessageCheckpoint;
+    return this.#sendMessageCheckpoints([checkpoint]);
+  }
+
+  #sendMessageCheckpoints(checkpoints: MessageCheckpoint[]): boolean {
+    if (!this.#appserviceWebsocket) return false;
+    const sent = this.#appserviceWebsocket.send("message_checkpoint", {
+      checkpoints: checkpoints.map(messageCheckpointPayload),
+    });
+    defaultLogger("debug", "message_checkpoints_sent", { count: checkpoints.length, sent });
+    return sent;
   }
 }
 
@@ -910,7 +1197,7 @@ function appserviceBotUserId(options: MatrixAppserviceInitOptions): string {
   return `@${options.registration.senderLocalpart}:${options.homeserverDomain}`;
 }
 
-function bridgeStateEvent(state: BridgeState): string {
+function bridgeStateEvent(state: BridgeState): BridgeStateEvent {
   switch (state) {
     case "starting":
       return "STARTING";
@@ -926,14 +1213,44 @@ function bridgeStateEvent(state: BridgeState): string {
   }
 }
 
-function bridgeStatePayload(stateEvent: string, login?: UserLogin): Record<string, unknown> {
+function bridgeStatePayload(
+  stateEvent: BridgeStateEvent,
+  login?: UserLogin,
+  options: { error?: string; message?: string; reason?: string; updatedAt?: Date; metadata?: unknown } = {}
+): BridgeStatePayload {
+  const info = typeof options.metadata === "object" && options.metadata !== null
+    ? options.metadata as Record<string, unknown>
+    : undefined;
   return stripUndefined({
+    error: options.error,
+    info,
+    message: options.message,
+    reason: options.reason,
     remote_id: login?.id,
     remote_name: login?.remoteName,
-    user_id: login?.userId,
+    source: "bridge",
     state_event: stateEvent,
-    timestamp: Math.floor(Date.now() / 1000),
-  });
+    timestamp: Math.floor((options.updatedAt?.getTime() ?? Date.now()) / 1000),
+    ttl: bridgeStateTTL(stateEvent),
+    user_id: login?.userId,
+  }) as BridgeStatePayload;
+}
+
+function bridgeStateTTL(stateEvent: BridgeStateEvent): number {
+  switch (stateEvent) {
+    case "BAD_CREDENTIALS":
+    case "BRIDGE_UNREACHABLE":
+    case "LOGGED_OUT":
+    case "TRANSIENT_DISCONNECT":
+    case "UNKNOWN_ERROR":
+      return 3600;
+    default:
+      return 21600;
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function provisioningCapabilities(capabilities: { provisioning?: { groupCreation?: unknown; resolveIdentifier?: unknown } }): unknown {
@@ -1088,6 +1405,12 @@ function loginStepResponse(loginId: string, step: LoginStep): Record<string, unk
     login_id: loginId,
     ...loginStepJSON(step),
   };
+}
+
+function loginStepText(step: LoginStep): string {
+  const lines = [`Step ${step.stepId} (${step.type})`];
+  if (step.instructions) lines.push(step.instructions);
+  return lines.join("\n");
 }
 
 function loginStepJSON(step: LoginStep): Record<string, unknown> {

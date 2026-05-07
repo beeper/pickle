@@ -7,44 +7,84 @@ export interface AppserviceWebsocketOptions {
   dispatch(event: MatrixClientEvent): Promise<unknown>;
   handleHTTPProxy?(request: HTTPProxyRequest): Promise<HTTPProxyResponse | null>;
   log: BridgeLogger;
+  onClose?(event: AppserviceWebsocketCloseEvent): void | Promise<void>;
   onOpen?(): void | Promise<void>;
+  onReplaced?(event: AppserviceWebsocketCloseEvent): void | Promise<void>;
+  timing?: Partial<AppserviceWebsocketTimingOptions>;
+}
+
+export interface AppserviceWebsocketCloseEvent {
+  code?: number;
+  reason?: string;
+  reconnect: boolean;
+  replaced: boolean;
+  status?: string;
+}
+
+export interface AppserviceWebsocketTimingOptions {
+  initialReconnectMs: number;
+  maxReconnectMs: number;
+  pingIntervalMs: number;
+  pingTimeoutMs: number;
+  stableConnectionMs: number;
 }
 
 export class AppserviceWebsocket {
+  static readonly defaultTiming: AppserviceWebsocketTimingOptions = {
+    initialReconnectMs: 2_000,
+    maxReconnectMs: 120_000,
+    pingIntervalMs: 180_000,
+    pingTimeoutMs: 30_000,
+    stableConnectionMs: 60_000,
+  };
+
   readonly #appservice: MatrixAppserviceInitOptions;
   readonly #dispatch: (event: MatrixClientEvent) => Promise<unknown>;
   readonly #handleProxy: ((request: HTTPProxyRequest) => Promise<HTTPProxyResponse | null>) | undefined;
   readonly #log: BridgeLogger;
+  readonly #onClose: ((event: AppserviceWebsocketCloseEvent) => void | Promise<void>) | undefined;
   readonly #onOpen: (() => void | Promise<void>) | undefined;
+  readonly #onReplaced: ((event: AppserviceWebsocketCloseEvent) => void | Promise<void>) | undefined;
+  readonly #timing: AppserviceWebsocketTimingOptions;
   #closed = false;
-  #pingTimer: NodeJS.Timeout | null = null;
+  #nextPingId = 1;
+  #pendingPingId: number | null = null;
+  #pingIntervalTimer: NodeJS.Timeout | null = null;
+  #pingTimeoutTimer: NodeJS.Timeout | null = null;
+  #reconnectMs: number;
   #reconnectTimer: NodeJS.Timeout | null = null;
+  #handledCloses = new WeakSet<WebSocket>();
   #socket: WebSocket | null = null;
+  #stableTimer: NodeJS.Timeout | null = null;
 
   constructor(options: AppserviceWebsocketOptions) {
     this.#appservice = options.appservice;
     this.#dispatch = options.dispatch;
     this.#handleProxy = options.handleHTTPProxy;
     this.#log = options.log;
+    this.#onClose = options.onClose;
     this.#onOpen = options.onOpen;
+    this.#onReplaced = options.onReplaced;
+    this.#timing = { ...AppserviceWebsocket.defaultTiming, ...options.timing };
+    this.#reconnectMs = this.#timing.initialReconnectMs;
   }
 
   start(): void {
     this.#closed = false;
+    this.#clearReconnectTimer();
     this.#connect();
   }
 
   stop(): void {
     this.#closed = true;
-    if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
-    if (this.#pingTimer) clearInterval(this.#pingTimer);
-    this.#reconnectTimer = null;
-    this.#pingTimer = null;
+    this.#clearReconnectTimer();
+    this.#clearConnectionTimers();
     this.#socket?.close();
     this.#socket = null;
   }
 
   #connect(): void {
+    if (this.#closed) return;
     const url = websocketURL(this.#appservice.homeserver);
     const socket = new WebSocket(url, {
       headers: {
@@ -57,7 +97,12 @@ export class AppserviceWebsocket {
     this.#socket = socket;
     socket.on("open", () => {
       this.#log("info", "appservice_websocket_open", { url });
-      this.#pingTimer = setInterval(() => this.#ping(), 180_000);
+      this.#clearConnectionTimers();
+      this.#pingIntervalTimer = setInterval(() => this.#ping(), this.#timing.pingIntervalMs);
+      this.#stableTimer = setTimeout(() => {
+        this.#reconnectMs = this.#timing.initialReconnectMs;
+        this.#log("debug", "appservice_websocket_stable", { reconnectMs: this.#reconnectMs });
+      }, this.#timing.stableConnectionMs);
       void Promise.resolve(this.#onOpen?.()).catch((error: unknown) => {
         this.#log("warn", "appservice_websocket_open_handler_failed", { error });
       });
@@ -68,16 +113,88 @@ export class AppserviceWebsocket {
       });
     });
     socket.on("close", (code, reason) => {
-      if (this.#pingTimer) clearInterval(this.#pingTimer);
-      this.#pingTimer = null;
-      this.#socket = null;
-      if (this.#closed) return;
-      this.#log("warn", "appservice_websocket_closed", { code, reconnectMs: 2_000, reason: reason.toString() });
-      this.#reconnectTimer = setTimeout(() => this.#connect(), 2_000);
+      this.#handleSocketClose(socket, { code, reason: reason.toString() });
     });
     socket.on("error", (error) => {
       this.#log("warn", "appservice_websocket_error", { error });
     });
+  }
+
+  #handleSocketClose(socket: WebSocket, close: { code?: number; reason?: string; replaced?: boolean; status?: string }): void {
+    if (this.#handledCloses.has(socket)) return;
+    this.#handledCloses.add(socket);
+    this.#clearConnectionTimers();
+    if (this.#socket === socket) this.#socket = null;
+    const status = close.status ?? closeStatusFromReason(close.reason);
+    const replaced = close.replaced ?? (close.code === 4001 || status === "conn_replaced");
+    const reconnect = !this.#closed && !replaced;
+    const event: AppserviceWebsocketCloseEvent = {
+      reconnect,
+      replaced,
+    };
+    if (close.code !== undefined) event.code = close.code;
+    if (close.reason !== undefined) event.reason = close.reason;
+    if (status !== undefined) event.status = status;
+    if (replaced) this.#closed = true;
+    void Promise.resolve(this.#onClose?.(event)).catch((error: unknown) => {
+      this.#log("warn", "appservice_websocket_close_handler_failed", { error });
+    });
+    if (replaced) {
+      void Promise.resolve(this.#onReplaced?.(event)).catch((error: unknown) => {
+        this.#log("warn", "appservice_websocket_replaced_handler_failed", { error });
+      });
+    }
+    if (this.#closed || !reconnect) return;
+    const reconnectMs = this.#reconnectMs;
+    this.#reconnectMs = Math.min(this.#reconnectMs * 2, this.#timing.maxReconnectMs);
+    this.#log("warn", "appservice_websocket_closed", {
+      code: close.code,
+      reconnectMs,
+      reason: close.reason ?? "",
+      status,
+    });
+    this.#reconnectTimer = setTimeout(() => this.#connect(), reconnectMs);
+  }
+
+  #clearConnectionTimers(): void {
+    if (this.#pingIntervalTimer) clearInterval(this.#pingIntervalTimer);
+    if (this.#pingTimeoutTimer) clearTimeout(this.#pingTimeoutTimer);
+    if (this.#stableTimer) clearTimeout(this.#stableTimer);
+    this.#pendingPingId = null;
+    this.#pingIntervalTimer = null;
+    this.#pingTimeoutTimer = null;
+    this.#stableTimer = null;
+  }
+
+  #clearReconnectTimer(): void {
+    if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
+    this.#reconnectTimer = null;
+  }
+
+  #closeFromCommand(message: WebsocketMessage): boolean {
+    const status = stringValue(message.status) ?? stringValue(objectValue(message.data)?.status);
+    const replaced = message.command === "replaced" || status === "conn_replaced";
+    if (message.command !== "close" && message.command !== "disconnect" && !replaced) return false;
+    const socket = this.#socket;
+    if (!socket) return true;
+    this.#log("warn", "appservice_websocket_close_command", { command: message.command, replaced, status });
+    if (replaced) {
+      this.#closed = true;
+      const reason = JSON.stringify({ command: message.command ?? "disconnect", status: status ?? "conn_replaced" });
+      socket.close(4001, reason);
+      this.#handleSocketClose(socket, { code: 4001, reason, replaced, status: status ?? "conn_replaced" });
+      return true;
+    }
+    socket.close();
+    return true;
+  }
+
+  #handlePingResponse(message: WebsocketMessage): boolean {
+    if ((message.command !== "response" && message.command !== "error") || message.id !== this.#pendingPingId) return false;
+    if (this.#pingTimeoutTimer) clearTimeout(this.#pingTimeoutTimer);
+    this.#pendingPingId = null;
+    this.#pingTimeoutTimer = null;
+    return true;
   }
 
   async #handleMessage(data: WebSocket.RawData): Promise<void> {
@@ -88,11 +205,14 @@ export class AppserviceWebsocket {
       id: message.id,
       txnId: message.txn_id,
     });
+    if (this.#closeFromCommand(message)) return;
+    if (this.#handlePingResponse(message)) return;
     if (message.command === "connect") return;
     if (message.command === "ping") {
       this.#send(messageResponse(message, true, message.data ?? { timestamp: Date.now() }));
       return;
     }
+    if (message.command === "response" || message.command === "error") return;
     if (!message.command || message.command === "transaction") {
       for (const raw of message.events ?? []) {
         const event = rawMatrixEvent(raw);
@@ -150,11 +270,22 @@ export class AppserviceWebsocket {
   }
 
   #ping(): void {
-    this.#send({
+    if (this.#pendingPingId !== null) {
+      this.#log("warn", "appservice_websocket_ping_stale", { id: this.#pendingPingId });
+      this.#socket?.terminate();
+      return;
+    }
+    const id = this.#nextPingId++;
+    if (!this.#send({
       command: "ping",
       data: { timestamp: Date.now() },
-      id: Date.now(),
-    });
+      id,
+    })) return;
+    this.#pendingPingId = id;
+    this.#pingTimeoutTimer = setTimeout(() => {
+      this.#log("warn", "appservice_websocket_ping_timeout", { id });
+      this.#socket?.terminate();
+    }, this.#timing.pingTimeoutMs);
   }
 
   send(command: string, data: unknown): boolean {
@@ -179,6 +310,7 @@ interface WebsocketMessage {
   data?: unknown;
   events?: RawMatrixEvent[];
   id?: number;
+  status?: string;
   txn_id?: string;
 }
 
@@ -231,6 +363,15 @@ function websocketURL(homeserver: string): string {
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
   url.pathname = joinPath(url.pathname, "_matrix/client/unstable/fi.mau.as_sync");
   return url.toString();
+}
+
+function closeStatusFromReason(reason: string | undefined): string | undefined {
+  if (!reason) return undefined;
+  try {
+    return stringValue((JSON.parse(reason) as { status?: unknown }).status);
+  } catch {
+    return undefined;
+  }
 }
 
 function joinPath(base: string, suffix: string): string {

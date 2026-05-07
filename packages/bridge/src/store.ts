@@ -14,6 +14,7 @@ export interface BridgeDataStore {
   getUserLogin(id: string): Promise<UserLogin | null>;
   listGhosts(): Promise<Ghost[]>;
   listPortals(): Promise<Portal[]>;
+  listUserLogins(): Promise<UserLogin[]>;
   setAccount(key: string, account: MatrixAccount): Promise<void>;
   setBridgeState(state: BridgeState): Promise<void>;
   setBridgeStatus(status: BridgeStatus): Promise<void>;
@@ -84,6 +85,12 @@ export class MatrixBridgeDataStore implements BridgeDataStore {
     const keys = await this.#store.list("pickle-bridge:portal:");
     const portals = await Promise.all(keys.map((item) => this.#get<Portal>(item)));
     return portals.filter((item): item is Portal => item !== null);
+  }
+
+  async listUserLogins(): Promise<UserLogin[]> {
+    const keys = await this.#store.list("pickle-bridge:user-login:");
+    const logins = await Promise.all(keys.map((item) => this.#get<UserLogin>(item)));
+    return logins.filter((item): item is UserLogin => item !== null);
   }
 
   setAccount(accountKey: string, account: MatrixAccount): Promise<void> {
