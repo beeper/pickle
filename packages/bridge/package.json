@@ -54,10 +54,12 @@
   },
   "dependencies": {
     "@beeper/pickle": "workspace:*",
-    "@beeper/pickle-state-file": "workspace:*"
+    "@beeper/pickle-state-file": "workspace:*",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.0.18",
     "tsdown": "^0.21.10",
     "typescript": "^5.7.2",

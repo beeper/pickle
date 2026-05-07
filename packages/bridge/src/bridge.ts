@@ -1,5 +1,6 @@
 import { createMatrixClient } from "@beeper/pickle";
 import type { MatrixAppserviceBatchSendOptions, MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixReactionEvent, MatrixSubscription, SentEvent } from "@beeper/pickle";
+import { AppserviceWebsocket } from "./appservice-websocket";
 import { createBeeperAppServiceInit } from "./beeper";
 import type {
   BridgeContext,
@@ -84,7 +85,6 @@ export async function createBeeperBridgeWithClient(options: CreateBeeperBridgeOp
     bridge: options.bridge,
     bridgeType: options.bridgeType,
     getOnly: options.getOnly,
-    homeserver: matrix.homeserver,
     homeserverDomain: domainFromUserID(options.account.userId),
     token: options.account.accessToken,
   }));
@@ -111,6 +111,7 @@ export class RuntimeBridge implements PickleBridge {
   readonly #remoteEvents: Array<{ event: RemoteEvent; login: UserLogin }> = [];
   readonly #matrixClient: MatrixClient;
   readonly #subscriptions = new Set<MatrixSubscription>();
+  #appserviceWebsocket: AppserviceWebsocket | null = null;
   #bridgeStatus: BridgeStatus | null = null;
   #context: BridgeContext | null = null;
   #drainPromise: Promise<void> | null = null;
@@ -147,6 +148,7 @@ export class RuntimeBridge implements PickleBridge {
     await this.connector.init(this.#context);
     await this.connector.start(this.#context);
     await this.#subscribeMatrixEvents();
+    this.#startAppserviceWebsocket();
     this.#started = true;
     await this.setBridgeState("running");
   }
@@ -158,6 +160,8 @@ export class RuntimeBridge implements PickleBridge {
     await Promise.allSettled(subscriptions.map((subscription) => subscription.stop()));
     const clients = Array.from(this.#networkClients.values());
     this.#networkClients.clear();
+    this.#appserviceWebsocket?.stop();
+    this.#appserviceWebsocket = null;
     await Promise.allSettled(clients.map((client) => client.disconnect()));
     if ("stop" in this.connector && typeof this.connector.stop === "function") {
       await this.connector.stop();
@@ -459,6 +463,16 @@ export class RuntimeBridge implements PickleBridge {
     this.#subscriptions.add(subscription);
   }
 
+  #startAppserviceWebsocket(): void {
+    if (!this.#appserviceOptions || hasPushURL(this.#appserviceOptions.registration.url)) return;
+    this.#appserviceWebsocket = new AppserviceWebsocket({
+      appservice: this.#appserviceOptions,
+      dispatch: (event) => this.dispatchMatrixEvent(event),
+      log: defaultLogger,
+    });
+    this.#appserviceWebsocket.start();
+  }
+
   async #dispatchMatrixMessage(event: MatrixMessageEvent): Promise<MatrixDispatchResult> {
     if (event.sender.isMe || event.sender.userId === this.#ownUserId) {
       return { dispatched: false, eventId: event.eventId, handlers: 0, kind: event.kind, roomId: event.roomId };
@@ -758,6 +772,10 @@ function hasMethod<T extends string>(value: object, method: T): value is object 
   return method in value && typeof (value as Record<string, unknown>)[method] === "function";
 }
 
+function hasPushURL(url: string | undefined): boolean {
+  return Boolean(url && url !== "websocket");
+}
+
 function bindLoginProcess(process: LoginProcess, getContext: () => BridgeRequestContext): LoginProcess {
   const bound: LoginProcess = {
     cancel: (ctx?: BridgeRequestContext) => process.cancel(ctx ?? getContext()),
@@ -860,7 +878,6 @@ function beeperAppServiceOptions(input: {
   bridge: string;
   bridgeType: string | undefined;
   getOnly: boolean | undefined;
-  homeserver: string | undefined;
   homeserverDomain: string;
   token: string;
 }) {
@@ -873,6 +890,5 @@ function beeperAppServiceOptions(input: {
   if (input.baseDomain !== undefined) output.baseDomain = input.baseDomain;
   if (input.bridgeType !== undefined) output.bridgeType = input.bridgeType;
   if (input.getOnly !== undefined) output.getOnly = input.getOnly;
-  if (input.homeserver !== undefined) output.homeserver = input.homeserver;
   return output;
 }
