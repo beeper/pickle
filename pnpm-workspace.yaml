@@ -1,5 +1,6 @@
 packages:
   - "packages/ai-sdk"
+  - "packages/bridge"
   - "packages/chat-adapter"
   - "packages/cloudflare"
   - "packages/pickle"
