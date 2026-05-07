@@ -727,14 +727,27 @@ describe("RuntimeBridge", () => {
 
   it("does not treat persisted portal rooms as implicit management rooms", async () => {
     const client = createFakeMatrixClient();
-    const dataStore = createFakeDataStore();
+    const dataStore = createFakeBridgeDataStore();
     const portal = { id: "remote-room", mxid: "!portal:example", portalKey: { id: "remote-room", receiver: "login:a" } };
     dataStore.listPortals.mockResolvedValue([portal]);
+    dataStore.listUserLogins.mockResolvedValue([{ id: "login:a", userId: "@bridge:example" }]);
     const network = {
       ...createFakeNetworkAPI(),
       handleMatrixMessage: vi.fn(async () => ({ handled: true })),
     };
     const bridge = new RuntimeBridge({
+      appservice: {
+        homeserver: "https://matrix.example",
+        homeserverDomain: "example",
+        registration: {
+          asToken: "as",
+          hsToken: "hs",
+          id: "test",
+          namespaces: { users: [{ exclusive: true, regex: "@test_.*:example" }] },
+          senderLocalpart: "testbot",
+          url: "http://localhost:29300",
+        },
+      },
       connector: createFakeConnector(network),
       dataStore,
       matrix: matrixConfig(),
