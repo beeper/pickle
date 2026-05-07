@@ -1,47 +1,33 @@
-import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createBeeperBridge } from "@beeper/pickle-bridge/node";
+import { createBeeperBridgeFromPassword, createBeeperBridgeFromToken } from "@beeper/pickle-bridge/node";
 import type { Portal } from "@beeper/pickle-bridge/types";
 import { DummyConnector, LOGIN_ID, PORTAL_ID, makeGhostMxid } from "./connector";
 import { loadEnv, optionalEnv, requiredEnv } from "./env";
-import { FileState, MatrixState } from "./store";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const sourceRoot = root.endsWith("/dist/src") ? resolve(root, "../..") : resolve(root, "..");
-const dataDir = resolve(sourceRoot, ".data");
 
 await loadEnv(resolve(sourceRoot, ".env"));
 
-const homeserver = requiredEnv("MATRIX_HOMESERVER");
-const token = requiredEnv("MATRIX_ACCESS_TOKEN");
-const serverName = requiredEnv("MATRIX_SERVER_NAME");
+const serverName = optionalEnv("MATRIX_SERVER_NAME", "beeper.local") ?? "beeper.local";
 const senderLocalpart = optionalEnv("DUMMYBRIDGE_SENDER_LOCALPART", "dummybridgebot") ?? "dummybridgebot";
 
-const state = new FileState(resolve(dataDir, "state.json"));
-await state.connect();
-await mkdir(dataDir, { recursive: true });
-
-const bridge = await createBeeperBridge(beeperBridgeOptions());
-
-function beeperBridgeOptions(): Parameters<typeof createBeeperBridge>[0] {
-  const address = optionalEnv("DUMMYBRIDGE_URL");
-  const baseDomain = optionalEnv("BEEPER_BASE_DOMAIN", "beeper.com");
-  const output: Parameters<typeof createBeeperBridge>[0] = {
+const bridgeOptions = {
   bridge: optionalEnv("DUMMYBRIDGE_BRIDGE_NAME", "dummybridge") ?? "dummybridge",
   connector: new DummyConnector({ senderLocalpart, serverName }),
   homeserverDomain: serverName,
-  matrix: {
-    homeserver,
-    store: new MatrixState(state, "dummybridge-matrix"),
-    token,
-    wasmPath: resolve(sourceRoot, "../../packages/pickle/dist/pickle.wasm"),
-  },
-  };
-  if (address !== undefined) output.address = address;
-  if (baseDomain !== undefined) output.baseDomain = baseDomain;
-  return output;
-}
+};
+const bridge = process.env.BEEPER_USERNAME && process.env.BEEPER_PASSWORD
+  ? await createBeeperBridgeFromPassword({
+    ...bridgeOptions,
+    password: requiredEnv("BEEPER_PASSWORD"),
+    username: requiredEnv("BEEPER_USERNAME"),
+  })
+  : await createBeeperBridgeFromToken({
+    ...bridgeOptions,
+    token: requiredEnv("BEEPER_ACCESS_TOKEN"),
+  });
 
 await bridge.start();
 const login = { id: LOGIN_ID };
@@ -92,7 +78,6 @@ console.log("dummybridge running");
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, async () => {
     await bridge.stop();
-    await state.disconnect();
     process.exit(0);
   });
 }

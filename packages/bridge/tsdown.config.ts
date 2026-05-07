@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/node.ts", "src/types.ts", "src/events.ts", "src/beeper.ts"],
+  entry: ["src/index.ts", "src/node.ts", "src/types.ts", "src/events.ts", "src/beeper.ts", "src/store.ts"],
   format: ["esm"],
   dts: {
     sourcemap: false,
@@ -13,7 +13,7 @@ export default defineConfig({
     dts: ".d.ts",
   }),
   deps: {
-    neverBundle: ["@beeper/pickle", "@beeper/pickle/node"],
+    neverBundle: ["@beeper/pickle", "@beeper/pickle/auth", "@beeper/pickle/node", "@beeper/pickle-state-file"],
   },
   target: false,
 });

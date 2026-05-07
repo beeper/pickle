@@ -28,6 +28,10 @@
       "types": "./dist/beeper.d.ts",
       "import": "./dist/beeper.js"
     },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "import": "./dist/store.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
@@ -49,7 +53,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@beeper/pickle": "workspace:*"
+    "@beeper/pickle": "workspace:*",
+    "@beeper/pickle-state-file": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

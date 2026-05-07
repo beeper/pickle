@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@beeper/pickle": "workspace:*",
-    "@beeper/pickle-bridge": "workspace:*"
+    "@beeper/pickle-bridge": "workspace:*",
+    "@beeper/pickle-state-file": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",

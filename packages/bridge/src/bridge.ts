@@ -1,11 +1,14 @@
+import { loginWithMatrixPassword } from "@beeper/pickle/auth";
 import { createMatrixClient } from "@beeper/pickle";
-import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixReactionEvent, MatrixSubscription, SentEvent } from "@beeper/pickle";
-import { createBeeperAppServiceInit } from "./beeper";
+import type { MatrixAccount, MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixReactionEvent, MatrixSubscription, SentEvent } from "@beeper/pickle";
+import { createBeeperAppService, createBeeperAppServiceInit } from "./beeper";
 import type {
   BridgeContext,
   BridgeLogger,
   BridgeRequestContext,
   CreateBeeperBridgeOptions,
+  CreateBeeperBridgeFromPasswordOptions,
+  CreateBeeperBridgeFromTokenOptions,
   CreateBridgeOptions,
   BridgeBackfillOptions,
   BridgeCreatePortalRoomOptions,
@@ -51,9 +54,48 @@ export async function createBeeperBridge(options: CreateBeeperBridgeOptions): Pr
   return new RuntimeBridge({ appservice, connector: options.connector, matrix: options.matrix }, client);
 }
 
+export async function createBeeperBridgeFromToken(options: CreateBeeperBridgeFromTokenOptions): Promise<PickleBridge> {
+  const manager = await createBeeperAppService(beeperTokenAppServiceOptions({
+    address: options.address,
+    baseDomain: options.baseDomain,
+    bridge: options.bridge,
+    getOnly: options.getOnly,
+    token: options.token,
+  }));
+  return createBeeperBridge(beeperBridgeOptions({
+    address: options.address,
+    baseDomain: options.baseDomain,
+    bridge: options.bridge,
+    connector: options.connector,
+    getOnly: true,
+    homeserverDomain: options.homeserverDomain ?? manager.homeserverDomain,
+    matrix: bridgeMatrixConfig(options.matrix, manager.homeserver, options.token),
+    token: options.token,
+  }));
+}
+
+export async function createBeeperBridgeFromPassword(options: CreateBeeperBridgeFromPasswordOptions): Promise<PickleBridge> {
+  const accountKey = `beeper:${options.baseDomain ?? "beeper.com"}:${options.username}`;
+  const existing = await options.dataStore?.getAccount(accountKey);
+  const account = existing ?? await loginWithMatrixPassword(passwordLoginOptions(options));
+  if (!existing) await options.dataStore?.setAccount(accountKey, account);
+  return createBeeperBridgeFromToken(beeperPasswordBridgeOptions({
+    address: options.address,
+    baseDomain: options.baseDomain,
+    bridge: options.bridge,
+    connector: options.connector,
+    dataStore: options.dataStore,
+    getOnly: options.getOnly,
+    homeserverDomain: options.homeserverDomain,
+    matrix: passwordBridgeMatrixConfig(options.matrix, account),
+    token: account.accessToken,
+  }));
+}
+
 export class RuntimeBridge implements PickleBridge {
   readonly connector: CreateBridgeOptions["connector"];
   readonly #appserviceOptions: CreateBridgeOptions["appservice"];
+  readonly #dataStore: CreateBridgeOptions["dataStore"];
   readonly #networkClients = new Map<string, NetworkAPI>();
   readonly #messages = new Map<string, SentEvent>();
   readonly #portalsByKey = new Map<string, Portal>();
@@ -69,6 +111,7 @@ export class RuntimeBridge implements PickleBridge {
   constructor(options: CreateBridgeOptions, client: MatrixClient) {
     this.connector = options.connector;
     this.#appserviceOptions = options.appservice;
+    this.#dataStore = options.dataStore;
     this.#matrixClient = client;
   }
 
@@ -165,6 +208,7 @@ export class RuntimeBridge implements PickleBridge {
     const client = await this.connector.loadUserLogin(this.#requestContext(), login);
     login.client = client;
     this.#networkClients.set(login.id, client);
+    await this.#dataStore?.setUserLogin(login);
     await client.connect({ ...this.#requestContext(), login });
     return client;
   }
@@ -180,6 +224,9 @@ export class RuntimeBridge implements PickleBridge {
     if (portal.mxid) {
       this.#portalsByRoom.set(portal.mxid, portal);
     }
+    void this.#dataStore?.setPortal(portal).catch((error: unknown) => {
+      defaultLogger("warn", "portal_store_failed", { error });
+    });
   }
 
   async flushRemoteEvents(): Promise<void> {
@@ -217,12 +264,14 @@ export class RuntimeBridge implements PickleBridge {
   }
 
   #createContext(): BridgeContext {
-    return {
+    const context: BridgeContext = {
       bridge: this,
       client: this.#matrixClient,
       log: defaultLogger,
       queueRemoteEvent: (login, event) => this.queueRemoteEvent(login, event),
     };
+    if (this.#dataStore) context.dataStore = this.#dataStore;
+    return context;
   }
 
   async #subscribeMatrixEvents(): Promise<void> {
@@ -375,11 +424,14 @@ export class RuntimeBridge implements PickleBridge {
     for (const [index, part] of converted.parts.entries()) {
       const sender = event.getSender();
       const sent = await this.#sendRemoteMessagePart(portal.mxid, sender.sender, part.content, eventTimestamp(event));
-      this.#messages.set(messagePartKey(event.getID(), part.id ?? String(index)), {
+      const messageKey = messagePartKey(event.getID(), part.id ?? String(index));
+      const message = {
         eventId: sent.eventId,
         raw: sent.raw,
         roomId: sent.roomId,
-      });
+      };
+      this.#messages.set(messageKey, message);
+      await this.#dataStore?.setMessage(messageKey, message);
     }
   }
 
@@ -488,5 +540,102 @@ function beeperAppServiceOptions(input: {
   if (input.baseDomain !== undefined) output.baseDomain = input.baseDomain;
   if (input.getOnly !== undefined) output.getOnly = input.getOnly;
   if (input.homeserver !== undefined) output.homeserver = input.homeserver;
+  return output;
+}
+
+function bridgeMatrixConfig(matrix: CreateBeeperBridgeFromTokenOptions["matrix"], homeserver: string, token: string): CreateBeeperBridgeOptions["matrix"] {
+  const output = {
+    ...matrix,
+    homeserver: matrix?.homeserver ?? homeserver,
+    token: matrix?.token ?? token,
+  };
+  if (!output.store) throw new Error("createBeeperBridgeFromToken requires a Matrix store");
+  return output as CreateBeeperBridgeOptions["matrix"];
+}
+
+function passwordLoginOptions(options: CreateBeeperBridgeFromPasswordOptions): Parameters<typeof loginWithMatrixPassword>[0] {
+  const output: Parameters<typeof loginWithMatrixPassword>[0] = {
+    homeserver: options.matrix?.homeserver ?? `https://matrix.${options.baseDomain ?? "beeper.com"}`,
+    initialDeviceDisplayName: "Pickle Bridge",
+    password: options.password,
+    username: options.username,
+  };
+  if (options.matrix?.fetch !== undefined) output.fetch = options.matrix.fetch;
+  return output;
+}
+
+function passwordBridgeMatrixConfig(matrix: CreateBeeperBridgeFromPasswordOptions["matrix"], account: MatrixAccount): NonNullable<CreateBeeperBridgeFromTokenOptions["matrix"]> {
+  if (!matrix?.store) throw new Error("createBeeperBridgeFromPassword requires a Matrix store");
+  return {
+    ...matrix,
+    account,
+    homeserver: matrix.homeserver ?? account.homeserver,
+    store: matrix.store,
+    token: account.accessToken,
+  };
+}
+
+function beeperPasswordBridgeOptions(input: {
+  address: string | undefined;
+  baseDomain: string | undefined;
+  bridge: string;
+  connector: CreateBeeperBridgeOptions["connector"];
+  dataStore: CreateBeeperBridgeOptions["dataStore"] | undefined;
+  getOnly: boolean | undefined;
+  homeserverDomain: string | undefined;
+  matrix: NonNullable<CreateBeeperBridgeFromTokenOptions["matrix"]>;
+  token: string;
+}): CreateBeeperBridgeFromTokenOptions {
+  const output: CreateBeeperBridgeFromTokenOptions = {
+    bridge: input.bridge,
+    connector: input.connector,
+    matrix: input.matrix,
+    token: input.token,
+  };
+  if (input.address !== undefined) output.address = input.address;
+  if (input.baseDomain !== undefined) output.baseDomain = input.baseDomain;
+  if (input.dataStore !== undefined) output.dataStore = input.dataStore;
+  if (input.getOnly !== undefined) output.getOnly = input.getOnly;
+  if (input.homeserverDomain !== undefined) output.homeserverDomain = input.homeserverDomain;
+  return output;
+}
+
+function beeperTokenAppServiceOptions(input: {
+  address: string | undefined;
+  baseDomain: string | undefined;
+  bridge: string;
+  getOnly: boolean | undefined;
+  token: string;
+}) {
+  const output = {
+    bridge: input.bridge,
+    token: input.token,
+  } as Parameters<typeof createBeeperAppService>[0];
+  if (input.address !== undefined) output.address = input.address;
+  if (input.baseDomain !== undefined) output.baseDomain = input.baseDomain;
+  if (input.getOnly !== undefined) output.getOnly = input.getOnly;
+  return output;
+}
+
+function beeperBridgeOptions(input: {
+  address: string | undefined;
+  baseDomain: string | undefined;
+  bridge: string;
+  connector: CreateBeeperBridgeOptions["connector"];
+  getOnly: boolean;
+  homeserverDomain: string;
+  matrix: CreateBeeperBridgeOptions["matrix"];
+  token: string;
+}) {
+  const output = {
+    bridge: input.bridge,
+    connector: input.connector,
+    getOnly: input.getOnly,
+    homeserverDomain: input.homeserverDomain,
+    matrix: input.matrix,
+    token: input.token,
+  } as CreateBeeperBridgeOptions;
+  if (input.address !== undefined) output.address = input.address;
+  if (input.baseDomain !== undefined) output.baseDomain = input.baseDomain;
   return output;
 }

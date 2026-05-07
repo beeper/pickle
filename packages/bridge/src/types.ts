@@ -14,6 +14,7 @@ import type {
   MatrixStore,
   SentEvent,
 } from "@beeper/pickle";
+import type { BridgeDataStore } from "./store";
 
 export type BridgeID = string;
 export type UserID = string;
@@ -489,6 +490,7 @@ export interface PickleBridge {
 export interface CreateBridgeOptions {
   appservice?: MatrixAppserviceInitOptions;
   connector: BridgeConnector;
+  dataStore?: BridgeDataStore;
   matrix: BridgeMatrixConfig;
 }
 
@@ -499,6 +501,17 @@ export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "ap
   getOnly?: boolean;
   homeserverDomain?: string;
   token?: string;
+}
+
+export interface CreateBeeperBridgeFromTokenOptions extends Omit<CreateBeeperBridgeOptions, "matrix" | "token"> {
+  matrix?: Partial<Omit<BridgeMatrixConfig, "store">> & Pick<BridgeMatrixConfig, "store">;
+  token: string;
+}
+
+export interface CreateBeeperBridgeFromPasswordOptions extends Omit<CreateBeeperBridgeFromTokenOptions, "token"> {
+  baseDomain?: string;
+  password: string;
+  username: string;
 }
 
 export interface BridgeMatrixConfig extends Pick<MatrixClientOptions, "account" | "beeper" | "fetch" | "homeserver" | "logger" | "pickleKey" | "randomBytes" | "recoveryKey" | "store" | "token" | "verifyRecoveryOnStart" | "wasmBytes" | "wasmModule" | "wasmUrl"> {
@@ -518,9 +531,20 @@ export interface CreateNodeBeeperBridgeOptions extends Omit<CreateBeeperBridgeOp
   matrix: NodeBridgeMatrixConfig;
 }
 
+export interface CreateNodeBeeperBridgeFromTokenOptions extends Omit<CreateBeeperBridgeFromTokenOptions, "matrix"> {
+  dataDir?: string;
+  matrix?: Partial<NodeBridgeMatrixConfig>;
+}
+
+export interface CreateNodeBeeperBridgeFromPasswordOptions extends Omit<CreateBeeperBridgeFromPasswordOptions, "matrix"> {
+  dataDir?: string;
+  matrix?: Partial<NodeBridgeMatrixConfig>;
+}
+
 export interface BridgeContext {
   bridge: PickleBridge;
   client: MatrixClient;
+  dataStore?: BridgeDataStore;
   log: BridgeLogger;
   queueRemoteEvent(login: UserLogin, event: RemoteEvent): QueueRemoteEventResult;
 }

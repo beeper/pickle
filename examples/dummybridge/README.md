@@ -25,13 +25,13 @@ The smoke test uses a fake Matrix client, so it does not need a homeserver.
 
 ## Live run
 
-Copy `.env.example` to `.env`, fill in a homeserver, Matrix access token, and server name, then run:
+Copy `.env.example` to `.env`, then fill in either `BEEPER_ACCESS_TOKEN` or `BEEPER_USERNAME`/`BEEPER_PASSWORD`:
 
 ```sh
 pnpm --filter @beeper/pickle-example-dummybridge start
 ```
 
-`createBeeperBridge()` boots the Pickle Matrix client, uses the Matrix token to fetch/register the Beeper appservice through the bridge-manager-compatible Hungryserv endpoints, then starts the bridge runtime with the computed appservice registration.
+`createBeeperBridgeFromToken()` and `createBeeperBridgeFromPassword()` fetch/register the Beeper appservice through the bridge-manager-compatible Hungryserv endpoints, infer the Hungryserv Matrix homeserver, use the default file-backed state package, and start the bridge runtime with the computed appservice registration. Password login sessions are cached in the bridge data store.
 
 To create a portal at startup:
 
