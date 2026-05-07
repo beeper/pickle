@@ -139,6 +139,52 @@ describe("RuntimeBridge", () => {
       path: expect.stringContaining("/rooms/!room%3Aexample/send/m.room.message/pickle-bridge-"),
     });
   });
+
+  it("initializes appservice and creates/backfills portal rooms", async () => {
+    const client = createFakeMatrixClient();
+    const connector = createFakeConnector(createFakeNetworkAPI());
+    const bridge = new RuntimeBridge({
+      appservice: {
+        homeserver: "https://matrix.example",
+        homeserverDomain: "example",
+        registration: {
+          asToken: "as",
+          hsToken: "hs",
+          id: "test",
+          namespaces: { users: [{ exclusive: true, regex: "@test_.*:example" }] },
+          senderLocalpart: "testbot",
+          url: "http://localhost:29300",
+        },
+      },
+      connector,
+      matrix: matrixConfig(),
+    }, client);
+
+    await bridge.start();
+    const portal = await bridge.createPortalRoom({
+      name: "Remote room",
+      portalKey: { id: "remote-room", receiver: "login:a" },
+      userId: "@test_alice:example",
+    });
+    const backfill = await bridge.backfill({
+      events: [{
+        content: { body: "old", msgtype: "m.text" },
+        sender: "@test_alice:example",
+        timestamp: 1,
+      }],
+      roomId: portal.mxid!,
+    });
+
+    expect(client.appservice.init).toHaveBeenCalledOnce();
+    expect(client.appservice.createRoom).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Remote room",
+      userId: "@test_alice:example",
+    }));
+    expect(client.appservice.batchSend).toHaveBeenCalledWith(expect.objectContaining({
+      roomId: "!created:example",
+    }));
+    expect(backfill.eventIds).toEqual(["$backfilled"]);
+  });
 });
 
 function matrixConfig(): BridgeMatrixConfig {
@@ -198,6 +244,14 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
   };
   return {
     accountData: {} as MatrixClient["accountData"],
+    appservice: {
+      batchSend: vi.fn(async () => ({ eventIds: ["$backfilled"], raw: {} })),
+      createRoom: vi.fn(async () => ({ raw: {}, roomId: "!created:example" })),
+      ensureJoined: vi.fn(async () => {}),
+      ensureRegistered: vi.fn(async () => {}),
+      init: vi.fn(async () => ({ botUserId: "@testbot:example", id: "test" })),
+      sendMessage: vi.fn(async () => ({ eventId: "$sent", raw: {}, roomId: "!room:example" })),
+    },
     beeper: {} as MatrixClient["beeper"],
     boot: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@bridge:example" })),
     close: vi.fn(async () => {}),

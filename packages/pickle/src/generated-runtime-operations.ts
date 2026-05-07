@@ -3,6 +3,14 @@
 import type {
   MatrixAccountDataResult,
   MatrixApplySyncResponseOptions,
+  MatrixAppserviceBatchSendOptions,
+  MatrixAppserviceBatchSendResult,
+  MatrixAppserviceCreateRoomOptions,
+  MatrixAppserviceInfo,
+  MatrixAppserviceInitOptions,
+  MatrixAppserviceRoomUserOptions,
+  MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceUserOptions,
   MatrixBanUserOptions,
   MatrixBeeperStreamOptions,
   MatrixCoreInitOptions,
@@ -85,6 +93,12 @@ export interface MatrixCoreOperations {
   logout(): Promise<void>;
   getCryptoStatus(): Promise<MatrixCryptoStatus>;
   rawRequest(options: MatrixRawRequestOptions): Promise<MatrixRawRequestResult>;
+  initAppservice(options: MatrixAppserviceInitOptions): Promise<MatrixAppserviceInfo>;
+  appserviceEnsureRegistered(options: MatrixAppserviceUserOptions): Promise<void>;
+  appserviceEnsureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void>;
+  appserviceCreateRoom(options: MatrixAppserviceCreateRoomOptions): Promise<MatrixCreateRoomResult>;
+  appserviceSendMessage(options: MatrixAppserviceSendMessageOptions): Promise<MatrixRawMessage>;
+  appserviceBatchSend(options: MatrixAppserviceBatchSendOptions): Promise<MatrixAppserviceBatchSendResult>;
   applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void>;
   getAccountData(options: MatrixGetAccountDataOptions): Promise<MatrixAccountDataResult>;
   setAccountData(options: MatrixSetAccountDataOptions): Promise<void>;
@@ -170,6 +184,30 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   rawRequest(options: MatrixRawRequestOptions): Promise<MatrixRawRequestResult> {
     return this.call<MatrixRawRequestResult>("raw_request", options);
+  }
+
+  initAppservice(options: MatrixAppserviceInitOptions): Promise<MatrixAppserviceInfo> {
+    return this.call<MatrixAppserviceInfo>("init_appservice", options);
+  }
+
+  appserviceEnsureRegistered(options: MatrixAppserviceUserOptions): Promise<void> {
+    return this.call<void>("appservice_ensure_registered", options);
+  }
+
+  appserviceEnsureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void> {
+    return this.call<void>("appservice_ensure_joined", options);
+  }
+
+  appserviceCreateRoom(options: MatrixAppserviceCreateRoomOptions): Promise<MatrixCreateRoomResult> {
+    return this.call<MatrixCreateRoomResult>("appservice_create_room", options);
+  }
+
+  appserviceSendMessage(options: MatrixAppserviceSendMessageOptions): Promise<MatrixRawMessage> {
+    return this.call<MatrixRawMessage>("appservice_send_message", options);
+  }
+
+  appserviceBatchSend(options: MatrixAppserviceBatchSendOptions): Promise<MatrixAppserviceBatchSendResult> {
+    return this.call<MatrixAppserviceBatchSendResult>("appservice_batch_send", options);
   }
 
   applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void> {

@@ -16,6 +16,7 @@ import (
 
 type Core struct {
 	client             *mautrix.Client
+	appservice         *matrixAppservice
 	crypto             *cryptohelper.CryptoHelper
 	cryptoStore        crypto.Store
 	backupKey          *backup.MegolmBackupKey
@@ -82,6 +83,18 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleGetCryptoStatus()
 	case opRawRequest:
 		return c.handleRawRequest(ctx, payload)
+	case opInitAppservice:
+		return c.handleInitAppservice(ctx, payload)
+	case opAppserviceEnsureRegistered:
+		return c.handleAppserviceEnsureRegistered(ctx, payload)
+	case opAppserviceEnsureJoined:
+		return c.handleAppserviceEnsureJoined(ctx, payload)
+	case opAppserviceCreateRoom:
+		return c.handleAppserviceCreateRoom(ctx, payload)
+	case opAppserviceSendMessage:
+		return c.handleAppserviceSendMessage(ctx, payload)
+	case opAppserviceBatchSend:
+		return c.handleAppserviceBatchSend(ctx, payload)
 	case opApplySyncResponse:
 		return c.handleApplySyncResponse(ctx, payload)
 	case opGetAccountData:

@@ -1,5 +1,6 @@
 import type {
   MatrixAccountData,
+  MatrixAppservice,
   MatrixBeeper,
   MatrixClient,
   MatrixCrypto,
@@ -37,6 +38,7 @@ export function createMatrixClient(options: MatrixClientOptions): MatrixClient {
 
 class DefaultMatrixClient implements MatrixClient {
   readonly accountData: MatrixAccountData;
+  readonly appservice: MatrixAppservice;
   readonly beeper: MatrixBeeper;
   readonly crypto: MatrixCrypto;
   readonly media: MatrixMedia;
@@ -68,6 +70,17 @@ class DefaultMatrixClient implements MatrixClient {
       getRoom: (opts) => this.#withCore((core) => core.getRoomAccountData(opts)),
       set: (opts) => this.#withCore((core) => core.setAccountData(opts)),
       setRoom: (opts) => this.#withCore((core) => core.setRoomAccountData(opts)),
+    };
+    this.appservice = {
+      batchSend: (opts) => this.#withCore((core) => core.appserviceBatchSend(opts)),
+      createRoom: (opts) => this.#withCore((core) => core.appserviceCreateRoom(stripUndefined(opts))),
+      ensureJoined: (opts) => this.#withCore((core) => core.appserviceEnsureJoined(opts)),
+      ensureRegistered: (opts) => this.#withCore((core) => core.appserviceEnsureRegistered(opts)),
+      init: (opts) => this.#withCore((core) => core.initAppservice(opts)),
+      sendMessage: (opts) => this.#withCore(async (core) => {
+        const result = await core.appserviceSendMessage(stripUndefined(opts));
+        return { eventId: result.eventId, raw: result.raw, roomId: result.roomId };
+      }),
     };
     this.beeper = {
       ephemeral: {

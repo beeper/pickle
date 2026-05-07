@@ -5,6 +5,10 @@ import type {
   BridgeLogger,
   BridgeRequestContext,
   CreateBridgeOptions,
+  BridgeBackfillOptions,
+  BridgeCreatePortalRoomOptions,
+  MatrixAppserviceCreateRoomOptions,
+  MatrixAppserviceSendMessageOptions,
   LoginProcess,
   NetworkAPI,
   PickleBridge,
@@ -30,6 +34,7 @@ export function createBridge(options: CreateBridgeOptions): PickleBridge {
 
 export class RuntimeBridge implements PickleBridge {
   readonly connector: CreateBridgeOptions["connector"];
+  readonly #appserviceOptions: CreateBridgeOptions["appservice"];
   readonly #networkClients = new Map<string, NetworkAPI>();
   readonly #messages = new Map<string, SentEvent>();
   readonly #portalsByKey = new Map<string, Portal>();
@@ -44,6 +49,7 @@ export class RuntimeBridge implements PickleBridge {
 
   constructor(options: CreateBridgeOptions, client: MatrixClient) {
     this.connector = options.connector;
+    this.#appserviceOptions = options.appservice;
     this.#matrixClient = client;
   }
 
@@ -59,6 +65,9 @@ export class RuntimeBridge implements PickleBridge {
     if (this.#started) return;
     const whoami = await this.#matrixClient.boot();
     this.#ownUserId = whoami.userId;
+    if (this.#appserviceOptions) {
+      await this.#matrixClient.appservice.init(this.#appserviceOptions);
+    }
     this.#context = this.#createContext();
     if ("validateConfig" in this.connector && typeof this.connector.validateConfig === "function") {
       await this.connector.validateConfig();
@@ -86,6 +95,49 @@ export class RuntimeBridge implements PickleBridge {
 
   async createLogin(user: BridgeUser, flowId: string): Promise<LoginProcess> {
     return this.connector.createLogin(this.#requestContext(), user, flowId);
+  }
+
+  async createPortalRoom(options: BridgeCreatePortalRoomOptions): Promise<Portal> {
+    this.#requestContext();
+    const createOptions = stripUndefined({
+      beeperAutoJoinInvites: options.beeperAutoJoinInvites,
+      beeperBridgeAccountId: options.beeperBridgeAccountId,
+      beeperBridgeName: options.beeperBridgeName,
+      beeperInitialMembers: options.beeperInitialMembers,
+      beeperLocalRoomId: options.beeperLocalRoomId,
+      creationContent: options.creationContent,
+      initialState: options.initialState?.map((state) => ({
+        content: state.content,
+        stateKey: state.stateKey ?? "",
+        type: state.type,
+      })),
+      invite: options.invite,
+      isDirect: options.isDirect,
+      meowCreateTs: options.meowCreateTs,
+      meowRoomId: options.meowRoomId,
+      name: options.name,
+      preset: options.preset,
+      roomAliasName: options.roomAliasName,
+      roomVersion: options.roomVersion,
+      topic: options.topic,
+      userId: options.userId,
+      visibility: options.visibility,
+    });
+    const result = await this.#matrixClient.appservice.createRoom(createOptions as MatrixAppserviceCreateRoomOptions);
+    const portal: Portal = {
+      id: options.portalKey.id,
+      metadata: options.metadata,
+      mxid: result.roomId,
+      portalKey: options.portalKey,
+      ...(options.portalKey.receiver ? { receiver: options.portalKey.receiver } : {}),
+    };
+    this.registerPortal(portal);
+    return portal;
+  }
+
+  async backfill(options: BridgeBackfillOptions) {
+    this.#requestContext();
+    return this.#matrixClient.appservice.batchSend(options);
   }
 
   async loadUserLogin(login: UserLogin): Promise<NetworkAPI> {
@@ -302,7 +354,8 @@ export class RuntimeBridge implements PickleBridge {
     }
     const converted = await event.convertMessage(this.#requestContext(), portal, this.#matrixIntent());
     for (const [index, part] of converted.parts.entries()) {
-      const sent = await this.#matrixIntent().sendMessage(portal.mxid, part.content);
+      const sender = event.getSender();
+      const sent = await this.#sendRemoteMessagePart(portal.mxid, sender.sender, part.content, eventTimestamp(event));
       this.#messages.set(messagePartKey(event.getID(), part.id ?? String(index)), {
         eventId: sent.eventId,
         raw: sent.raw,
@@ -326,6 +379,19 @@ export class RuntimeBridge implements PickleBridge {
         return { eventId, raw: result.raw ?? result.body ?? result, roomId };
       },
     };
+  }
+
+  async #sendRemoteMessagePart(roomId: string, sender: string, content: Record<string, unknown>, timestamp?: number): Promise<SentEvent> {
+    if (this.#appserviceOptions && sender.startsWith("@")) {
+      const sendOptions = stripUndefined({
+        content,
+        roomId,
+        timestamp,
+        userId: sender,
+      });
+      return this.#matrixClient.appservice.sendMessage(sendOptions as MatrixAppserviceSendMessageOptions);
+    }
+    return this.#matrixIntent().sendMessage(roomId, content);
   }
 }
 
@@ -358,4 +424,21 @@ function eventIdFromRaw(body: unknown): string {
     return (body as { eventId: string }).eventId;
   }
   return "";
+}
+
+function eventTimestamp(event: RemoteEvent): number | undefined {
+  if ("getTimestamp" in event && typeof event.getTimestamp === "function") {
+    const timestamp = event.getTimestamp();
+    return timestamp instanceof Date ? timestamp.getTime() : undefined;
+  }
+  return undefined;
+}
+
+function stripUndefined<T extends Record<string, unknown>>(value: T): T {
+  for (const key of Object.keys(value)) {
+    if (value[key] === undefined) {
+      delete value[key];
+    }
+  }
+  return value;
 }

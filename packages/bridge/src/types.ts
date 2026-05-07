@@ -1,7 +1,13 @@
 import type {
   MatrixAttachment,
+  MatrixAppserviceBatchSendOptions,
+  MatrixAppserviceBatchSendResult,
+  MatrixAppserviceCreateRoomOptions,
+  MatrixAppserviceInitOptions,
+  MatrixAppserviceSendMessageOptions,
   MatrixClient,
   MatrixClientOptions,
+  CreateRoomOptions,
   MatrixEventSender,
   MatrixMessageEvent,
   MatrixReactionEvent,
@@ -470,6 +476,8 @@ export interface PickleBridge {
   readonly connector: BridgeConnector;
   readonly context: BridgeContext | null;
   createLogin(user: BridgeUser, flowId: string): Promise<LoginProcess>;
+  backfill(options: BridgeBackfillOptions): Promise<MatrixAppserviceBatchSendResult>;
+  createPortalRoom(options: BridgeCreatePortalRoomOptions): Promise<Portal>;
   flushRemoteEvents(): Promise<void>;
   loadUserLogin(login: UserLogin): Promise<NetworkAPI>;
   queueRemoteEvent(login: UserLogin, event: RemoteEvent): QueueRemoteEventResult;
@@ -479,6 +487,7 @@ export interface PickleBridge {
 }
 
 export interface CreateBridgeOptions {
+  appservice?: MatrixAppserviceInitOptions;
   connector: BridgeConnector;
   matrix: BridgeMatrixConfig;
 }
@@ -525,6 +534,27 @@ export interface QueueRemoteEventResult {
   event: RemoteEvent;
   queued: boolean;
 }
+
+export interface BridgeCreatePortalRoomOptions extends CreateRoomOptions {
+  beeperAutoJoinInvites?: boolean;
+  beeperBridgeAccountId?: string;
+  beeperBridgeName?: string;
+  beeperInitialMembers?: string[];
+  beeperLocalRoomId?: string;
+  metadata?: unknown;
+  meowCreateTs?: number;
+  meowRoomId?: string;
+  portalKey: PortalKey;
+  userId?: string;
+}
+
+export interface BridgeBackfillOptions extends MatrixAppserviceBatchSendOptions {}
+
+export type {
+  MatrixAppserviceCreateRoomOptions,
+  MatrixAppserviceInitOptions,
+  MatrixAppserviceSendMessageOptions,
+};
 
 export interface MatrixDispatchResult {
   dispatched: boolean;

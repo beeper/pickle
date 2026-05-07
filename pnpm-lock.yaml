@@ -92,6 +92,25 @@ importers:
         specifier: ^4.85.0
         version: 4.87.0
 
+  examples/dummybridge:
+    dependencies:
+      '@beeper/pickle':
+        specifier: workspace:*
+        version: link:../../packages/pickle
+      '@beeper/pickle-bridge':
+        specifier: workspace:*
+        version: link:../../packages/bridge
+    devDependencies:
+      '@types/node':
+        specifier: ^25.3.2
+        version: 25.6.0
+      tsdown:
+        specifier: ^0.21.10
+        version: 0.21.10(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/ai-sdk:
     devDependencies:
       '@beeper/pickle-chat-adapter':

@@ -35,6 +35,10 @@ class NodeMatrixClient implements MatrixClient {
     return this.#namespace("accountData");
   }
 
+  get appservice() {
+    return this.#namespace("appservice");
+  }
+
   get beeper() {
     return this.#namespace("beeper");
   }

@@ -70,10 +70,21 @@ import type {
   UploadMediaResult,
   UserInfo,
 } from "./types";
+import type {
+  MatrixAppserviceBatchSendOptions,
+  MatrixAppserviceBatchSendResult,
+  MatrixAppserviceCreateRoomOptions,
+  MatrixAppserviceInfo,
+  MatrixAppserviceInitOptions,
+  MatrixAppserviceRoomUserOptions,
+  MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceUserOptions,
+} from "./runtime-types";
 
 export interface MatrixClient {
-  beeper: MatrixBeeper;
   accountData: MatrixAccountData;
+  appservice: MatrixAppservice;
+  beeper: MatrixBeeper;
   boot(): Promise<MatrixWhoami>;
   close(): Promise<void>;
   crypto: MatrixCrypto;
@@ -95,6 +106,15 @@ export interface MatrixClient {
   users: MatrixUsers;
   logout(): Promise<void>;
   whoami(): Promise<MatrixWhoami>;
+}
+
+export interface MatrixAppservice {
+  batchSend(options: MatrixAppserviceBatchSendOptions): Promise<MatrixAppserviceBatchSendResult>;
+  createRoom(options: MatrixAppserviceCreateRoomOptions): Promise<CreateRoomResult>;
+  ensureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void>;
+  ensureRegistered(options: MatrixAppserviceUserOptions): Promise<void>;
+  init(options: MatrixAppserviceInitOptions): Promise<MatrixAppserviceInfo>;
+  sendMessage(options: MatrixAppserviceSendMessageOptions): Promise<SentEvent>;
 }
 
 export interface MatrixRaw {

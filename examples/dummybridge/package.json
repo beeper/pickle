@@ -1,0 +1,23 @@
+{
+  "name": "@beeper/pickle-example-dummybridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsdown",
+    "smoke": "pnpm build && node dist/test/smoke.mjs",
+    "start": "pnpm build && node dist/src/index.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@beeper/pickle": "workspace:*",
+    "@beeper/pickle-bridge": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.2",
+    "tsdown": "^0.21.10",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

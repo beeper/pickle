@@ -24,6 +24,10 @@
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
     },
+    "./beeper": {
+      "types": "./dist/beeper.d.ts",
+      "import": "./dist/beeper.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"

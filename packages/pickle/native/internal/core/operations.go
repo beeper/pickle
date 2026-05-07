@@ -17,6 +17,18 @@ const (
 	opGetCryptoStatus = "get_crypto_status"
 	// ts:operation rawRequest raw_request MatrixRawRequestOptions MatrixRawRequestResult
 	opRawRequest = "raw_request"
+	// ts:operation initAppservice init_appservice MatrixAppserviceInitOptions MatrixAppserviceInfo
+	opInitAppservice = "init_appservice"
+	// ts:operation appserviceEnsureRegistered appservice_ensure_registered MatrixAppserviceUserOptions void
+	opAppserviceEnsureRegistered = "appservice_ensure_registered"
+	// ts:operation appserviceEnsureJoined appservice_ensure_joined MatrixAppserviceRoomUserOptions void
+	opAppserviceEnsureJoined = "appservice_ensure_joined"
+	// ts:operation appserviceCreateRoom appservice_create_room MatrixAppserviceCreateRoomOptions MatrixCreateRoomResult
+	opAppserviceCreateRoom = "appservice_create_room"
+	// ts:operation appserviceSendMessage appservice_send_message MatrixAppserviceSendMessageOptions MatrixRawMessage
+	opAppserviceSendMessage = "appservice_send_message"
+	// ts:operation appserviceBatchSend appservice_batch_send MatrixAppserviceBatchSendOptions MatrixAppserviceBatchSendResult
+	opAppserviceBatchSend = "appservice_batch_send"
 	// ts:operation applySyncResponse apply_sync_response MatrixApplySyncResponseOptions void
 	opApplySyncResponse = "apply_sync_response"
 	// ts:operation getAccountData get_account_data MatrixGetAccountDataOptions MatrixAccountDataResult

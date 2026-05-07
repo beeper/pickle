@@ -9,6 +9,18 @@ import type { MatrixCoreOperations } from "./generated-runtime-operations";
 
 export type {
   MatrixAccountDataResult,
+  MatrixAppserviceBatchEvent,
+  MatrixAppserviceBatchSendOptions,
+  MatrixAppserviceBatchSendResult,
+  MatrixAppserviceCreateRoomOptions,
+  MatrixAppserviceInfo,
+  MatrixAppserviceInitOptions,
+  MatrixAppserviceNamespace,
+  MatrixAppserviceNamespaces,
+  MatrixAppserviceRegistration,
+  MatrixAppserviceRoomUserOptions,
+  MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceUserOptions,
   MatrixApplySyncResponseOptions,
   MatrixBanUserOptions,
   MatrixBeeperStreamOptions,

@@ -16,6 +16,83 @@ export interface MatrixEncryptedFile {
   v: "v2";
 }
 
+export interface MatrixAppserviceNamespace {
+  exclusive: boolean;
+  regex: string;
+}
+export interface MatrixAppserviceNamespaces {
+  aliases?: MatrixAppserviceNamespace[];
+  rooms?: MatrixAppserviceNamespace[];
+  users?: MatrixAppserviceNamespace[];
+}
+export interface MatrixAppserviceRegistration {
+  asToken: string;
+  ephemeralEvents?: boolean;
+  hsToken: string;
+  id: string;
+  msc3202?: boolean;
+  msc4190?: boolean;
+  namespaces: MatrixAppserviceNamespaces;
+  protocols?: string[];
+  rateLimited?: boolean;
+  senderLocalpart: string;
+  url: string;
+}
+export interface MatrixAppserviceInitOptions {
+  homeserver: string;
+  homeserverDomain: string;
+  registration: MatrixAppserviceRegistration;
+}
+export interface MatrixAppserviceInfo {
+  botUserId: string;
+  id: string;
+}
+export interface MatrixAppserviceUserOptions {
+  userId: string;
+}
+export interface MatrixAppserviceRoomUserOptions {
+  roomId: string;
+  userId: string;
+}
+export interface MatrixAppserviceCreateRoomOptions extends MatrixCreateRoomOptions {
+  beeperAutoJoinInvites?: boolean;
+  beeperBridgeAccountId?: string;
+  beeperBridgeName?: string;
+  beeperInitialMembers?: string[];
+  beeperLocalRoomId?: string;
+  meowCreateTs?: number /* int64 */;
+  meowRoomId?: string;
+  userId?: string;
+}
+export interface MatrixAppserviceSendMessageOptions {
+  content: { [key: string]: unknown };
+  eventType?: string;
+  roomId: string;
+  timestamp?: number /* int64 */;
+  transactionId?: string;
+  userId?: string;
+}
+export interface MatrixAppserviceBatchEvent {
+  content: { [key: string]: unknown };
+  eventId?: string;
+  eventType?: string;
+  roomId?: string;
+  sender: string;
+  stateKey?: string;
+  timestamp?: number /* int64 */;
+}
+export interface MatrixAppserviceBatchSendOptions {
+  events: MatrixAppserviceBatchEvent[];
+  forward?: boolean;
+  forwardIfNoMessages?: boolean;
+  markReadBy?: string;
+  roomId: string;
+  sendNotification?: boolean;
+}
+export interface MatrixAppserviceBatchSendResult {
+  eventIds: string[];
+  raw: unknown;
+}
 export interface MatrixCryptoStatus {
   deviceId?: string;
   hasRecoveryKey: boolean;

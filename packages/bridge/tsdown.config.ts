@@ -1,7 +1,7 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/node.ts", "src/types.ts", "src/events.ts"],
+  entry: ["src/index.ts", "src/node.ts", "src/types.ts", "src/events.ts", "src/beeper.ts"],
   format: ["esm"],
   dts: {
     sourcemap: false,

@@ -12,6 +12,9 @@ to match bridgev2 concepts while using TypeScript idioms.
 - [x] `Bridge.queueRemoteEvent(login, event)` bridgev2-style remote event ingress.
 - [x] `Bridge.flushRemoteEvents()` for tests and controlled drains.
 - [x] Remote message drain to Matrix sends.
+- [x] Appservice initialization at bridge startup.
+- [x] Appservice portal room creation.
+- [x] Appservice batch backfill.
 - [x] Basic live Matrix subscription lifecycle.
 - [x] In-memory portal registration and Matrix room fallback portal keys.
 - [ ] Remote event worker with retry/backoff.
@@ -26,7 +29,8 @@ to match bridgev2 concepts while using TypeScript idioms.
 - [x] Node entrypoint delegates to `@beeper/pickle/node`.
 - [ ] Browser/worker examples for `wasmModule` and `wasmUrl`.
 - [ ] Direct media helper.
-- [ ] Appservice-mode Matrix connector, if Pickle grows appservice APIs.
+- [x] Appservice-mode Matrix primitives exposed by Pickle WASM.
+- [ ] Full bridgev2 database-backed Matrix connector.
 
 ## Network Connector Interfaces
 
