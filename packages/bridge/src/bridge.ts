@@ -332,19 +332,20 @@ export class RuntimeBridge implements PickleBridge {
 
   #queueBackfillEvent(login: UserLogin, options: BridgeRemoteBackfillOptions): QueueRemoteEventResult {
     const portalKey = this.#portalKeyReference(login, options.portal);
-    return this.queueRemoteEvent(login, {
-      getBackfillData: () => Promise.resolve({
+    const event: RemoteBackfill = {
+      getBackfillData: () => Promise.resolve(stripUndefined({
         cursor: options.cursor,
         forward: options.forward,
         hasMore: options.hasMore,
         markRead: options.markRead,
         messages: options.messages.map((message) => ({ event: this.#remoteMessageEvent(login, { ...message, portal: message.portal ?? options.portal }) })),
         progress: options.progress,
-      }),
+      })),
       getPortalKey: () => portalKey,
       getSender: () => ({ isFromMe: true, sender: login.userId ?? this.#ownerUserId ?? "" }),
       getType: () => "backfill",
-    });
+    };
+    return this.queueRemoteEvent(login, event);
   }
 
   #queueEvent(login: UserLogin, input: RemoteEvent | BridgeRemoteEventOptions): QueueRemoteEventResult {
