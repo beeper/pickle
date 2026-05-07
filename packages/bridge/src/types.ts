@@ -537,9 +537,16 @@ export interface PickleBridge {
 
 export interface CreateBridgeOptions {
   appservice?: MatrixAppserviceInitOptions;
+  beeper?: BridgeBeeperOptions;
   connector: BridgeConnector;
   dataStore?: BridgeDataStore;
   matrix: BridgeMatrixConfig;
+}
+
+export interface BridgeBeeperOptions {
+  bridge: string;
+  bridgeType?: string;
+  ownerUserId?: UserID;
 }
 
 export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "appservice" | "matrix"> {
@@ -604,15 +611,18 @@ export interface QueueRemoteEventResult {
 }
 
 export interface BridgeCreatePortalRoomOptions extends CreateRoomOptions {
+  avatarUrl?: string;
   beeperAutoJoinInvites?: boolean;
   beeperBridgeAccountId?: string;
   beeperBridgeName?: string;
   beeperInitialMembers?: string[];
   beeperLocalRoomId?: string;
+  messageRequest?: boolean;
   metadata?: unknown;
   meowCreateTs?: number;
   meowRoomId?: string;
   portalKey: PortalKey;
+  roomType?: "dm" | "group_dm" | "default" | "space" | string;
   userId?: string;
 }
 

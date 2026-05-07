@@ -60,9 +60,29 @@ export interface MatrixAppserviceCreateRoomOptions extends MatrixCreateRoomOptio
   beeperBridgeName?: string;
   beeperInitialMembers?: string[];
   beeperLocalRoomId?: string;
+  beeperPortal?: MatrixAppserviceBeeperPortalCreateOptions;
   meowCreateTs?: number /* int64 */;
   meowRoomId?: string;
   userId?: string;
+}
+export interface MatrixAppservicePortalKey {
+  id: string;
+  receiver?: string;
+}
+export interface MatrixAppserviceBeeperPortalCreateOptions {
+  bridgeType?: string;
+  channelAvatarUrl?: string;
+  channelId: string;
+  channelName?: string;
+  isDirect?: boolean;
+  messageRequest?: boolean;
+  networkAvatarUrl?: string;
+  networkId: string;
+  networkName: string;
+  networkUrl?: string;
+  portalKey?: MatrixAppservicePortalKey;
+  receiver?: string;
+  roomType?: string;
 }
 export interface MatrixAppserviceSendMessageOptions {
   content: { [key: string]: unknown };

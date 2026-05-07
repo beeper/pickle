@@ -57,6 +57,7 @@ import type {
   LoginUserInput,
   BridgeStateEvent,
   BridgeStatePayload,
+  BridgeBeeperOptions,
   BackfillQueueParams,
   BackfillQueueResult,
   ChatViewingNetworkAPI,
@@ -104,6 +105,11 @@ export async function createBeeperBridgeWithClient(options: CreateBeeperBridgeOp
   }));
   const runtimeOptions: CreateBridgeOptions = {
     appservice,
+    beeper: {
+      bridge: options.bridge,
+      ownerUserId: options.account.userId,
+      ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
+    },
     connector: options.connector,
     matrix,
   };
@@ -114,6 +120,7 @@ export async function createBeeperBridgeWithClient(options: CreateBeeperBridgeOp
 export class RuntimeBridge implements PickleBridge {
   readonly connector: CreateBridgeOptions["connector"];
   readonly #appserviceOptions: CreateBridgeOptions["appservice"];
+  readonly #beeperOptions: BridgeBeeperOptions | undefined;
   readonly #dataStore: CreateBridgeOptions["dataStore"];
   readonly #networkClients = new Map<string, NetworkAPI>();
   readonly #messages = new Map<string, SentEvent>();
@@ -139,6 +146,7 @@ export class RuntimeBridge implements PickleBridge {
   constructor(options: CreateBridgeOptions, client: MatrixClient) {
     this.connector = options.connector;
     this.#appserviceOptions = options.appservice;
+    this.#beeperOptions = options.beeper;
     this.#dataStore = options.dataStore;
     this.#matrixClient = client;
   }
@@ -174,6 +182,7 @@ export class RuntimeBridge implements PickleBridge {
       await this.connector.validateConfig();
     }
     await this.connector.init(this.#context);
+    await this.#loadPersistedPortals();
     await this.#loadPersistedUserLogins();
     await this.connector.start(this.#context);
     await this.#subscribeMatrixEvents();
@@ -212,14 +221,17 @@ export class RuntimeBridge implements PickleBridge {
 
   async createManagementRoom(options: BridgeCreateManagementRoomOptions): Promise<ManagementRoom> {
     this.#requestContext();
+    const invite = autoJoinInvite(options.invite, this.#beeperOptions?.ownerUserId);
     const createOptions = stripUndefined({
+      beeperAutoJoinInvites: this.#beeperOptions ? true : undefined,
+      beeperInitialMembers: this.#beeperOptions ? invite : undefined,
       creationContent: options.creationContent,
       initialState: options.initialState?.map((state) => ({
         content: state.content,
         stateKey: state.stateKey ?? "",
         type: state.type,
       })),
-      invite: options.invite,
+      invite,
       isDirect: false,
       name: options.name,
       preset: options.preset,
@@ -240,19 +252,36 @@ export class RuntimeBridge implements PickleBridge {
 
   async createPortalRoom(options: BridgeCreatePortalRoomOptions): Promise<Portal> {
     this.#requestContext();
+    const invite = autoJoinInvite(options.invite, this.#beeperOptions?.ownerUserId);
+    const network = this.connector.getName();
     const createOptions = stripUndefined({
-      beeperAutoJoinInvites: options.beeperAutoJoinInvites,
-      beeperBridgeAccountId: options.beeperBridgeAccountId,
-      beeperBridgeName: options.beeperBridgeName,
-      beeperInitialMembers: options.beeperInitialMembers,
+      beeperAutoJoinInvites: options.beeperAutoJoinInvites ?? (this.#beeperOptions ? true : undefined),
+      beeperBridgeAccountId: options.beeperBridgeAccountId ?? (this.#beeperOptions ? options.portalKey.receiver : undefined),
+      beeperBridgeName: options.beeperBridgeName ?? this.#beeperOptions?.bridge,
+      beeperInitialMembers: options.beeperInitialMembers ?? (this.#beeperOptions ? invite : undefined),
       beeperLocalRoomId: options.beeperLocalRoomId,
+      beeperPortal: this.#beeperOptions ? stripUndefined({
+        bridgeType: this.#beeperOptions.bridgeType ?? network.beeperBridgeType ?? network.networkId,
+        channelAvatarUrl: options.avatarUrl,
+        channelId: options.portalKey.id,
+        channelName: options.name,
+        isDirect: options.isDirect,
+        messageRequest: options.messageRequest,
+        networkAvatarUrl: network.networkIcon,
+        networkId: network.networkId,
+        networkName: network.displayName,
+        networkUrl: network.networkUrl,
+        portalKey: options.portalKey,
+        receiver: options.portalKey.receiver,
+        roomType: options.roomType,
+      }) : undefined,
       creationContent: options.creationContent,
       initialState: options.initialState?.map((state) => ({
         content: state.content,
         stateKey: state.stateKey ?? "",
         type: state.type,
       })),
-      invite: options.invite,
+      invite,
       isDirect: options.isDirect,
       meowCreateTs: options.meowCreateTs,
       meowRoomId: options.meowRoomId,
@@ -589,6 +618,19 @@ export class RuntimeBridge implements PickleBridge {
         defaultLogger("warn", "user_login_load_failed", { error, loginId: login.id });
       }
     }
+  }
+
+  async #loadPersistedPortals(): Promise<void> {
+    if (!this.#dataStore || !hasMethod(this.#dataStore, "listPortals")) return;
+    const portals = await this.#dataStore.listPortals();
+    if (!portals?.length) return;
+    for (const portal of portals) {
+      this.#portalsByKey.set(portalKeyString(portal.portalKey), portal);
+      if (portal.mxid) {
+        this.#portalsByRoom.set(portal.mxid, portal);
+      }
+    }
+    defaultLogger("info", "portals_loaded", { count: portals.length });
   }
 
   async #setLoginBridgeState(login: UserLogin, stateEvent: BridgeStateEvent, options: { error?: string; message?: string; reason?: string } = {}): Promise<void> {
@@ -1357,6 +1399,13 @@ function bindLoginProcess(process: LoginProcess, getContext: () => BridgeRequest
 
 function portalKeyString(portalKey: { id: string; receiver?: string }): string {
   return `${portalKey.receiver ?? ""}\u0000${portalKey.id}`;
+}
+
+function autoJoinInvite(invite: string[] | undefined, ownerUserId: string | undefined): string[] | undefined {
+  if (!ownerUserId) return invite;
+  const members = new Set(invite ?? []);
+  members.add(ownerUserId);
+  return Array.from(members);
 }
 
 function messagePartKey(messageId: string, partId: string): string {
