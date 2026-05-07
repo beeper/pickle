@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { loginWithMatrixPassword, loginWithMatrixToken } from "./auth";
+import { loginWithMatrixPassword, loginWithMatrixToken, loginWithPassword } from "./auth";
 
 describe("matrix auth", () => {
   it("logs in with token and verifies whoami", async () => {
@@ -65,7 +65,48 @@ describe("matrix auth", () => {
       type: "m.login.password",
     });
   });
+
+  it("logs in with password using Beeper defaults", async () => {
+    const fetchImpl = passwordFetch("@bot:beeper.com");
+
+    await loginWithPassword({
+      fetch: fetchImpl as typeof fetch,
+      password: "secret",
+      username: "bot",
+    });
+
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe("https://matrix.beeper.com/_matrix/client/v3/login");
+  });
+
+  it("lets explicit homeserver override Beeper defaults", async () => {
+    const fetchImpl = passwordFetch("@bot:example.com");
+
+    await loginWithPassword({
+      fetch: fetchImpl as typeof fetch,
+      homeserver: "https://matrix.example.com",
+      password: "secret",
+      username: "bot",
+    });
+
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe("https://matrix.example.com/_matrix/client/v3/login");
+  });
 });
+
+function passwordFetch(userId: string) {
+  return vi.fn(async (url: URL | string) => {
+    if (String(url).endsWith("/_matrix/client/v3/login")) {
+      return Response.json({
+        access_token: "access",
+        device_id: "DEVICE",
+        user_id: userId,
+      });
+    }
+    return Response.json({
+      device_id: "DEVICE",
+      user_id: userId,
+    });
+  });
+}
 
 async function requestBody(fetchImpl: ReturnType<typeof vi.fn>, index: number) {
   const init = fetchImpl.mock.calls[index]?.[1] as RequestInit;

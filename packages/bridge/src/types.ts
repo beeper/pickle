@@ -5,6 +5,7 @@ import type {
   MatrixAppserviceCreateRoomOptions,
   MatrixAppserviceInitOptions,
   MatrixAppserviceSendMessageOptions,
+  MatrixAccount,
   MatrixClient,
   MatrixClientOptions,
   CreateRoomOptions,
@@ -494,24 +495,14 @@ export interface CreateBridgeOptions {
   matrix: BridgeMatrixConfig;
 }
 
-export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "appservice"> {
+export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "appservice" | "matrix"> {
+  account: MatrixAccount;
   address?: string;
   baseDomain?: string;
   bridge: string;
   getOnly?: boolean;
   homeserverDomain?: string;
-  token?: string;
-}
-
-export interface CreateBeeperBridgeFromTokenOptions extends Omit<CreateBeeperBridgeOptions, "matrix" | "token"> {
-  matrix?: Partial<Omit<BridgeMatrixConfig, "store">> & Pick<BridgeMatrixConfig, "store">;
-  token: string;
-}
-
-export interface CreateBeeperBridgeFromPasswordOptions extends Omit<CreateBeeperBridgeFromTokenOptions, "token"> {
-  baseDomain?: string;
-  password: string;
-  username: string;
+  matrix: Partial<Omit<BridgeMatrixConfig, "account">> & Pick<BridgeMatrixConfig, "store">;
 }
 
 export interface BridgeMatrixConfig extends Pick<MatrixClientOptions, "account" | "beeper" | "fetch" | "homeserver" | "logger" | "pickleKey" | "randomBytes" | "recoveryKey" | "store" | "token" | "verifyRecoveryOnStart" | "wasmBytes" | "wasmModule" | "wasmUrl"> {
@@ -528,15 +519,6 @@ export interface CreateNodeBridgeOptions extends Omit<CreateBridgeOptions, "matr
 }
 
 export interface CreateNodeBeeperBridgeOptions extends Omit<CreateBeeperBridgeOptions, "matrix"> {
-  matrix: NodeBridgeMatrixConfig;
-}
-
-export interface CreateNodeBeeperBridgeFromTokenOptions extends Omit<CreateBeeperBridgeFromTokenOptions, "matrix"> {
-  dataDir?: string;
-  matrix?: Partial<NodeBridgeMatrixConfig>;
-}
-
-export interface CreateNodeBeeperBridgeFromPasswordOptions extends Omit<CreateBeeperBridgeFromPasswordOptions, "matrix"> {
   dataDir?: string;
   matrix?: Partial<NodeBridgeMatrixConfig>;
 }

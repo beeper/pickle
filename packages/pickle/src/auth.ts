@@ -16,6 +16,13 @@ export interface MatrixPasswordAuthOptions extends MatrixAuthOptions {
   username: string;
 }
 
+export interface PasswordAuthOptions extends Omit<MatrixAuthOptions, "homeserver"> {
+  baseDomain?: string;
+  homeserver?: string;
+  password?: string;
+  username?: string;
+}
+
 export interface MatrixTokenAuthOptions extends MatrixAuthOptions {
   token: string;
   type?: "m.login.token" | "org.matrix.login.jwt";
@@ -29,6 +36,18 @@ export async function loginWithMatrixPassword(options: MatrixPasswordAuthOptions
     },
     password: options.password,
     type: "m.login.password",
+  });
+}
+
+export function loginWithPassword(options: PasswordAuthOptions = {}): Promise<MatrixAuthenticatedAccount> {
+  const username = options.username ?? process.env.BEEPER_USERNAME ?? process.env.MATRIX_USERNAME;
+  const password = options.password ?? process.env.BEEPER_PASSWORD ?? process.env.MATRIX_PASSWORD;
+  if (!username) throw new Error("loginWithPassword requires username or BEEPER_USERNAME");
+  if (!password) throw new Error("loginWithPassword requires password or BEEPER_PASSWORD");
+  return loginWithMatrixPassword({
+    ...authOptions(options),
+    password,
+    username,
   });
 }
 
@@ -95,4 +114,14 @@ function readRequiredString(value: unknown, key: string, label: string): string 
     throw new Error(`${label} response is missing ${key}`);
   }
   return field;
+}
+
+function authOptions(options: PasswordAuthOptions): MatrixAuthOptions {
+  const output: MatrixAuthOptions = {
+    homeserver: options.homeserver ?? process.env.MATRIX_HOMESERVER ?? `https://matrix.${options.baseDomain ?? process.env.BEEPER_BASE_DOMAIN ?? "beeper.com"}`,
+  };
+  if (options.fetch !== undefined) output.fetch = options.fetch;
+  if (options.initialDeviceDisplayName !== undefined) output.initialDeviceDisplayName = options.initialDeviceDisplayName;
+  if (options.metadata !== undefined) output.metadata = options.metadata;
+  return output;
 }

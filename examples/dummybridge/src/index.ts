@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createBeeperBridgeFromPassword, createBeeperBridgeFromToken } from "@beeper/pickle-bridge/node";
+import { loginWithPassword } from "@beeper/pickle/auth";
+import { createBeeperBridge } from "@beeper/pickle-bridge/node";
 import type { Portal } from "@beeper/pickle-bridge/types";
 import { DummyConnector, LOGIN_ID, PORTAL_ID, makeGhostMxid } from "./connector";
 import { loadEnv, optionalEnv, requiredEnv } from "./env";
@@ -10,24 +11,18 @@ const sourceRoot = root.endsWith("/dist/src") ? resolve(root, "../..") : resolve
 
 await loadEnv(resolve(sourceRoot, ".env"));
 
-const serverName = optionalEnv("MATRIX_SERVER_NAME", "beeper.local") ?? "beeper.local";
+const serverName = "beeper.local";
 const senderLocalpart = optionalEnv("DUMMYBRIDGE_SENDER_LOCALPART", "dummybridgebot") ?? "dummybridgebot";
 
 const bridgeOptions = {
-  bridge: optionalEnv("DUMMYBRIDGE_BRIDGE_NAME", "dummybridge") ?? "dummybridge",
-  connector: new DummyConnector({ senderLocalpart, serverName }),
-  homeserverDomain: serverName,
-};
-const bridge = process.env.BEEPER_USERNAME && process.env.BEEPER_PASSWORD
-  ? await createBeeperBridgeFromPassword({
-    ...bridgeOptions,
+  account: await loginWithPassword({
     password: requiredEnv("BEEPER_PASSWORD"),
     username: requiredEnv("BEEPER_USERNAME"),
-  })
-  : await createBeeperBridgeFromToken({
-    ...bridgeOptions,
-    token: requiredEnv("BEEPER_ACCESS_TOKEN"),
-  });
+  }),
+  bridge: optionalEnv("DUMMYBRIDGE_BRIDGE_NAME", "dummybridge") ?? "dummybridge",
+  connector: new DummyConnector({ senderLocalpart, serverName }),
+};
+const bridge = await createBeeperBridge(bridgeOptions);
 
 await bridge.start();
 const login = { id: LOGIN_ID };

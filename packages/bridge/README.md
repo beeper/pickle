@@ -5,21 +5,19 @@ Bridge-building runtime for Pickle. This package is intentionally separate from
 bridgev2-shaped connector interfaces and bridge runtime orchestration.
 
 ```ts
-import { createBeeperBridgeFromToken, createRemoteMessage } from "@beeper/pickle-bridge/node";
+import { loginWithPassword } from "@beeper/pickle/auth";
+import { createBeeperBridge, createRemoteMessage } from "@beeper/pickle-bridge/node";
 
-const bridge = await createBeeperBridgeFromToken({
-  bridge: "sh-example",
-  token: process.env.BEEPER_ACCESS_TOKEN!,
-  connector,
+const account = await loginWithPassword({
+  username: process.env.BEEPER_USERNAME!,
+  password: process.env.BEEPER_PASSWORD!,
 });
 
-// Or:
-// const bridge = await createBeeperBridgeFromPassword({
-//   bridge: "sh-example",
-//   username: process.env.BEEPER_USERNAME!,
-//   password: process.env.BEEPER_PASSWORD!,
-//   connector,
-// });
+const bridge = await createBeeperBridge({
+  account,
+  bridge: "sh-example",
+  connector,
+});
 
 await bridge.start();
 

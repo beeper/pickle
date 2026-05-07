@@ -1,4 +1,4 @@
-export { createBeeperBridge, createBeeperBridgeFromPassword, createBeeperBridgeFromToken, createBridge, RuntimeBridge } from "./bridge";
+export { createBeeperBridge, createBridge, RuntimeBridge } from "./bridge";
 export { createBridgeDataStore, MatrixBridgeDataStore } from "./store";
 export { BeeperBridgeManagerClient, createBeeperAppService, createBeeperAppServiceInit, createBeeperBridgeManagerClient, fetchBeeperBridges } from "./beeper";
 export { createRemoteMessage } from "./events";
