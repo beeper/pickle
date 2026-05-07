@@ -1,10 +1,7 @@
 import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle";
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeBridge } from "./bridge";
-import { loadBridgeConfig } from "./config";
 import { createRemoteMessage } from "./events";
-import { createPortalKey, ghostLocalpart, messagePartKey, portalKeyToString } from "./ids";
-import { jsonMetadataCodec, metadataEnvelope, migrateMetadata } from "./metadata";
 import type { BridgeDataStore } from "./store";
 import type {
   BridgeConnector,
@@ -25,44 +22,6 @@ import type {
 } from "./types";
 
 describe("RuntimeBridge", () => {
-  it("loads and upgrades connector config parts", () => {
-    const result = loadBridgeConfig(
-      {
-        data: { retries: 1 },
-        example: "retries: 1",
-        upgrade: (value) => ({ retries: Number((value as { retries?: unknown }).retries ?? 0) }),
-      },
-      { retries: "3" }
-    );
-
-    expect(result).toEqual({
-      config: { retries: 3 },
-      example: "retries: 1",
-      upgraded: true,
-    });
-  });
-
-  it("provides stable bridge ID helpers", () => {
-    const portalKey = createPortalKey("room:1", "login:a");
-
-    expect(portalKeyToString(portalKey)).toBe("login:a\u0000room:1");
-    expect(messagePartKey("message", "part")).toBe("message\u0000part");
-    expect(ghostLocalpart("test", "Alice Smith")).toBe("test_alice_smith");
-  });
-
-  it("encodes and migrates metadata envelopes", () => {
-    const codec = jsonMetadataCodec<{ name: string }>();
-    const encoded = codec.encode({ name: "old" });
-    const migrated = migrateMetadata(metadataEnvelope(encoded, 1), 2, [{
-      from: 1,
-      migrate: (value) => ({ ...(value as { name: string }), name: "new" }),
-      to: 2,
-    }]);
-
-    expect(codec.decode(migrated.data)).toEqual({ name: "new" });
-    expect(migrated.version).toBe(2);
-  });
-
   it("boots, initializes connector, subscribes, and stops cleanly", async () => {
     const client = createFakeMatrixClient();
     const network = createFakeNetworkAPI();

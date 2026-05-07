@@ -44,8 +44,8 @@ to match bridgev2 concepts while using TypeScript idioms.
 - [x] `MaxFileSizingNetwork`.
 - [x] `NetworkResettingNetwork`.
 - [x] `PushParsingNetwork`.
-- [x] Config loader/upgrader implementation.
-- [x] DB metadata registration/migrations.
+- [ ] Config loader/upgrader implementation.
+- [ ] DB metadata registration/migrations.
 
 ## Network API Interfaces
 
@@ -128,8 +128,8 @@ to match bridgev2 concepts while using TypeScript idioms.
 
 - [x] Type shells for `BridgeUser`, `UserLogin`, `Portal`, `Ghost`, `Message`, `Reaction`.
 - [x] Persistent stores for users, logins, portals, ghosts, messages, reactions.
-- [x] Metadata codecs and migrations.
-- [x] ID helper utilities.
+- [ ] Metadata codecs and migrations.
+- [ ] ID helper utilities.
 
 ## Examples
 

@@ -1,5 +1,5 @@
 import type { MatrixStore, MatrixAccount, SentEvent } from "@beeper/pickle";
-import type { BridgeState, BridgeStatus, Ghost, ManagementRoom, MessageRequest, Portal, Reaction, UserLogin } from "./types";
+import type { BridgeState, BridgeStatus, Ghost, ManagementRoom, MessageRequest, Portal, PortalKey, Reaction, UserLogin } from "./types";
 
 export interface BridgeDataStore {
   deleteMessage(key: string): Promise<void>;
@@ -202,7 +202,11 @@ export function createBridgeDataStore(store: MatrixStore): BridgeDataStore {
 }
 
 export function portalStoreKey(portal: Pick<Portal, "portalKey">): string {
-  return `${portal.portalKey.receiver ?? ""}\u0000${portal.portalKey.id}`;
+  return portalKeyString(portal.portalKey);
+}
+
+export function portalKeyString(portalKey: PortalKey): string {
+  return `${portalKey.receiver ?? ""}\u0000${portalKey.id}`;
 }
 
 function key(kind: string, id: string): string {

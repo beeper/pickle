@@ -6,13 +6,9 @@ const mocks = vi.hoisted(() => ({
   createMatrixClient: vi.fn(),
 }));
 
-vi.mock("@beeper/pickle/node", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@beeper/pickle/node")>()),
+vi.mock("@beeper/pickle", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@beeper/pickle")>()),
   createMatrixClient: mocks.createMatrixClient,
-}));
-
-vi.mock("@beeper/pickle-state-file", () => ({
-  createFileMatrixStore: () => fakeStore(),
 }));
 
 describe("bridge factories", () => {

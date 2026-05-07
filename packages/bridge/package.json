@@ -28,17 +28,13 @@
       "types": "./dist/beeper.d.ts",
       "import": "./dist/beeper.js"
     },
-    "./config": {
-      "types": "./dist/config.d.ts",
-      "import": "./dist/config.js"
+    "./bridge": {
+      "types": "./dist/bridge.d.ts",
+      "import": "./dist/bridge.js"
     },
-    "./ids": {
-      "types": "./dist/ids.d.ts",
-      "import": "./dist/ids.js"
-    },
-    "./metadata": {
-      "types": "./dist/metadata.d.ts",
-      "import": "./dist/metadata.js"
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js"
     },
     "./store": {
       "types": "./dist/store.d.ts",

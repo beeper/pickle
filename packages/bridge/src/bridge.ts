@@ -3,6 +3,7 @@ import type { MatrixAppserviceBatchSendOptions, MatrixAppserviceInitOptions, Mat
 import { AppserviceWebsocket, type HTTPProxyRequest, type HTTPProxyResponse } from "./appservice-websocket";
 import { createBeeperAppServiceInit } from "./beeper";
 import { createRemoteMessage } from "./events";
+import { portalKeyString } from "./store";
 import type {
   BridgeContext,
   BridgeLogger,
@@ -1895,10 +1896,6 @@ function bindLoginProcess(process: LoginProcess, getContext: () => BridgeRequest
   }
 
   return bound;
-}
-
-function portalKeyString(portalKey: { id: string; receiver?: string }): string {
-  return `${portalKey.receiver ?? ""}\u0000${portalKey.id}`;
 }
 
 function autoJoinInvite(invite: string[] | undefined, ownerUserId: string | undefined): string[] | undefined {
