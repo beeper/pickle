@@ -13,6 +13,7 @@
     "baseUrl": ".",
     "paths": {
       "@beeper/pickle": ["packages/pickle/src/index.ts"],
+      "@beeper/pickle-pi": ["packages/pi/src/index.ts"],
       "@beeper/pickle/auth": ["packages/pickle/src/auth.ts"],
       "@beeper/pickle/beeper/auth": ["packages/pickle/src/beeper/auth.ts"],
       "@beeper/pickle/streams": ["packages/pickle/src/streams/index.ts"],

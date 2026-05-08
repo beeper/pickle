@@ -4,6 +4,7 @@ packages:
   - "packages/chat-adapter"
   - "packages/cloudflare"
   - "packages/pickle"
+  - "packages/pi"
   - "packages/state-file"
   - "packages/state-indexeddb"
   - "packages/state-memory"

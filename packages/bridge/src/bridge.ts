@@ -74,6 +74,7 @@ import type {
   MessageCheckpoint,
   MessageCheckpointStatus,
   MessageCheckpointStep,
+  HTTPProxyHandlingBridgeConnector,
 } from "./types";
 
 type GenericMatrixEvent = Extract<MatrixClientEvent, { content: Record<string, unknown>; kind: string }>;
@@ -168,6 +169,10 @@ export class RuntimeBridge implements PickleBridge {
 
   get context(): BridgeContext | null {
     return this.#context;
+  }
+
+  getOwnUserId(): string | null {
+    return this.#ownUserId;
   }
 
   async start(): Promise<void> {
@@ -758,6 +763,10 @@ export class RuntimeBridge implements PickleBridge {
     const path = request.path ?? "";
     const method = request.method ?? "GET";
     defaultLogger("debug", "provisioning_http_request", { method, path });
+    if (hasMethod(this.connector, "handleHTTPProxy")) {
+      const handled = await (this.connector as HTTPProxyHandlingBridgeConnector).handleHTTPProxy(this.#requestContext(), request);
+      if (handled) return handled;
+    }
     if (method === "GET" && path === "/_matrix/provision/v3/capabilities") {
       return jsonHTTPResponse(200, provisioningCapabilities(this.connector.getCapabilities()));
     }
