@@ -1,13 +1,17 @@
 export const APPROVAL_ALLOW_ONCE_REACTION = "approval.allow_once";
 export const APPROVAL_ALLOW_ALWAYS_REACTION = "approval.allow_always";
+export const APPROVAL_ALLOW_SESSION_REACTION = "approval.allow_session";
+export const APPROVAL_ALLOW_ROOM_REACTION = "approval.allow_room";
 export const APPROVAL_DENY_REACTION = "approval.deny";
 
 export type ApprovalReactionKey =
   | typeof APPROVAL_ALLOW_ONCE_REACTION
   | typeof APPROVAL_ALLOW_ALWAYS_REACTION
+  | typeof APPROVAL_ALLOW_SESSION_REACTION
+  | typeof APPROVAL_ALLOW_ROOM_REACTION
   | typeof APPROVAL_DENY_REACTION;
 
-export type ApprovalDecision = "allow_once" | "allow_always" | "deny";
+export type ApprovalDecision = "allow_once" | "allow_always" | "allow_session" | "allow_room" | "deny";
 
 export interface ParsedApprovalResponse {
   approvalId?: string;
@@ -21,6 +25,7 @@ export interface ToolApprovalResponseChunk {
   approvalId?: string;
   approved: boolean;
   approvedAlways?: boolean;
+  decision?: ApprovalDecision;
   toolCallId?: string;
   type: "tool-approval-response";
 }
@@ -31,6 +36,10 @@ export function parseApprovalReactionKey(key: unknown): ParsedApprovalResponse |
       return { approved: true, approvedAlways: false, decision: "allow_once" };
     case APPROVAL_ALLOW_ALWAYS_REACTION:
       return { approved: true, approvedAlways: true, decision: "allow_always" };
+    case APPROVAL_ALLOW_SESSION_REACTION:
+      return { approved: true, approvedAlways: false, decision: "allow_session" };
+    case APPROVAL_ALLOW_ROOM_REACTION:
+      return { approved: true, approvedAlways: true, decision: "allow_room" };
     case APPROVAL_DENY_REACTION:
       return { approved: false, approvedAlways: false, decision: "deny" };
     default:
@@ -49,11 +58,13 @@ export function parseToolApprovalResponseChunk(chunk: unknown): ParsedApprovalRe
     return undefined;
   }
 
-  const approvedAlways = record.approvedAlways === true;
+  const explicitDecision = approvalDecisionValue(record.decision);
+  const approvedAlways = record.approvedAlways === true || explicitDecision === "allow_always" || explicitDecision === "allow_room";
+  const decision = explicitDecision ?? (record.approved ? (approvedAlways ? "allow_always" : "allow_once") : "deny");
   const response: ParsedApprovalResponse = {
     approved: record.approved,
     approvedAlways,
-    decision: record.approved ? (approvedAlways ? "allow_always" : "allow_once") : "deny",
+    decision: record.approved ? decision : "deny",
   };
   const approvalId = stringValue(record.approvalId);
   const toolCallId = stringValue(record.toolCallId);
@@ -90,4 +101,23 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function approvalDecisionValue(value: unknown): ApprovalDecision | undefined {
+  switch (value) {
+    case "allow_once":
+    case "allow_always":
+    case "allow_session":
+    case "allow_room":
+    case "deny":
+      return value;
+    case "allow-once":
+      return "allow_once";
+    case "allow-session":
+      return "allow_session";
+    case "allow-room":
+      return "allow_room";
+    default:
+      return undefined;
+  }
 }

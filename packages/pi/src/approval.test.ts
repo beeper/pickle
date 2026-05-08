@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   APPROVAL_ALLOW_ALWAYS_REACTION,
   APPROVAL_ALLOW_ONCE_REACTION,
+  APPROVAL_ALLOW_ROOM_REACTION,
+  APPROVAL_ALLOW_SESSION_REACTION,
   APPROVAL_DENY_REACTION,
   parseApprovalReactionContent,
   parseApprovalReactionKey,
@@ -20,6 +22,16 @@ describe("Beeper approval response parsing", () => {
       approved: true,
       approvedAlways: true,
       decision: "allow_always",
+    });
+    expect(parseApprovalReactionKey(APPROVAL_ALLOW_SESSION_REACTION)).toEqual({
+      approved: true,
+      approvedAlways: false,
+      decision: "allow_session",
+    });
+    expect(parseApprovalReactionKey(APPROVAL_ALLOW_ROOM_REACTION)).toEqual({
+      approved: true,
+      approvedAlways: true,
+      decision: "allow_room",
     });
     expect(parseApprovalReactionKey(APPROVAL_DENY_REACTION)).toEqual({
       approved: false,
@@ -61,9 +73,19 @@ describe("Beeper approval response parsing", () => {
     expect(
       parseToolApprovalResponseChunk({
         approvalId: "approval_call_2",
+        decision: "allow-room",
+        approved: true,
+        toolCallId: "call_2",
+        type: "tool-approval-response",
+      })
+    ).toMatchObject({ approved: true, approvedAlways: true, decision: "allow_room" });
+
+    expect(
+      parseToolApprovalResponseChunk({
+        approvalId: "approval_call_3",
         approved: false,
         approvedAlways: true,
-        toolCallId: "call_2",
+        toolCallId: "call_3",
         type: "tool-approval-response",
       })
     ).toMatchObject({ approved: false, approvedAlways: true, decision: "deny" });
