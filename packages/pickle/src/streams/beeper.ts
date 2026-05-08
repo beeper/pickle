@@ -46,6 +46,16 @@ export async function sendBeeperStream(
   applyFinalMessagePart(accumulator, startPart);
   await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, startPart);
   for await (const chunk of opts.stream) {
+    const normalizedChunks = normalizeRichStreamChunk(chunk);
+    if (normalizedChunks.length > 0) {
+      for (const normalizedChunk of normalizedChunks) {
+        const type = typeof normalizedChunk.type === "string" ? normalizedChunk.type : "";
+        if (type === "finish" || type === "error" || type === "abort") sawFinish = true;
+        applyFinalMessagePart(accumulator, normalizedChunk);
+        await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, normalizedChunk);
+      }
+      continue;
+    }
     if (isStreamPart(chunk)) {
       const type = typeof chunk.type === "string" ? chunk.type : "";
       if (type === "finish" || type === "error" || type === "abort") sawFinish = true;
@@ -290,6 +300,7 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
       toolPart.callProviderMetadata = part.providerMetadata;
       if (part.errorText !== undefined) toolPart.errorText = part.errorText;
       if (part.title !== undefined) toolPart.title = part.title;
+      if (part.startedAtMs !== undefined) toolPart.startedAtMs = part.startedAtMs;
       return;
     }
     case "tool-approval-request":
@@ -316,6 +327,7 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
       if (part.errorText !== undefined) toolPart.errorText = part.errorText;
       if (part.providerExecuted !== undefined) toolPart.providerExecuted = part.providerExecuted;
       if (part.preliminary !== undefined) toolPart.preliminary = part.preliminary;
+      if (part.completedAtMs !== undefined) toolPart.completedAtMs = part.completedAtMs;
       return;
     }
     case "finish":
@@ -334,6 +346,190 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
     default:
       if (type.startsWith("data-") && part.transient !== true) applyDataPart(state.message.parts, part);
   }
+}
+
+function normalizeRichStreamChunk(chunk: string | Record<string, unknown>): Record<string, unknown>[] {
+  if (!isRecord(chunk)) return [];
+  if (isNativeStreamPartRecord(chunk)) return [];
+
+  const type = typeof chunk.type === "string" ? chunk.type : "";
+  if (type === "assistant-message-event" && isRecord(chunk.event)) {
+    const mapped = uiChunkFromAssistantMessageEvent(chunk.event);
+    return mapped ? [mapped] : [];
+  }
+  if (type === "agent-message-update" && isRecord(chunk.assistantMessageEvent)) {
+    const mapped = uiChunkFromAssistantMessageEvent(chunk.assistantMessageEvent);
+    return mapped ? [mapped] : [];
+  }
+  if (type === "agent-message-end" && isRecord(chunk.message)) {
+    return terminalChunksFromAssistantMessage(chunk.message);
+  }
+  if (type === "tool-execution-start" || type === "tool_execution_start") {
+    const mapped = uiChunkFromToolExecutionStart(chunk);
+    return mapped ? [mapped] : [];
+  }
+  if (type === "tool-execution-update" || type === "tool_execution_update") {
+    const mapped = uiChunkFromToolExecutionUpdate(chunk);
+    return mapped ? [mapped] : [];
+  }
+  if (type === "tool-execution-end" || type === "tool_execution_end") {
+    const mapped = uiChunkFromToolExecutionEnd(chunk);
+    return mapped ? [mapped] : [];
+  }
+  return [];
+}
+
+function uiChunkFromAssistantMessageEvent(event: Record<string, unknown>): Record<string, unknown> | null {
+  const type = typeof event.type === "string" ? event.type : "";
+  const contentIndex = typeof event.contentIndex === "number" ? event.contentIndex : 0;
+  const id = `content_${contentIndex}`;
+  const partial = isRecord(event.partial) ? event.partial : undefined;
+  const content = Array.isArray(partial?.content) ? partial.content[contentIndex] : undefined;
+
+  switch (type) {
+    case "text_start":
+      return { id, type: "text-start" };
+    case "text_delta":
+      return typeof event.delta === "string" ? { delta: event.delta, id, type: "text-delta" } : null;
+    case "text_end":
+      return { id, type: "text-end" };
+    case "thinking_start":
+      return { id, type: "reasoning-start" };
+    case "thinking_delta":
+      return typeof event.delta === "string" ? { delta: event.delta, id, type: "reasoning-delta" } : null;
+    case "thinking_end":
+      return { id, type: "reasoning-end" };
+    case "toolcall_start": {
+      const toolCall = toolCallFromContent(content);
+      return toolCall ? { dynamic: true, toolCallId: toolCall.id, toolName: toolCall.name, type: "tool-input-start" } : null;
+    }
+    case "toolcall_delta": {
+      const toolCall = toolCallFromContent(content);
+      return toolCall && typeof event.delta === "string"
+        ? { inputTextDelta: event.delta, toolCallId: toolCall.id, type: "tool-input-delta" }
+        : null;
+    }
+    case "toolcall_end": {
+      const toolCall = toolCallFromContent(event.toolCall, content);
+      return toolCall
+        ? { dynamic: true, input: toolCall.arguments, toolCallId: toolCall.id, toolName: toolCall.name, type: "tool-input-available" }
+        : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function uiChunkFromToolExecutionStart(event: Record<string, unknown>): Record<string, unknown> | null {
+  const toolCallId = stringValue(event.toolCallId);
+  if (!toolCallId) return null;
+  return stripUndefined({
+    dynamic: true,
+    input: event.args,
+    startedAtMs: Date.now(),
+    toolCallId,
+    toolName: stringValue(event.toolName),
+    type: "tool-input-available",
+  });
+}
+
+function uiChunkFromToolExecutionUpdate(event: Record<string, unknown>): Record<string, unknown> | null {
+  const toolCallId = stringValue(event.toolCallId);
+  if (!toolCallId) return null;
+  return {
+    output: normalizeToolOutput(event.partialResult),
+    preliminary: true,
+    toolCallId,
+    type: "tool-output-available",
+  };
+}
+
+function uiChunkFromToolExecutionEnd(event: Record<string, unknown>): Record<string, unknown> | null {
+  const toolCallId = stringValue(event.toolCallId);
+  if (!toolCallId) return null;
+  const isError = event.isError === true;
+  return stripUndefined({
+    completedAtMs: Date.now(),
+    errorText: isError ? toolResultText(event.result) || "Tool execution failed." : undefined,
+    output: isError ? undefined : normalizeToolOutput(event.result),
+    toolCallId,
+    type: isError ? "tool-output-error" : "tool-output-available",
+  });
+}
+
+function terminalChunksFromAssistantMessage(message: Record<string, unknown>): Record<string, unknown>[] {
+  if (message.role !== "assistant") return [];
+  const metadata = metadataFromAssistantMessage(message);
+  const stopReason = stringValue(message.stopReason) || "stop";
+  if (stopReason === "error") {
+    return [{ errorText: stringValue(message.errorMessage) || "Assistant response failed.", messageMetadata: metadata, type: "error" }];
+  }
+  if (stopReason === "aborted") {
+    return [{ messageMetadata: metadata, type: "abort" }];
+  }
+  return [{ finishReason: stopReason, messageMetadata: metadata, type: "finish" }];
+}
+
+function metadataFromAssistantMessage(message: Record<string, unknown>): Record<string, unknown> {
+  const stopReason = stringValue(message.stopReason) || "stop";
+  return stripUndefined({
+    diagnostics: Array.isArray(message.diagnostics) ? message.diagnostics : undefined,
+    error: stringValue(message.errorMessage) ? { message: stringValue(message.errorMessage) } : undefined,
+    finish_reason: stopReason,
+    model: stringValue(message.model),
+    provider: stringValue(message.provider),
+    response_id: stringValue(message.responseId),
+    response_model: stringValue(message.responseModel),
+    response_status: stopReason === "error" ? "failed" : stopReason === "aborted" ? "cancelled" : "completed",
+    usage: isRecord(message.usage) ? normalizeUsage(message.usage) : undefined,
+  });
+}
+
+function normalizeUsage(usage: Record<string, unknown>): Record<string, unknown> {
+  const input = numberValue(usage.input) ?? numberValue(usage.prompt_tokens) ?? numberValue(usage.promptTokens);
+  const output = numberValue(usage.output) ?? numberValue(usage.completion_tokens) ?? numberValue(usage.completionTokens);
+  return stripUndefined({
+    ...usage,
+    completion_tokens: output,
+    context_limit: numberValue(usage.contextLimit) ?? numberValue(usage.context_limit),
+    prompt_tokens: input,
+  });
+}
+
+function toolCallFromContent(...values: unknown[]): { id: string; name: string; arguments: unknown } | null {
+  for (const value of values) {
+    if (!isRecord(value) || value.type !== "toolCall") continue;
+    const id = stringValue(value.id);
+    if (!id) continue;
+    return { id, name: stringValue(value.name) || "tool", arguments: value.arguments };
+  }
+  return null;
+}
+
+function normalizeToolOutput(result: unknown): unknown {
+  if (!isRecord(result)) return result;
+  if (result.details !== undefined) return result.details;
+  if (result.content !== undefined) return contentText(result.content);
+  return result;
+}
+
+function toolResultText(result: unknown): string {
+  if (!isRecord(result)) return typeof result === "string" ? result : "";
+  return contentText(result.content) || (typeof result.error === "string" ? result.error : "");
+}
+
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => isRecord(part) && typeof part.text === "string" ? part.text : "").filter(Boolean).join("\n");
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function finalPartFromChunk(part: Record<string, unknown>): Record<string, unknown> {
@@ -400,7 +596,11 @@ function parsePartialJson(text: string): unknown {
 function isStreamPart(chunk: string | Record<string, unknown>): chunk is Record<string, unknown> {
   return typeof chunk === "object"
     && chunk !== null
-    && typeof chunk.type === "string"
+    && isNativeStreamPartRecord(chunk);
+}
+
+function isNativeStreamPartRecord(chunk: Record<string, unknown>): boolean {
+  return typeof chunk.type === "string"
     && (NATIVE_STREAM_PART_TYPES.has(chunk.type) || chunk.type.startsWith("data-"));
 }
 
