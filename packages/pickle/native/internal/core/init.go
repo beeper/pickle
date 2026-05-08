@@ -67,6 +67,7 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 		_ = c.beeperStream.Close()
 	}
 	c.beeperStream = nil
+	c.appserviceProcessor = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
 	c.emittedTimelineIDs = make(map[id.EventID]struct{})
@@ -243,10 +244,12 @@ func (c *Core) setupBeeperStream() error {
 	if err != nil {
 		return err
 	}
-	if err := helper.Init(); err != nil {
+	processor := newBeeperStreamEventProcessor()
+	if err := helper.InitAppservice(processor); err != nil {
 		return err
 	}
 	c.beeperStream = helper
+	c.appserviceProcessor = processor
 	return nil
 }
 

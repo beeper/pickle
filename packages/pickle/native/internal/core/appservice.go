@@ -146,6 +146,40 @@ type MatrixAppserviceBatchSendResult struct {
 	Raw      any      `json:"raw"`
 }
 
+type MatrixAppserviceTransactionOptions struct {
+	Transaction json.RawMessage `json:"transaction" tstype:"{ [key: string]: unknown }"`
+}
+
+type matrixAppserviceTransaction struct {
+	Events          []*event.Event `json:"events"`
+	EphemeralEvents []*event.Event `json:"ephemeral,omitempty"`
+	ToDeviceEvents  []*event.Event `json:"to_device,omitempty"`
+
+	MSC2409EphemeralEvents []*event.Event `json:"de.sorunome.msc2409.ephemeral,omitempty"`
+	MSC2409ToDeviceEvents  []*event.Event `json:"de.sorunome.msc2409.to_device,omitempty"`
+}
+
+type beeperStreamEventProcessor struct {
+	handlers map[event.Type][]mautrix.EventHandler
+}
+
+func newBeeperStreamEventProcessor() *beeperStreamEventProcessor {
+	return &beeperStreamEventProcessor{handlers: make(map[event.Type][]mautrix.EventHandler)}
+}
+
+func (ep *beeperStreamEventProcessor) On(evtType event.Type, handler mautrix.EventHandler) {
+	ep.handlers[evtType] = append(ep.handlers[evtType], handler)
+}
+
+func (ep *beeperStreamEventProcessor) Dispatch(ctx context.Context, evt *event.Event) {
+	if ep == nil || evt == nil {
+		return
+	}
+	for _, handler := range ep.handlers[evt.Type] {
+		handler(ctx, evt)
+	}
+}
+
 func (c *Core) handleInitAppservice(ctx context.Context, payload []byte) ([]byte, error) {
 	var req MatrixAppserviceInitOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
@@ -175,6 +209,45 @@ func (c *Core) handleInitAppservice(ctx context.Context, payload []byte) ([]byte
 	}
 	c.appservice = as
 	return json.Marshal(MatrixAppserviceInfo{BotUserID: as.botUserID.String(), ID: req.Registration.ID})
+}
+
+func (c *Core) handleAppserviceApplyTransaction(ctx context.Context, payload []byte) ([]byte, error) {
+	if c.appserviceProcessor == nil {
+		return c.empty()
+	}
+	var req MatrixAppserviceTransactionOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	if len(req.Transaction) == 0 {
+		return nil, errors.New("missing appservice transaction")
+	}
+	var txn matrixAppserviceTransaction
+	if err := json.Unmarshal(req.Transaction, &txn); err != nil {
+		return nil, err
+	}
+	c.dispatchAppserviceEvents(ctx, txn.Events, event.MessageEventType)
+	if txn.EphemeralEvents != nil {
+		c.dispatchAppserviceEvents(ctx, txn.EphemeralEvents, event.EphemeralEventType)
+	} else if txn.MSC2409EphemeralEvents != nil {
+		c.dispatchAppserviceEvents(ctx, txn.MSC2409EphemeralEvents, event.EphemeralEventType)
+	}
+	if txn.ToDeviceEvents != nil {
+		c.dispatchAppserviceEvents(ctx, txn.ToDeviceEvents, event.ToDeviceEventType)
+	} else if txn.MSC2409ToDeviceEvents != nil {
+		c.dispatchAppserviceEvents(ctx, txn.MSC2409ToDeviceEvents, event.ToDeviceEventType)
+	}
+	return c.empty()
+}
+
+func (c *Core) dispatchAppserviceEvents(ctx context.Context, events []*event.Event, class event.TypeClass) {
+	for _, evt := range events {
+		if evt == nil {
+			continue
+		}
+		evt.Type.Class = class
+		c.appserviceProcessor.Dispatch(ctx, evt)
+	}
 }
 
 func (c *Core) handleAppserviceEnsureRegistered(ctx context.Context, payload []byte) ([]byte, error) {

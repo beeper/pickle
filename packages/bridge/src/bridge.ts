@@ -100,6 +100,7 @@ export async function createBeeperBridge(options: CreateBeeperBridgeOptions): Pr
   const matrix = {
     ...options.matrix,
     appservice: options.matrix?.appservice ?? appservice,
+    beeper: true,
     deviceId: options.matrix?.deviceId ?? await getOrCreateAppserviceDeviceId(options.store, options.bridge),
     homeserver: options.matrix?.homeserver ?? appservice.homeserver,
     store: options.store,
@@ -123,6 +124,7 @@ export async function createBeeperBridgeWithClient(options: CreateBeeperBridgeOp
   const matrix = {
     ...options.matrix,
     appservice: options.matrix?.appservice ?? appservice,
+    beeper: true,
     deviceId: options.matrix?.deviceId ?? await getOrCreateAppserviceDeviceId(store, options.bridge),
     homeserver: options.matrix?.homeserver ?? appservice.homeserver,
     store,
@@ -772,10 +774,15 @@ export class RuntimeBridge implements PickleBridge {
       appservice: this.#appserviceOptions,
       dispatch: (event) => this.dispatchMatrixEvent(event),
       handleHTTPProxy: (request) => this.#handleHTTPProxy(request),
+      handleTransaction: (transaction) => this.#handleAppserviceTransaction(transaction),
       log: defaultLogger,
       onOpen: () => this.#sendCurrentBridgeStatus(),
     });
     this.#appserviceWebsocket.start();
+  }
+
+  async #handleAppserviceTransaction(transaction: Record<string, unknown>): Promise<void> {
+    await this.#matrixClient.appservice.applyTransaction({ transaction });
   }
 
   async #handleHTTPProxy(request: HTTPProxyRequest): Promise<HTTPProxyResponse | null> {

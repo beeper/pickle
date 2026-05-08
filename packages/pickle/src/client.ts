@@ -79,6 +79,7 @@ class DefaultMatrixClient implements MatrixClient {
       ensureJoined: (opts) => this.#withCore((core) => core.appserviceEnsureJoined(opts)),
       ensureRegistered: (opts) => this.#withCore((core) => core.appserviceEnsureRegistered(opts)),
       init: (opts) => this.#withCore((core) => core.initAppservice(opts)),
+      applyTransaction: (opts) => this.#withCore((core) => core.appserviceApplyTransaction(opts)),
       sendMessage: (opts) => this.#withCore(async (core) => {
         const result = await core.appserviceSendMessage(stripUndefined(opts));
         return { eventId: result.eventId, raw: result.raw, roomId: result.roomId };

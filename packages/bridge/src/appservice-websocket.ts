@@ -6,6 +6,7 @@ export interface AppserviceWebsocketOptions {
   appservice: MatrixAppserviceInitOptions;
   dispatch(event: MatrixClientEvent): Promise<unknown>;
   handleHTTPProxy?(request: HTTPProxyRequest): Promise<HTTPProxyResponse | null>;
+  handleTransaction?(transaction: Record<string, unknown>): Promise<unknown>;
   log: BridgeLogger;
   onClose?(event: AppserviceWebsocketCloseEvent): void | Promise<void>;
   onOpen?(): void | Promise<void>;
@@ -41,6 +42,7 @@ export class AppserviceWebsocket {
   readonly #appservice: MatrixAppserviceInitOptions;
   readonly #dispatch: (event: MatrixClientEvent) => Promise<unknown>;
   readonly #handleProxy: ((request: HTTPProxyRequest) => Promise<HTTPProxyResponse | null>) | undefined;
+  readonly #handleTransaction: ((transaction: Record<string, unknown>) => Promise<unknown>) | undefined;
   readonly #log: BridgeLogger;
   readonly #onClose: ((event: AppserviceWebsocketCloseEvent) => void | Promise<void>) | undefined;
   readonly #onOpen: (() => void | Promise<void>) | undefined;
@@ -61,6 +63,7 @@ export class AppserviceWebsocket {
     this.#appservice = options.appservice;
     this.#dispatch = options.dispatch;
     this.#handleProxy = options.handleHTTPProxy;
+    this.#handleTransaction = options.handleTransaction;
     this.#log = options.log;
     this.#onClose = options.onClose;
     this.#onOpen = options.onOpen;
@@ -215,6 +218,7 @@ export class AppserviceWebsocket {
       }
       if (message.command === "response" || message.command === "error") return;
       if (!message.command || message.command === "transaction") {
+        await this.#handleTransaction?.(message as Record<string, unknown>);
         for (const raw of message.events ?? []) {
           const event = rawMatrixEvent(raw);
           this.#log("debug", "appservice_websocket_transaction_event", {
@@ -260,6 +264,7 @@ export class AppserviceWebsocket {
         eventCount: events.length,
         txnId: transactionMatch[1],
       });
+      await this.#handleTransaction?.(transaction);
       for (const raw of events) {
         const event = rawMatrixEvent(raw as RawMatrixEvent);
         if (event) await this.#dispatch(event);
@@ -336,6 +341,7 @@ export interface HTTPProxyResponse {
 }
 
 interface RawMatrixEvent {
+  [key: string]: unknown;
   content?: Record<string, unknown>;
   event_id?: string;
   origin_server_ts?: number;

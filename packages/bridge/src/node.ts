@@ -32,6 +32,7 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
   const matrix = {
     ...options.matrix,
     appservice,
+    beeper: true,
     deviceId: options.matrix?.deviceId ?? await getOrCreateAppserviceDeviceId(store, options.bridge),
     homeserver: options.matrix?.homeserver ?? appservice.homeserver,
     store,

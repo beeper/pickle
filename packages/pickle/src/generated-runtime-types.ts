@@ -123,6 +123,9 @@ export interface MatrixAppserviceBatchSendResult {
   eventIds: string[];
   raw: unknown;
 }
+export interface MatrixAppserviceTransactionOptions {
+  transaction: { [key: string]: unknown };
+}
 export interface MatrixCryptoStatus {
   deviceId?: string;
   hasRecoveryKey: boolean;

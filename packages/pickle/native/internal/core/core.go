@@ -15,31 +15,32 @@ import (
 )
 
 type Core struct {
-	client             *mautrix.Client
-	appservice         *matrixAppservice
-	crypto             *cryptohelper.CryptoHelper
-	cryptoStore        crypto.Store
-	backupKey          *backup.MegolmBackupKey
-	backupVersion      id.KeyBackupVersion
-	beeperStream       *beeperstream.Helper
-	emit               func(OutboundEvent)
-	host               RuntimeHost
-	nextBatch          string
-	pickleKey          []byte
-	pendingDecryptions []pendingDecryption
-	skipNextSync       bool
-	emittedTimelineIDs map[id.EventID]struct{}
-	messageEdits       map[id.EventID]*MatrixMessageEvent
-	reactions          map[id.EventID]reactionSnapshot
-	stores             *storeBundle
-	userID             id.UserID
-	deviceID           id.DeviceID
-	cryptoStatus       string
-	mu                 sync.Mutex
-	syncMu             sync.Mutex
-	syncLoopMu         sync.Mutex
-	syncLoopCancel     context.CancelFunc
-	syncLoopDone       chan struct{}
+	client              *mautrix.Client
+	appservice          *matrixAppservice
+	crypto              *cryptohelper.CryptoHelper
+	cryptoStore         crypto.Store
+	backupKey           *backup.MegolmBackupKey
+	backupVersion       id.KeyBackupVersion
+	beeperStream        *beeperstream.Helper
+	appserviceProcessor *beeperStreamEventProcessor
+	emit                func(OutboundEvent)
+	host                RuntimeHost
+	nextBatch           string
+	pickleKey           []byte
+	pendingDecryptions  []pendingDecryption
+	skipNextSync        bool
+	emittedTimelineIDs  map[id.EventID]struct{}
+	messageEdits        map[id.EventID]*MatrixMessageEvent
+	reactions           map[id.EventID]reactionSnapshot
+	stores              *storeBundle
+	userID              id.UserID
+	deviceID            id.DeviceID
+	cryptoStatus        string
+	mu                  sync.Mutex
+	syncMu              sync.Mutex
+	syncLoopMu          sync.Mutex
+	syncLoopCancel      context.CancelFunc
+	syncLoopDone        chan struct{}
 }
 
 type OutboundEvent map[string]any
@@ -99,6 +100,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleAppserviceSendMessage(ctx, payload)
 	case opAppserviceBatchSend:
 		return c.handleAppserviceBatchSend(ctx, payload)
+	case opAppserviceApplyTransaction:
+		return c.handleAppserviceApplyTransaction(ctx, payload)
 	case opApplySyncResponse:
 		return c.handleApplySyncResponse(ctx, payload)
 	case opGetAccountData:

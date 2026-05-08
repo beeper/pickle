@@ -12,6 +12,7 @@ import type {
   MatrixAppserviceInitOptions,
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceTransactionOptions,
   MatrixAppserviceUserOptions,
   MatrixBanUserOptions,
   MatrixBeeperStreamOptions,
@@ -103,6 +104,7 @@ export interface MatrixCoreOperations {
   appserviceCreateManagementRoom(options: MatrixAppserviceCreateManagementRoomOptions): Promise<MatrixCreateRoomResult>;
   appserviceSendMessage(options: MatrixAppserviceSendMessageOptions): Promise<MatrixRawMessage>;
   appserviceBatchSend(options: MatrixAppserviceBatchSendOptions): Promise<MatrixAppserviceBatchSendResult>;
+  appserviceApplyTransaction(options: MatrixAppserviceTransactionOptions): Promise<void>;
   applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void>;
   getAccountData(options: MatrixGetAccountDataOptions): Promise<MatrixAccountDataResult>;
   setAccountData(options: MatrixSetAccountDataOptions): Promise<void>;
@@ -220,6 +222,10 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   appserviceBatchSend(options: MatrixAppserviceBatchSendOptions): Promise<MatrixAppserviceBatchSendResult> {
     return this.call<MatrixAppserviceBatchSendResult>("appservice_batch_send", options);
+  }
+
+  appserviceApplyTransaction(options: MatrixAppserviceTransactionOptions): Promise<void> {
+    return this.call<void>("appservice_apply_transaction", options);
   }
 
   applySyncResponse(options: MatrixApplySyncResponseOptions): Promise<void> {

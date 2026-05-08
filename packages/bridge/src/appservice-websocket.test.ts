@@ -71,6 +71,63 @@ describe("AppserviceWebsocket", () => {
     }));
   });
 
+  it("forwards appservice transactions before acknowledging them", async () => {
+    const httpServer = createServer();
+    const wsServer = new WebSocketServer({ server: httpServer });
+    servers.push(wsServer, httpServer);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
+    const handleTransaction = vi.fn(async () => {});
+    const connected = new Promise<void>((resolve, reject) => {
+      wsServer.on("connection", (socket) => {
+        socket.once("message", (raw) => {
+          try {
+            const response = JSON.parse(raw.toString()) as { command: string; data: { txn_id: string }; id: number };
+            expect(response).toEqual({
+              command: "response",
+              data: { txn_id: "txn-td" },
+              id: 8,
+            });
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+        socket.send(JSON.stringify({
+          command: "transaction",
+          id: 8,
+          to_device: [{
+            content: { device_id: "DESKTOP", event_id: "$event", room_id: "!room:example" },
+            sender: "@alice:example",
+            to_device_id: "PICKLE",
+            to_user_id: "@bot:example",
+            type: "com.beeper.stream.subscribe",
+          }],
+          txn_id: "txn-td",
+        }));
+      });
+    });
+    const websocket = createWebsocket(homeserver, {
+      handleTransaction,
+      log: (() => {}) as BridgeLogger,
+    });
+    websockets.push(websocket);
+
+    websocket.start();
+    await connected;
+
+    expect(handleTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      to_device: [expect.objectContaining({
+        content: { device_id: "DESKTOP", event_id: "$event", room_id: "!room:example" },
+        sender: "@alice:example",
+        to_device_id: "PICKLE",
+        to_user_id: "@bot:example",
+        type: "com.beeper.stream.subscribe",
+      })],
+      txn_id: "txn-td",
+    }));
+  });
+
   it("handles http_proxy appservice transaction requests", async () => {
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer });
