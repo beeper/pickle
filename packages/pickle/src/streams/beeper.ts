@@ -38,13 +38,27 @@ export async function sendBeeperStream(
   let seq = 1;
   let textOpen = false;
   let sawFinish = false;
+  const pendingPublishes = new Set<Promise<void>>();
+  const publishPart = (part: Record<string, unknown>) => {
+    const publish = publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, part)
+      .catch((error) => {
+        console.warn("[pickle] failed to publish beeper stream part", error);
+      })
+      .finally(() => {
+        pendingPublishes.delete(publish);
+      });
+    pendingPublishes.add(publish);
+  };
+  const waitForPublishes = async () => {
+    while (pendingPublishes.size) await Promise.all([...pendingPublishes]);
+  };
   const startPart = {
     messageId: turnId,
     messageMetadata: { turn_id: turnId },
     type: "start",
   };
   applyFinalMessagePart(accumulator, startPart);
-  await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, startPart);
+  publishPart(startPart);
   for await (const chunk of opts.stream) {
     const normalizedChunks = normalizeRichStreamChunk(chunk);
     if (normalizedChunks.length > 0) {
@@ -52,7 +66,7 @@ export async function sendBeeperStream(
         const type = typeof normalizedChunk.type === "string" ? normalizedChunk.type : "";
         if (type === "finish" || type === "error" || type === "abort") sawFinish = true;
         applyFinalMessagePart(accumulator, normalizedChunk);
-        await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, normalizedChunk);
+        publishPart(normalizedChunk);
       }
       continue;
     }
@@ -60,7 +74,7 @@ export async function sendBeeperStream(
       const type = typeof chunk.type === "string" ? chunk.type : "";
       if (type === "finish" || type === "error" || type === "abort") sawFinish = true;
       applyFinalMessagePart(accumulator, chunk);
-      await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, chunk);
+      publishPart(chunk);
       continue;
     }
     const text = streamChunkText(chunk);
@@ -71,7 +85,7 @@ export async function sendBeeperStream(
         type: "text-start",
       };
       applyFinalMessagePart(accumulator, textStartPart);
-      await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, textStartPart);
+      publishPart(textStartPart);
       textOpen = true;
     }
     const textDeltaPart = {
@@ -80,7 +94,7 @@ export async function sendBeeperStream(
       type: "text-delta",
     };
     applyFinalMessagePart(accumulator, textDeltaPart);
-    await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, textDeltaPart);
+    publishPart(textDeltaPart);
   }
   if (textOpen) {
     const textEndPart = {
@@ -88,7 +102,7 @@ export async function sendBeeperStream(
       type: "text-end",
     };
     applyFinalMessagePart(accumulator, textEndPart);
-    await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, textEndPart);
+    publishPart(textEndPart);
   }
   if (!sawFinish) {
     const finishPart = {
@@ -97,8 +111,9 @@ export async function sendBeeperStream(
       type: "finish",
     };
     applyFinalMessagePart(accumulator, finishPart);
-    await publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, finishPart);
+    publishPart(finishPart);
   }
+  await waitForPublishes();
   const finalAIMessage = opts.finalAIMessage ?? finalizeAccumulatedAIMessage(accumulator);
   const finalText = opts.finalText ?? getFinalMessageText(finalAIMessage);
   const replacement = await client.messages.edit({
@@ -362,7 +377,19 @@ function normalizeRichStreamChunk(chunk: string | Record<string, unknown>): Reco
     return mapped ? [mapped] : [];
   }
   if (type === "agent-message-end" && isRecord(chunk.message)) {
+    if (chunk.message.role === "toolResult") {
+      const mapped = uiChunkFromToolResult(chunk.message);
+      return mapped ? [mapped] : [];
+    }
     return terminalChunksFromAssistantMessage(chunk.message);
+  }
+  if (type === "tool-call" || type === "tool_call") {
+    const mapped = uiChunkFromToolCall(chunk);
+    return mapped ? [mapped] : [];
+  }
+  if (type === "tool-result" || type === "tool_result") {
+    const mapped = uiChunkFromToolResult(chunk);
+    return mapped ? [mapped] : [];
   }
   if (type === "tool-execution-start" || type === "tool_execution_start") {
     const mapped = uiChunkFromToolExecutionStart(chunk);
@@ -380,37 +407,47 @@ function normalizeRichStreamChunk(chunk: string | Record<string, unknown>): Reco
 }
 
 function uiChunkFromAssistantMessageEvent(event: Record<string, unknown>): Record<string, unknown> | null {
-  const type = typeof event.type === "string" ? event.type : "";
+  const type = stringValue(event.type) ?? stringValue(event.kind) ?? "";
   const contentIndex = typeof event.contentIndex === "number" ? event.contentIndex : 0;
   const id = `content_${contentIndex}`;
   const partial = isRecord(event.partial) ? event.partial : undefined;
   const content = Array.isArray(partial?.content) ? partial.content[contentIndex] : undefined;
+  const textDelta = stringValue(event.text_delta) ?? stringValue(event.textDelta) ?? (type === "text_delta" ? stringValue(event.delta) : undefined);
+  const reasoningDelta =
+    stringValue(event.thinking_delta) ??
+    stringValue(event.thinkingDelta) ??
+    stringValue(event.reasoning_delta) ??
+    stringValue(event.reasoningDelta) ??
+    (type === "thinking_delta" || type === "reasoning_delta" ? stringValue(event.delta) : undefined);
 
   switch (type) {
     case "text_start":
       return { id, type: "text-start" };
     case "text_delta":
-      return typeof event.delta === "string" ? { delta: event.delta, id, type: "text-delta" } : null;
+      return textDelta ? { delta: textDelta, id, type: "text-delta" } : null;
     case "text_end":
       return { id, type: "text-end" };
     case "thinking_start":
+    case "reasoning_start":
       return { id, type: "reasoning-start" };
     case "thinking_delta":
-      return typeof event.delta === "string" ? { delta: event.delta, id, type: "reasoning-delta" } : null;
+    case "reasoning_delta":
+      return reasoningDelta ? { delta: reasoningDelta, id, type: "reasoning-delta" } : null;
     case "thinking_end":
+    case "reasoning_end":
       return { id, type: "reasoning-end" };
     case "toolcall_start": {
-      const toolCall = toolCallFromContent(content);
+      const toolCall = toolCallFromContent(event.toolCall, event.tool_call, event.call, content);
       return toolCall ? { dynamic: true, toolCallId: toolCall.id, toolName: toolCall.name, type: "tool-input-start" } : null;
     }
     case "toolcall_delta": {
-      const toolCall = toolCallFromContent(content);
+      const toolCall = toolCallFromContent(event.toolCall, event.tool_call, event.call, content, event);
       return toolCall && typeof event.delta === "string"
         ? { inputTextDelta: event.delta, toolCallId: toolCall.id, type: "tool-input-delta" }
         : null;
     }
     case "toolcall_end": {
-      const toolCall = toolCallFromContent(event.toolCall, content);
+      const toolCall = toolCallFromContent(event.toolCall, event.tool_call, event.call, content);
       return toolCall
         ? { dynamic: true, input: toolCall.arguments, toolCallId: toolCall.id, toolName: toolCall.name, type: "tool-input-available" }
         : null;
@@ -420,39 +457,72 @@ function uiChunkFromAssistantMessageEvent(event: Record<string, unknown>): Recor
   }
 }
 
+function uiChunkFromToolCall(event: Record<string, unknown>): Record<string, unknown> | null {
+  const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
+  const toolName = stringValue(event.toolName) ?? stringValue(event.name);
+  if (!toolCallId) return null;
+  return stripUndefined({
+    dynamic: true,
+    input: event.input ?? event.args ?? parseMaybeJSONValue(event.arguments),
+    startedAtMs: Date.now(),
+    toolCallId,
+    toolName,
+    type: "tool-input-available",
+  });
+}
+
 function uiChunkFromToolExecutionStart(event: Record<string, unknown>): Record<string, unknown> | null {
-  const toolCallId = stringValue(event.toolCallId);
+  const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   if (!toolCallId) return null;
   return stripUndefined({
     dynamic: true,
     input: event.args,
     startedAtMs: Date.now(),
     toolCallId,
-    toolName: stringValue(event.toolName),
+    toolName: stringValue(event.toolName) ?? stringValue(event.name),
     type: "tool-input-available",
   });
 }
 
 function uiChunkFromToolExecutionUpdate(event: Record<string, unknown>): Record<string, unknown> | null {
-  const toolCallId = stringValue(event.toolCallId);
+  const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   if (!toolCallId) return null;
-  return {
+  return stripUndefined({
     output: normalizeToolOutput(event.partialResult),
     preliminary: true,
     toolCallId,
+    toolName: stringValue(event.toolName) ?? stringValue(event.name),
     type: "tool-output-available",
-  };
+  });
 }
 
 function uiChunkFromToolExecutionEnd(event: Record<string, unknown>): Record<string, unknown> | null {
-  const toolCallId = stringValue(event.toolCallId);
+  const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   if (!toolCallId) return null;
   const isError = event.isError === true;
   return stripUndefined({
     completedAtMs: Date.now(),
     errorText: isError ? toolResultText(event.result) || "Tool execution failed." : undefined,
     output: isError ? undefined : normalizeToolOutput(event.result),
+    preliminary: false,
     toolCallId,
+    toolName: stringValue(event.toolName) ?? stringValue(event.name),
+    type: isError ? "tool-output-error" : "tool-output-available",
+  });
+}
+
+function uiChunkFromToolResult(event: Record<string, unknown>): Record<string, unknown> | null {
+  const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
+  if (!toolCallId) return null;
+  const isError = event.isError === true;
+  const result = event.content ?? event.result ?? event.output ?? event;
+  return stripUndefined({
+    completedAtMs: Date.now(),
+    errorText: isError ? toolResultText(result) || "Tool execution failed." : undefined,
+    output: isError ? undefined : normalizeToolOutput(result),
+    preliminary: false,
+    toolCallId,
+    toolName: stringValue(event.toolName) ?? stringValue(event.name),
     type: isError ? "tool-output-error" : "tool-output-available",
   });
 }
@@ -498,18 +568,23 @@ function normalizeUsage(usage: Record<string, unknown>): Record<string, unknown>
 
 function toolCallFromContent(...values: unknown[]): { id: string; name: string; arguments: unknown } | null {
   for (const value of values) {
-    if (!isRecord(value) || value.type !== "toolCall") continue;
-    const id = stringValue(value.id);
+    if (!isRecord(value)) continue;
+    const recordType = stringValue(value.type);
+    if (recordType && !["toolCall", "tool_call", "function_call"].includes(recordType)) continue;
+    const id = stringValue(value.id) ?? stringValue(value.toolCallId) ?? stringValue(value.callId) ?? stringValue(value.call_id);
     if (!id) continue;
-    return { id, name: stringValue(value.name) || "tool", arguments: value.arguments };
+    return {
+      arguments: parseMaybeJSONValue(value.arguments ?? value.args ?? value.input),
+      id,
+      name: stringValue(value.name) ?? stringValue(value.toolName) ?? "tool",
+    };
   }
   return null;
 }
 
 function normalizeToolOutput(result: unknown): unknown {
   if (!isRecord(result)) return result;
-  if (result.details !== undefined) return result.details;
-  if (result.content !== undefined) return contentText(result.content);
+  if (Object.keys(result).length === 1 && result.content !== undefined) return contentText(result.content);
   return result;
 }
 
@@ -526,6 +601,15 @@ function contentText(content: unknown): string {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function parseMaybeJSONValue(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value || undefined;
+  }
 }
 
 function numberValue(value: unknown): number | undefined {
