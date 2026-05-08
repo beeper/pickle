@@ -2,7 +2,7 @@ import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscri
 import { createDefaultConfig, readConfig } from "./config";
 import { createPicklePiMatrixClient } from "./matrix";
 import { createHeadlessPiSession, type HeadlessPiSession } from "./pi-runtime";
-import { piEventNoticeText } from "./pi-notice";
+import { piEventNoticeText, piEventSessionTitle } from "./pi-notice";
 import { PicklePiRegistry } from "./registry";
 import { createSessionRoom } from "./rooms";
 import { attachRoomToSpace, createProjectSpace, projectKeyForCwd } from "./spaces";
@@ -159,6 +159,15 @@ export class PicklePiAgent {
 
   async #mirrorPiEvent(roomId: string, event: unknown): Promise<void> {
     if (!this.#client) return;
+    const title = piEventSessionTitle(event);
+    if (title) {
+      await this.#client.rooms.sendStateEvent({
+        content: { name: title },
+        eventType: "m.room.name",
+        roomId,
+        stateKey: "",
+      });
+    }
     const text = piEventNoticeText(event);
     if (!text) return;
     await this.#client.messages.send({ messageType: "m.notice", roomId, text });
