@@ -1,10 +1,14 @@
 import {
   closeOpenMessageParts,
+  closeReasoningPart,
+  closeTextPart,
   createStreamRunState,
   finishChunk,
   mapPiMessageDelta,
   mapPiToolInput,
   mapPiToolOutput,
+  openReasoningPart,
+  openTextPart,
   startChunk,
   type BeeperUIMessageChunk,
   type StreamRunState,
@@ -55,7 +59,6 @@ function mapAssistantMessageEvent(state: StreamRunState, event: unknown): Beeper
   if (!record) return [];
   const type = stringValue(record?.type) ?? stringValue(record?.kind);
   const contentIndex = typeof record?.contentIndex === "number" ? record.contentIndex : 0;
-  const id = `content_${contentIndex}`;
   const partial = recordValue(record?.partial);
   const content = Array.isArray(partial?.content) ? recordValue(partial.content[contentIndex]) : undefined;
   const genericDelta = stringValue(record?.delta);
@@ -65,14 +68,14 @@ function mapAssistantMessageEvent(state: StreamRunState, event: unknown): Beeper
     stringValue(record?.thinkingDelta) ??
     stringValue(record?.reasoningDelta) ??
     (type === "thinking_delta" || type === "reasoning_delta" ? genericDelta : undefined);
-  if (type === "text_start") return [{ id, type: "text-start" }];
+  if (type === "text_start") return openTextPart(state);
   if (type === "text_delta" && textDelta) return mapPiMessageDelta(state, { kind: "text", value: textDelta });
-  if (type === "text_end") return [{ id, type: "text-end" }];
-  if (type === "thinking_start" || type === "reasoning_start") return [{ id, type: "reasoning-start" }];
+  if (type === "text_end") return closeTextPart(state);
+  if (type === "thinking_start" || type === "reasoning_start") return openReasoningPart(state);
   if ((type === "thinking_delta" || type === "reasoning_delta") && thinkingDelta) {
     return mapPiMessageDelta(state, { kind: "thinking", value: thinkingDelta });
   }
-  if (type === "thinking_end" || type === "reasoning_end") return [{ id, type: "reasoning-end" }];
+  if (type === "thinking_end" || type === "reasoning_end") return closeReasoningPart(state);
   if (type === "toolcall_start") {
     const toolCall = toolCallFromContent(record.toolCall, record.tool_call, record.call, content);
     if (!toolCall) return [];

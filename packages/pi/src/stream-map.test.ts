@@ -24,9 +24,15 @@ describe("Pi event to Beeper stream mapping", () => {
       { id: "reasoning_turn_1", type: "reasoning-start" },
       { delta: "checking", id: "reasoning_turn_1", type: "reasoning-delta" },
     ]);
+    expect(mapPiMessageDelta(state, { kind: "thinking", value: " files" })).toEqual([
+      { delta: " files", id: "reasoning_turn_1", type: "reasoning-delta" },
+    ]);
     expect(mapPiMessageDelta(state, { kind: "text", value: "done" })).toEqual([
       { id: "text_turn_1", type: "text-start" },
       { delta: "done", id: "text_turn_1", type: "text-delta" },
+    ]);
+    expect(mapPiMessageDelta(state, { kind: "text", value: "." })).toEqual([
+      { delta: ".", id: "text_turn_1", type: "text-delta" },
     ]);
     expect(closeOpenMessageParts(state)).toEqual([
       { id: "reasoning_turn_1", type: "reasoning-end" },

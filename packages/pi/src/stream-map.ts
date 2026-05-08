@@ -32,24 +32,40 @@ export function mapPiMessageDelta(
   state: StreamRunState,
   delta: { kind: "text" | "thinking"; value: string }
 ): BeeperUIMessageChunk[] {
-  const chunks: BeeperUIMessageChunk[] = [];
   if (delta.kind === "text") {
-    state.textPartId ??= `text_${state.turnId}`;
-    chunks.push({ id: state.textPartId, type: "text-start" });
-    chunks.push({ delta: delta.value, id: state.textPartId, type: "text-delta" });
-    return chunks;
+    return [...openTextPart(state), { delta: delta.value, id: state.textPartId!, type: "text-delta" }];
   }
-  state.reasoningPartId ??= `reasoning_${state.turnId}`;
-  chunks.push({ id: state.reasoningPartId, type: "reasoning-start" });
-  chunks.push({ delta: delta.value, id: state.reasoningPartId, type: "reasoning-delta" });
-  return chunks;
+  return [...openReasoningPart(state), { delta: delta.value, id: state.reasoningPartId!, type: "reasoning-delta" }];
 }
 
 export function closeOpenMessageParts(state: StreamRunState): BeeperUIMessageChunk[] {
-  const chunks: BeeperUIMessageChunk[] = [];
-  if (state.reasoningPartId) chunks.push({ id: state.reasoningPartId, type: "reasoning-end" });
-  if (state.textPartId) chunks.push({ id: state.textPartId, type: "text-end" });
-  return chunks;
+  return [...closeReasoningPart(state), ...closeTextPart(state)];
+}
+
+export function openTextPart(state: StreamRunState): BeeperUIMessageChunk[] {
+  if (state.textPartId) return [];
+  state.textPartId = `text_${state.turnId}`;
+  return [{ id: state.textPartId, type: "text-start" }];
+}
+
+export function closeTextPart(state: StreamRunState): BeeperUIMessageChunk[] {
+  if (!state.textPartId) return [];
+  const id = state.textPartId;
+  delete state.textPartId;
+  return [{ id, type: "text-end" }];
+}
+
+export function openReasoningPart(state: StreamRunState): BeeperUIMessageChunk[] {
+  if (state.reasoningPartId) return [];
+  state.reasoningPartId = `reasoning_${state.turnId}`;
+  return [{ id: state.reasoningPartId, type: "reasoning-start" }];
+}
+
+export function closeReasoningPart(state: StreamRunState): BeeperUIMessageChunk[] {
+  if (!state.reasoningPartId) return [];
+  const id = state.reasoningPartId;
+  delete state.reasoningPartId;
+  return [{ id, type: "reasoning-end" }];
 }
 
 export function mapPiToolInput(event: {

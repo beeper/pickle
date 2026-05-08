@@ -26,6 +26,18 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
       mapper.map({
         assistantMessageEvent: {
           contentIndex: 0,
+          partial: assistantMessage,
+          type: "thinking_start",
+        },
+        message: assistantMessage,
+        type: "message_update",
+      })
+    ).toEqual([{ id: "reasoning_turn_message", type: "reasoning-start" }]);
+
+    expect(
+      mapper.map({
+        assistantMessageEvent: {
+          contentIndex: 0,
           delta: "Need to inspect the files.",
           partial: {
             ...assistantMessage,
@@ -37,13 +49,24 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
         type: "message_update",
       })
     ).toEqual([
-      { id: "reasoning_turn_message", type: "reasoning-start" },
       {
         delta: "Need to inspect the files.",
         id: "reasoning_turn_message",
         type: "reasoning-delta",
       },
     ]);
+
+    expect(
+      mapper.map({
+        assistantMessageEvent: {
+          contentIndex: 1,
+          partial: assistantMessage,
+          type: "text_start",
+        },
+        message: assistantMessage,
+        type: "message_update",
+      })
+    ).toEqual([{ id: "text_turn_message", type: "text-start" }]);
 
     expect(
       mapper.map({
@@ -63,7 +86,6 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
         type: "message_update",
       })
     ).toEqual([
-      { id: "text_turn_message", type: "text-start" },
       { delta: "The mapping is ready.", id: "text_turn_message", type: "text-delta" },
     ]);
 

@@ -3,7 +3,7 @@ import type { BeeperUIMessageChunk } from "./stream-map";
 
 export interface BeeperStreamPublisherClient {
   beeper: MatrixBeeper;
-  messages: MatrixMessages;
+  messages: Pick<MatrixMessages, "edit" | "send">;
 }
 
 export interface CreateBeeperStreamPublisherOptions {
