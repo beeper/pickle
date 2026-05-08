@@ -1,3 +1,5 @@
+import type { MatrixAppserviceInitOptions } from "./generated-runtime-types";
+
 export interface MatrixStore {
   delete(key: string): Promise<void>;
   get(key: string): Promise<Uint8Array | null>;
@@ -11,6 +13,7 @@ export interface MatrixLogger {
 
 export interface MatrixClientOptions {
   account?: MatrixAccount;
+  appservice?: MatrixAppserviceInitOptions;
   beeper?: boolean;
   boot?: boolean;
   fetch?: typeof fetch;

@@ -573,7 +573,7 @@ export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "ap
   store?: MatrixStore;
 }
 
-export interface BridgeMatrixConfig extends Pick<MatrixClientOptions, "account" | "beeper" | "fetch" | "homeserver" | "logger" | "pickleKey" | "randomBytes" | "recoveryKey" | "store" | "token" | "verifyRecoveryOnStart" | "wasmBytes" | "wasmModule" | "wasmUrl"> {
+export interface BridgeMatrixConfig extends Pick<MatrixClientOptions, "account" | "appservice" | "beeper" | "fetch" | "homeserver" | "logger" | "pickleKey" | "randomBytes" | "recoveryKey" | "store" | "token" | "verifyRecoveryOnStart" | "wasmBytes" | "wasmModule" | "wasmUrl"> {
   store: MatrixStore;
 }
 

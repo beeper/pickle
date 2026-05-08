@@ -133,6 +133,7 @@ export interface MatrixCryptoStatus {
 }
 export interface MatrixCoreInitOptions {
   accessToken: string;
+  appservice?: MatrixAppserviceInitOptions;
   catchUpOnStart?: boolean;
   deviceId?: string;
   homeserverUrl: string;

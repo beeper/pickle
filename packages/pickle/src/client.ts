@@ -329,6 +329,7 @@ class DefaultMatrixClient implements MatrixClient {
     }
     return this.#core.init(stripUndefined({
       accessToken: account.accessToken,
+      appservice: this.#options.appservice,
       deviceId: account.deviceId,
       homeserverUrl: account.homeserver,
       initialSyncMode: "latest" as const,

@@ -31,6 +31,7 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
   });
   const matrix = {
     ...options.matrix,
+    appservice: options.matrix?.appservice ?? appservice,
     homeserver: options.matrix?.homeserver ?? appservice.homeserver,
     store,
     token: options.matrix?.token ?? appservice.registration.asToken,
