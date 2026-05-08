@@ -43,14 +43,49 @@ export class PicklePiRegistry {
     return this.#data.bindings.find((binding) => binding.roomId === roomId);
   }
 
+  getBindingById(id: string): PicklePiBinding | undefined {
+    return this.#data.bindings.find((binding) => binding.id === id);
+  }
+
   getBindingBySessionFile(piSessionFile: string): PicklePiBinding | undefined {
     return this.#data.bindings.find((binding) => binding.piSessionFile === piSessionFile);
+  }
+
+  getBindingsByCwd(cwd: string): PicklePiBinding[] {
+    return this.#data.bindings.filter((binding) => binding.cwd === cwd);
+  }
+
+  getChildBindings(parentBindingId: string): PicklePiBinding[] {
+    return this.#data.bindings.filter(
+      (binding) => binding.fork?.forkedFromBindingId === parentBindingId || binding.subagent?.parentBindingId === parentBindingId
+    );
+  }
+
+  getSubagentBindings(parentBindingId?: string): PicklePiBinding[] {
+    return this.#data.bindings.filter((binding) => {
+      if (binding.kind !== "subagent" && !binding.subagent) return false;
+      return parentBindingId ? binding.subagent?.parentBindingId === parentBindingId : true;
+    });
   }
 
   upsertBinding(binding: PicklePiBinding): void {
     const index = this.#data.bindings.findIndex((item) => item.id === binding.id);
     if (index === -1) this.#data.bindings.push(binding);
     else this.#data.bindings[index] = binding;
+  }
+
+  updateBinding(id: string, update: (binding: PicklePiBinding) => PicklePiBinding): PicklePiBinding | undefined {
+    const index = this.#data.bindings.findIndex((item) => item.id === id);
+    if (index === -1) return undefined;
+    const binding = this.#data.bindings[index];
+    if (!binding) return undefined;
+    const updated = update(binding);
+    this.#data.bindings[index] = updated;
+    return updated;
+  }
+
+  setActiveLeaf(bindingId: string, activeLeafId: string, timestamp = Date.now()): PicklePiBinding | undefined {
+    return this.updateBinding(bindingId, (binding) => ({ ...binding, activeLeafId, updatedAt: timestamp }));
   }
 
   markDedupe(key: string, timestamp = Date.now()): void {

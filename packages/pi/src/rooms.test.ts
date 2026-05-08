@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { MatrixClient } from "@beeper/pickle";
 import { describe, expect, it, vi } from "vitest";
-import { bindingIdForRoom, createSessionRoom, piGhostUserId, sessionFileForBinding } from "./rooms";
+import { bindingIdForRoom, createForkMetadata, createSessionRoom, createSubagentMetadata, piGhostUserId, sessionFileForBinding } from "./rooms";
 import { projectKeyForCwd } from "./spaces";
 import type { PicklePiConfig } from "./types";
 
@@ -70,6 +70,35 @@ describe("room helpers", () => {
 
     expect(piGhostUserId(config)).toBe("@pickle-pi:localhost");
     expect(piGhostUserId(config, "example.com")).toBe("@pickle-pi:example.com");
+  });
+
+  it("builds neutral fork and subagent metadata from a parent binding", () => {
+    const parent = {
+      createdAt: 1,
+      cwd: "/repo",
+      id: "parent",
+      mode: "headless",
+      owner: "appservice",
+      piGhostUserId: "@pi:example.com",
+      piSessionFile: "/sessions/parent.jsonl",
+      roomId: "!parent:example.com",
+      updatedAt: 1,
+    } as const;
+
+    expect(createForkMetadata({ createdAt: 2, forkedFromBinding: parent, forkedFromEntryId: "entry_1", reason: "fork" })).toEqual({
+      createdAt: 2,
+      forkedFromBindingId: "parent",
+      forkedFromEntryId: "entry_1",
+      forkedFromSessionFile: "/sessions/parent.jsonl",
+      reason: "fork",
+    });
+    expect(createSubagentMetadata({ id: "subagent_1", parentBinding: parent, title: "Research" })).toEqual({
+      id: "subagent_1",
+      parentBindingId: "parent",
+      parentRoomId: "!parent:example.com",
+      parentSessionFile: "/sessions/parent.jsonl",
+      title: "Research",
+    });
   });
 });
 

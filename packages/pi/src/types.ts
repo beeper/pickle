@@ -1,5 +1,26 @@
 export type PicklePiBindingOwner = "appservice" | "terminal" | "imported";
 export type PicklePiBindingMode = "headless" | "terminal-attached";
+export type PicklePiBindingKind = "session" | "subagent";
+
+export interface PicklePiForkMetadata {
+  createdAt: number;
+  forkedFromBindingId?: string;
+  forkedFromEntryId?: string;
+  forkedFromSessionFile?: string;
+  newLeafId?: string;
+  oldLeafId?: string;
+  reason?: "fork" | "subagent" | "import" | "manual";
+}
+
+export interface PicklePiSubagentMetadata {
+  id: string;
+  parentBindingId: string;
+  parentRoomId?: string;
+  parentSessionFile?: string;
+  purpose?: string;
+  status?: "active" | "complete" | "failed" | "unknown";
+  title?: string;
+}
 
 export interface PicklePiBinding {
   id: string;
@@ -9,12 +30,15 @@ export interface PicklePiBinding {
   piSessionFile: string;
   owner: PicklePiBindingOwner;
   mode: PicklePiBindingMode;
+  kind?: PicklePiBindingKind;
   piGhostUserId: string;
   serviceBotUserId?: string;
   createdAt: number;
   updatedAt: number;
   activeLeafId?: string;
+  fork?: PicklePiForkMetadata;
   sessionName?: string;
+  subagent?: PicklePiSubagentMetadata;
   lastPiEntryId?: string;
   lastMatrixEventId?: string;
   lastStreamTargetEventId?: string;
