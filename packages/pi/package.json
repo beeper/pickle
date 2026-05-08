@@ -27,6 +27,14 @@
       "types": "./dist/appservice.d.mts",
       "import": "./dist/appservice.mjs"
     },
+    "./beeper-stream": {
+      "types": "./dist/beeper-stream.d.mts",
+      "import": "./dist/beeper-stream.mjs"
+    },
+    "./pi-event-map": {
+      "types": "./dist/pi-event-map.d.mts",
+      "import": "./dist/pi-event-map.mjs"
+    },
     "./stream-map": {
       "types": "./dist/stream-map.d.mts",
       "import": "./dist/stream-map.mjs"

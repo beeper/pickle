@@ -8,6 +8,7 @@ export interface BeeperStreamPublisherClient {
 
 export interface CreateBeeperStreamPublisherOptions {
   client: BeeperStreamPublisherClient;
+  initialMessageMetadata?: Record<string, unknown>;
   roomId: string;
   targetEventId?: string;
   threadRoot?: string;
@@ -24,7 +25,9 @@ export interface BeeperStreamFinalizeOptions {
   body?: string;
   finalText?: string;
   finishReason?: string;
+  messageMetadata?: Record<string, unknown>;
   message?: Record<string, unknown>;
+  terminalPart?: BeeperUIMessageChunk;
 }
 
 export class BeeperStreamPublisher {
@@ -34,12 +37,14 @@ export class BeeperStreamPublisher {
   #client: BeeperStreamPublisherClient;
   #descriptor: Record<string, unknown> | undefined;
   #finalized = false;
+  #initialMessageMetadata: Record<string, unknown>;
   #seq = 1;
   #targetEventId: string | undefined;
   #threadRoot: string | undefined;
 
   constructor(options: CreateBeeperStreamPublisherOptions) {
     this.#client = options.client;
+    this.#initialMessageMetadata = options.initialMessageMetadata ?? {};
     this.roomId = options.roomId;
     this.turnId = options.turnId ?? createTurnId();
     this.#targetEventId = options.targetEventId;
@@ -60,7 +65,7 @@ export class BeeperStreamPublisher {
     const target = await this.#client.messages.send({
       content: {
         body: "...",
-        "com.beeper.ai": { id: this.turnId, metadata: { turn_id: this.turnId }, parts: [], role: "assistant" },
+        "com.beeper.ai": { id: this.turnId, metadata: { turn_id: this.turnId, ...this.#initialMessageMetadata }, parts: [], role: "assistant" },
         "com.beeper.stream": stream.descriptor,
         msgtype: "m.text",
       },
@@ -75,7 +80,7 @@ export class BeeperStreamPublisher {
       eventId: target.eventId,
       roomId: this.roomId,
     });
-    await this.publish({ messageId: this.turnId, messageMetadata: { turn_id: this.turnId }, type: "start" });
+    await this.publish({ messageId: this.turnId, messageMetadata: { turn_id: this.turnId, ...this.#initialMessageMetadata }, type: "start" });
     return { descriptor: stream.descriptor, eventId: target.eventId, turnId: this.turnId };
   }
 
@@ -116,11 +121,11 @@ export class BeeperStreamPublisher {
   async finalize(options: BeeperStreamFinalizeOptions = {}): Promise<SentEvent> {
     if (this.#finalized) throw new Error("Beeper stream is already finalized");
     const finishReason = options.finishReason ?? "stop";
-    await this.publish({
-      finishReason,
-      messageMetadata: { finish_reason: finishReason, turn_id: this.turnId },
-      type: "finish",
-    });
+    await this.publish(options.terminalPart ?? {
+        finishReason,
+        messageMetadata: { finish_reason: finishReason, turn_id: this.turnId, ...options.messageMetadata },
+        type: "finish",
+      });
     this.#finalized = true;
     const { eventId: targetEventId } = await this.start();
     const finalAIMessage = options.message ?? finalizeAccumulatedAIMessage(this.#accumulator);
@@ -162,6 +167,8 @@ type FinalMessageAccumulator = {
   reasoningIndexById: Map<string, number>;
   textIndexById: Map<string, number>;
   toolIndexByCallId: Map<string, number>;
+  toolInputTextByCallId: Map<string, string>;
+  toolNameByCallId: Map<string, string>;
 };
 
 function createFinalMessageAccumulator(turnId: string): FinalMessageAccumulator {
@@ -170,6 +177,8 @@ function createFinalMessageAccumulator(turnId: string): FinalMessageAccumulator 
     reasoningIndexById: new Map(),
     textIndexById: new Map(),
     toolIndexByCallId: new Map(),
+    toolInputTextByCallId: new Map(),
+    toolNameByCallId: new Map(),
   };
 }
 
@@ -215,6 +224,8 @@ function applyFinalMessagePart(state: FinalMessageAccumulator, part: Record<stri
       }
       return;
     case "tool-input-available":
+    case "tool-input-start":
+    case "tool-input-delta":
     case "tool-output-available":
     case "tool-output-error":
     case "tool-output-denied":
@@ -261,24 +272,45 @@ function applyToolPart(
   toolCallId: string | undefined
 ): void {
   if (!toolCallId) return;
-  const index = state.toolIndexByCallId.get(toolCallId) ?? state.message.parts.length;
-  if (!state.toolIndexByCallId.has(toolCallId)) {
-    const toolName = typeof part.toolName === "string" ? part.toolName : "tool";
-    state.message.parts.push({ state: "input-streaming", toolCallId, type: `tool-${toolName}` });
-    state.toolIndexByCallId.set(toolCallId, index);
-  }
+  if (typeof part.toolName === "string" && part.toolName.trim()) state.toolNameByCallId.set(toolCallId, part.toolName);
+  const index = ensureToolPart(state, toolCallId);
   const toolPart = state.message.parts[index];
   if (!toolPart) return;
+  if (type === "tool-input-start") {
+    toolPart.state = "input-streaming";
+    return;
+  }
+  if (type === "tool-input-delta") {
+    toolPart.state = "input-streaming";
+    if (typeof part.inputTextDelta === "string") {
+      const next = `${state.toolInputTextByCallId.get(toolCallId) ?? ""}${part.inputTextDelta}`;
+      state.toolInputTextByCallId.set(toolCallId, next);
+      toolPart.input = parseMaybeJSON(next);
+    }
+    return;
+  }
   if (part.input !== undefined) toolPart.input = part.input;
   if (part.output !== undefined) toolPart.output = part.output;
   if (part.errorText !== undefined) toolPart.errorText = part.errorText;
   if (part.preliminary !== undefined) toolPart.preliminary = part.preliminary;
+  if (part.startedAtMs !== undefined) toolPart.startedAtMs = part.startedAtMs;
+  if (part.completedAtMs !== undefined) toolPart.completedAtMs = part.completedAtMs;
   if (type === "tool-input-available") toolPart.state = "input-available";
   if (type === "tool-output-available") toolPart.state = "output-available";
   if (type === "tool-output-error") toolPart.state = "output-error";
   if (type === "tool-output-denied") toolPart.state = "output-denied";
   if (type === "tool-approval-request") toolPart.state = "approval-requested";
   if (type === "tool-approval-response") toolPart.state = "approval-responded";
+}
+
+function ensureToolPart(state: FinalMessageAccumulator, toolCallId: string): number {
+  const existing = state.toolIndexByCallId.get(toolCallId);
+  if (existing !== undefined) return existing;
+  const toolName = state.toolNameByCallId.get(toolCallId) || "tool";
+  const index = state.message.parts.length;
+  state.message.parts.push({ input: undefined, state: "input-streaming", toolCallId, toolName, type: "dynamic-tool" });
+  state.toolIndexByCallId.set(toolCallId, index);
+  return index;
 }
 
 function finalizeAccumulatedAIMessage(state: FinalMessageAccumulator): Record<string, unknown> {
@@ -317,4 +349,12 @@ function errorText(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return JSON.stringify(error);
+}
+
+function parseMaybeJSON(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text || undefined;
+  }
 }

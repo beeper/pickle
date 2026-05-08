@@ -53,19 +53,24 @@ export function closeOpenMessageParts(state: StreamRunState): BeeperUIMessageChu
 }
 
 export function mapPiToolInput(event: {
+  dynamic?: boolean;
   input?: unknown;
+  startedAtMs?: number;
   toolCallId: string;
-  toolName: string;
+  toolName?: string;
 }): BeeperUIMessageChunk {
   return {
     input: event.input,
     toolCallId: event.toolCallId,
     toolName: event.toolName,
+    ...(event.dynamic !== undefined ? { dynamic: event.dynamic } : {}),
+    ...(event.startedAtMs !== undefined ? { startedAtMs: event.startedAtMs } : {}),
     type: "tool-input-available",
   };
 }
 
 export function mapPiToolOutput(event: {
+  completedAtMs?: number;
   error?: unknown;
   output?: unknown;
   preliminary?: boolean;
@@ -77,6 +82,8 @@ export function mapPiToolOutput(event: {
       errorText: errorText(event.error),
       toolCallId: event.toolCallId,
       toolName: event.toolName,
+      ...(event.completedAtMs !== undefined ? { completedAtMs: event.completedAtMs } : {}),
+      ...(event.preliminary !== undefined ? { preliminary: event.preliminary } : {}),
       type: "tool-output-error",
     };
   }
@@ -85,6 +92,7 @@ export function mapPiToolOutput(event: {
     preliminary: event.preliminary,
     toolCallId: event.toolCallId,
     toolName: event.toolName,
+    ...(event.completedAtMs !== undefined ? { completedAtMs: event.completedAtMs } : {}),
     type: "tool-output-available",
   };
 }
