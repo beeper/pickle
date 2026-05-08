@@ -9,6 +9,7 @@ export { createDefaultConfig, defaultConfigPath, defaultDataDir, readConfig, wri
 export { createPicklePiMatrixClient } from "./matrix";
 export { createHeadlessPiSession } from "./pi-runtime";
 export type { HeadlessPiRuntimeOptions, HeadlessPiSession, PiAgentSession } from "./pi-runtime";
+export { piEventNoticeText } from "./pi-notice";
 export { generateRegistration, writeRegistration } from "./registration";
 export * from "./queue";
 export { createPiEventMapper, mapPiAgentSessionEvent } from "./pi-event-map";

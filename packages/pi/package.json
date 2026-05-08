@@ -35,6 +35,10 @@
       "types": "./dist/pi-event-map.d.mts",
       "import": "./dist/pi-event-map.mjs"
     },
+    "./pi-notice": {
+      "types": "./dist/pi-notice.d.mts",
+      "import": "./dist/pi-notice.mjs"
+    },
     "./stream-map": {
       "types": "./dist/stream-map.d.mts",
       "import": "./dist/stream-map.mjs"
