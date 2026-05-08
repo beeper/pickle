@@ -100,7 +100,6 @@ export interface PicklePiConfig {
 
 export interface AppserviceRegistration {
   as_token: string;
-  "de.sorunome.msc2409.push_ephemeral": boolean;
   hs_token: string;
   id: string;
   namespaces: {
@@ -108,6 +107,7 @@ export interface AppserviceRegistration {
     rooms: Array<{ exclusive: boolean; regex: string }>;
     users: Array<{ exclusive: boolean; regex: string }>;
   };
+  receive_ephemeral: boolean;
   rate_limited: boolean;
   sender_localpart: string;
   url: string;

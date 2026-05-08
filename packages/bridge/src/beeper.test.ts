@@ -41,6 +41,7 @@ describe("Beeper bridge manager helpers", () => {
             user_ids: [{ exclusive: true, regex: "@dummy_.*:beeper.local" }],
           },
           rate_limited: false,
+          receive_ephemeral: true,
           sender_localpart: "dummybot",
           url: "https://bridge.example",
         });
@@ -93,6 +94,7 @@ describe("Beeper bridge manager helpers", () => {
         hsToken: "hs",
         id: "sh-dummy",
         namespaces: { users: [{ exclusive: true, regex: "@dummy_.*:beeper.local" }] },
+        receive_ephemeral: true,
         senderLocalpart: "dummybot",
         url: "",
       });

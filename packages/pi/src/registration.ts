@@ -15,7 +15,6 @@ export function generateRegistration(config: PicklePiConfig, options: Registrati
   const bot = escapeRegex(config.serviceBotLocalpart);
   return {
     as_token: options.asToken ?? secretToken(),
-    "de.sorunome.msc2409.push_ephemeral": true,
     hs_token: options.hsToken ?? secretToken(),
     id: config.appserviceId,
     namespaces: {
@@ -23,6 +22,7 @@ export function generateRegistration(config: PicklePiConfig, options: Registrati
       rooms: [],
       users: [{ exclusive: true, regex: `^@(?:${bot}|${userPrefix}(?:_.+)?)${domainSuffix(options.domain)}$` }],
     },
+    receive_ephemeral: true,
     rate_limited: false,
     sender_localpart: config.serviceBotLocalpart,
     url: options.appserviceUrl ?? "http://localhost:29331",

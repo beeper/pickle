@@ -206,6 +206,7 @@ export class AppserviceWebsocket {
       command: message.command ?? "transaction",
       eventCount: message.events?.length,
       id: message.id,
+      toDeviceCount: eventCount(message.to_device),
       txnId: message.txn_id,
     });
     try {
@@ -262,6 +263,7 @@ export class AppserviceWebsocket {
       const events = Array.isArray(transaction.events) ? transaction.events : [];
       this.#log("debug", "appservice_websocket_http_transaction", {
         eventCount: events.length,
+        toDeviceCount: eventCount(transaction.to_device),
         txnId: transactionMatch[1],
       });
       await this.#handleTransaction?.(transaction);
@@ -322,6 +324,7 @@ interface WebsocketMessage {
   events?: RawMatrixEvent[];
   id?: number;
   status?: string;
+  to_device?: unknown;
   txn_id?: string;
 }
 
@@ -388,6 +391,10 @@ function closeStatusFromReason(reason: string | undefined): string | undefined {
 
 function joinPath(base: string, suffix: string): string {
   return `${base.replace(/\/+$/, "")}/${suffix.replace(/^\/+/, "")}`;
+}
+
+function eventCount(events: unknown): number | undefined {
+  return Array.isArray(events) && events.length > 0 ? events.length : undefined;
 }
 
 function rawMatrixEvent(raw: RawMatrixEvent): MatrixClientEvent | null {

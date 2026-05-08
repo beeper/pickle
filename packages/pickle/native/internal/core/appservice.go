@@ -35,7 +35,6 @@ type MatrixAppserviceNamespaces struct {
 
 type MatrixAppserviceRegistration struct {
 	AppToken        string                     `json:"asToken"`
-	EphemeralEvents bool                       `json:"ephemeralEvents,omitempty"`
 	HSToken         string                     `json:"hsToken"`
 	ID              string                     `json:"id"`
 	MSC3202         bool                       `json:"msc3202,omitempty"`
@@ -151,12 +150,8 @@ type MatrixAppserviceTransactionOptions struct {
 }
 
 type matrixAppserviceTransaction struct {
-	Events          []*event.Event `json:"events"`
-	EphemeralEvents []*event.Event `json:"ephemeral,omitempty"`
-	ToDeviceEvents  []*event.Event `json:"to_device,omitempty"`
-
-	MSC2409EphemeralEvents []*event.Event `json:"de.sorunome.msc2409.ephemeral,omitempty"`
-	MSC2409ToDeviceEvents  []*event.Event `json:"de.sorunome.msc2409.to_device,omitempty"`
+	Events         []*event.Event `json:"events"`
+	ToDeviceEvents []*event.Event `json:"to_device,omitempty"`
 }
 
 type beeperStreamEventProcessor struct {
@@ -227,16 +222,7 @@ func (c *Core) handleAppserviceApplyTransaction(ctx context.Context, payload []b
 		return nil, err
 	}
 	c.dispatchAppserviceEvents(ctx, txn.Events, event.MessageEventType)
-	if txn.EphemeralEvents != nil {
-		c.dispatchAppserviceEvents(ctx, txn.EphemeralEvents, event.EphemeralEventType)
-	} else if txn.MSC2409EphemeralEvents != nil {
-		c.dispatchAppserviceEvents(ctx, txn.MSC2409EphemeralEvents, event.EphemeralEventType)
-	}
-	if txn.ToDeviceEvents != nil {
-		c.dispatchAppserviceEvents(ctx, txn.ToDeviceEvents, event.ToDeviceEventType)
-	} else if txn.MSC2409ToDeviceEvents != nil {
-		c.dispatchAppserviceEvents(ctx, txn.MSC2409ToDeviceEvents, event.ToDeviceEventType)
-	}
+	c.dispatchAppserviceEvents(ctx, txn.ToDeviceEvents, event.ToDeviceEventType)
 	return c.empty()
 }
 

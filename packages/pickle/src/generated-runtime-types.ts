@@ -27,7 +27,6 @@ export interface MatrixAppserviceNamespaces {
 }
 export interface MatrixAppserviceRegistration {
   asToken: string;
-  ephemeralEvents?: boolean;
   hsToken: string;
   id: string;
   msc3202?: boolean;
