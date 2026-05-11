@@ -1,7 +1,6 @@
 import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle";
 import { BeeperStreamPublisher } from "./beeper-stream";
 import { createDefaultConfig, readConfig } from "./config";
-import { createPicklePiMatrixClient } from "./matrix";
 import { createPiStreamState, mapPiAgentSessionEvent } from "./pi-event-map";
 import { createHeadlessPiSession, type HeadlessPiSession } from "./pi-runtime";
 import { piEventNoticeText, piEventSessionTitle } from "./pi-notice";
@@ -45,7 +44,10 @@ export class PicklePiAgent {
 
   async start(): Promise<void> {
     await this.registry.load();
-    this.#client ??= createPicklePiMatrixClient(this.config);
+    if (!this.#client) {
+      const { createPicklePiMatrixClient } = await import("./matrix");
+      this.#client = createPicklePiMatrixClient(this.config);
+    }
     await this.#client.boot();
     this.#subscription = await this.#client.subscribe({ kind: ["message", "reaction"] }, (event) =>
       this.handleMatrixEvent(event)
