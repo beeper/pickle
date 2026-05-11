@@ -27,6 +27,14 @@
       "types": "./dist/beeper-stream.d.mts",
       "import": "./dist/beeper-stream.mjs"
     },
+    "./config": {
+      "types": "./dist/config.d.mts",
+      "import": "./dist/config.mjs"
+    },
+    "./media-store": {
+      "types": "./dist/media-store.d.mts",
+      "import": "./dist/media-store.mjs"
+    },
     "./pi-event-map": {
       "types": "./dist/pi-event-map.d.mts",
       "import": "./dist/pi-event-map.mjs"
@@ -35,9 +43,21 @@
       "types": "./dist/pi-notice.d.mts",
       "import": "./dist/pi-notice.mjs"
     },
+    "./rooms": {
+      "types": "./dist/rooms.d.mts",
+      "import": "./dist/rooms.mjs"
+    },
+    "./spaces": {
+      "types": "./dist/spaces.d.mts",
+      "import": "./dist/spaces.mjs"
+    },
     "./stream-map": {
       "types": "./dist/stream-map.d.mts",
       "import": "./dist/stream-map.mjs"
+    },
+    "./types": {
+      "types": "./dist/types.d.mts",
+      "import": "./dist/types.mjs"
     }
   },
   "files": [
