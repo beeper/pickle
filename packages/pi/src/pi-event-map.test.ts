@@ -116,6 +116,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
 
     expect(
       mapPiAgentSessionEvent(state, {
+        dynamic: true,
         input: { cmd: "pwd" },
         toolCallId: "call_bash",
         toolName: "bash",
@@ -123,6 +124,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
       })
     ).toEqual([
       {
+        dynamic: true,
         input: { cmd: "pwd" },
         toolCallId: "call_bash",
         toolName: "bash",
@@ -139,6 +141,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
       })
     ).toEqual([
       {
+        dynamic: true,
         input: { path: "packages/pi" },
         toolCallId: "call_read",
         toolName: "read",
@@ -156,6 +159,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
       })
     ).toEqual([
       {
+        dynamic: true,
         output: "running tests...",
         preliminary: true,
         toolCallId: "call_test",
@@ -174,6 +178,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
       })
     ).toEqual([
       {
+        dynamic: true,
         output: "all tests passed",
         preliminary: undefined,
         toolCallId: "call_test",
@@ -198,6 +203,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
       })
     ).toEqual([
       {
+        dynamic: true,
         output: [{ text: "src/index.ts", type: "text" }],
         preliminary: undefined,
         toolCallId: "call_grep",
@@ -218,6 +224,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
       })
     ).toEqual([
       {
+        dynamic: true,
         errorText: JSON.stringify([{ text: "permission denied", type: "text" }]),
         toolCallId: "call_read",
         toolName: "read",

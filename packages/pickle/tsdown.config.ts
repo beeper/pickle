@@ -8,6 +8,7 @@ export default defineConfig({
     "src/helpers.ts",
     "src/node.ts",
     "src/streams/index.ts",
+    "src/streams/beeper-message.ts",
     "src/types.ts",
   ],
   format: ["esm"],

@@ -265,6 +265,71 @@ describe("Beeper stream publisher", () => {
       { input: { cmd: "date" }, state: "output-available", toolCallId: "call_1", toolName: "exec", type: "dynamic-tool" },
     ]);
   });
+
+  it("uses one global text budget when compacting final Matrix content", async () => {
+    const { client, edit } = createClient();
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_global_budget" });
+    const text = "x".repeat(45 * 1024);
+
+    await publisher.start();
+    await publisher.finalize({
+      body: text,
+      message: {
+        id: "turn_global_budget",
+        metadata: { turn_id: "turn_global_budget" },
+        parts: [
+          { state: "done", text, type: "text" },
+          { state: "done", text, type: "text" },
+        ],
+        role: "assistant",
+      },
+    });
+
+    const content = edit.mock.calls[0]![0].content;
+    const ai = content["com.beeper.ai"] as Record<string, any>;
+    expect(Buffer.byteLength(JSON.stringify(content))).toBeLessThanOrEqual(60 * 1024);
+    expect(`${content.body}${ai.parts.map((part: any) => part.text ?? "").join("")}`).toContain("Matrix event compacted");
+  });
+
+  it("updates an existing fallback tool part when the tool name arrives late", async () => {
+    const { client, edit } = createClient();
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_late_tool" });
+
+    await publisher.start();
+    await publisher.publish({ dynamic: true, output: "running", toolCallId: "call_1", type: "tool-output-available" });
+    await publisher.publish({
+      dynamic: true,
+      input: { cmd: "date" },
+      toolCallId: "call_1",
+      toolName: "exec",
+      type: "tool-input-available",
+    });
+    await publisher.finalize({ body: "done" });
+
+    const ai = edit.mock.calls[0]![0].content["com.beeper.ai"] as Record<string, any>;
+    expect(ai.parts[0]).toMatchObject({
+      toolCallId: "call_1",
+      toolName: "exec",
+      type: "dynamic-tool",
+    });
+  });
+
+  it("preserves abort reasons in final terminal metadata", async () => {
+    const { client, edit } = createClient();
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_abort_final" });
+
+    await publisher.start();
+    await publisher.finalize({
+      body: "cancelled",
+      terminalPart: { reason: "user cancelled", type: "abort" },
+    });
+
+    const ai = edit.mock.calls[0]![0].content["com.beeper.ai"] as Record<string, any>;
+    expect(ai.metadata.beeper_terminal_state).toEqual({
+      reason: "user cancelled",
+      type: "abort",
+    });
+  });
 });
 
 const streamDescriptor = {

@@ -79,10 +79,10 @@ export function mapPiToolInput(event: {
   toolName?: string;
 }): BeeperUIMessageChunk {
   return {
+    dynamic: event.dynamic ?? true,
     input: event.input,
     toolCallId: event.toolCallId,
     toolName: event.toolName,
-    ...(event.dynamic !== undefined ? { dynamic: event.dynamic } : {}),
     ...(event.startedAtMs !== undefined ? { startedAtMs: event.startedAtMs } : {}),
     type: "tool-input-available",
   };
@@ -98,6 +98,7 @@ export function mapPiToolOutput(event: {
 }): BeeperUIMessageChunk {
   if (event.error !== undefined) {
     return {
+      dynamic: true,
       errorText: errorText(event.error),
       toolCallId: event.toolCallId,
       toolName: event.toolName,
@@ -107,6 +108,7 @@ export function mapPiToolOutput(event: {
     };
   }
   return {
+    dynamic: true,
     output: event.output,
     preliminary: event.preliminary,
     toolCallId: event.toolCallId,

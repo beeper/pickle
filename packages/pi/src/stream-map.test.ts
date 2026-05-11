@@ -44,12 +44,14 @@ describe("Pi event to Beeper stream mapping", () => {
     const state = createStreamRunState("turn_2");
 
     expect(mapPiToolInput({ input: { cmd: "pwd" }, toolCallId: "call_1", toolName: "bash" })).toEqual({
+      dynamic: true,
       input: { cmd: "pwd" },
       toolCallId: "call_1",
       toolName: "bash",
       type: "tool-input-available",
     });
     expect(mapPiToolOutput({ output: "ok", toolCallId: "call_1", toolName: "bash" })).toEqual({
+      dynamic: true,
       output: "ok",
       preliminary: undefined,
       toolCallId: "call_1",
