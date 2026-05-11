@@ -44,19 +44,6 @@ export interface PicklePiBinding {
   lastStreamTargetEventId?: string;
 }
 
-export interface ActiveRun {
-  bindingId: string;
-  turnId: string;
-  targetEventId?: string;
-  roomId: string;
-  seq: number;
-  textPartId?: string;
-  reasoningPartId?: string;
-  toolCallIdToApprovalId: Record<string, string>;
-  finalTextBuffer: string;
-  startedAt: number;
-}
-
 export interface MatrixInboundTurn {
   id: string;
   roomId: string;

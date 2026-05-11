@@ -1,12 +1,16 @@
 import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle";
+import { BeeperStreamPublisher } from "./beeper-stream";
 import { createDefaultConfig, readConfig } from "./config";
 import { createPicklePiMatrixClient } from "./matrix";
+import { createPiStreamState, mapPiAgentSessionEvent } from "./pi-event-map";
 import { createHeadlessPiSession, type HeadlessPiSession } from "./pi-runtime";
 import { piEventNoticeText, piEventSessionTitle } from "./pi-notice";
 import { PicklePiRegistry } from "./registry";
 import { createSessionRoom } from "./rooms";
+import { SerialQueue } from "./serial";
 import { attachRoomToSpace, createProjectSpace, projectKeyForCwd } from "./spaces";
-import type { PicklePiConfig } from "./types";
+import { createTurnId } from "./stream-map";
+import type { PicklePiBinding, PicklePiConfig } from "./types";
 
 export interface PicklePiAgentOptions {
   client?: MatrixClient;
@@ -21,6 +25,7 @@ export class PicklePiAgent {
   #client: MatrixClient | undefined;
   #sessionPromises = new Map<string, Promise<HeadlessPiSession>>();
   #sessions = new Map<string, HeadlessPiSession>();
+  #streams = new Map<string, PiStreamRun>();
   #subscription: MatrixSubscription | undefined;
 
   constructor(options: { client?: MatrixClient; config: PicklePiConfig; registry?: PicklePiRegistry }) {
@@ -52,6 +57,7 @@ export class PicklePiAgent {
     for (const session of this.#sessions.values()) session.unsubscribe();
     this.#sessionPromises.clear();
     this.#sessions.clear();
+    this.#streams.clear();
     void this.#client?.close();
   }
 
@@ -165,7 +171,7 @@ export class PicklePiAgent {
       binding,
       config: this.config,
       onEvent: async (event) => {
-        await this.#mirrorPiEvent(binding.roomId, event);
+        await this.#handlePiEvent(binding, event);
       },
     }).then((session) => {
       if (this.#sessionPromises.get(bindingId) === promise) this.#sessions.set(bindingId, session);
@@ -177,21 +183,101 @@ export class PicklePiAgent {
     return promise;
   }
 
-  async #mirrorPiEvent(roomId: string, event: unknown): Promise<void> {
-    if (!this.#client) return;
+  async #handlePiEvent(binding: PicklePiBinding, event: unknown): Promise<void> {
     const title = piEventSessionTitle(event);
-    if (title) {
+    if (title && this.#client) {
       await this.#client.rooms.sendStateEvent({
         content: { name: title },
         eventType: "m.room.name",
-        roomId,
+        roomId: binding.roomId,
         stateKey: "",
       });
     }
-    const text = piEventNoticeText(event);
-    if (!text) return;
-    await this.#client.messages.send({ messageType: "m.notice", roomId, text });
+    const hadStream = this.#streams.has(binding.id);
+    const stream = this.#streamFor(binding);
+    const streamed = await stream.handle(event);
+    if (stream.closed) this.#streams.delete(binding.id);
+    if (!streamed && !hadStream) this.#streams.delete(binding.id);
+    if (!streamed) await this.#sendPiNotice(binding.roomId, event);
   }
+
+  #streamFor(binding: PicklePiBinding): PiStreamRun {
+    const existing = this.#streams.get(binding.id);
+    if (existing && !existing.closed) return existing;
+    const client = this.#client;
+    if (!client) throw new Error("Matrix client is not started");
+    const stream = new PiStreamRun(binding, client);
+    this.#streams.set(binding.id, stream);
+    return stream;
+  }
+
+  async #sendPiNotice(roomId: string, event: unknown): Promise<void> {
+    if (!this.#client) return;
+    const text = piEventNoticeText(event);
+    if (text) await this.#client.messages.send({ messageType: "m.notice", roomId, text });
+  }
+
+}
+
+class PiStreamRun {
+  readonly publisher: BeeperStreamPublisher;
+  #closed = false;
+  #queue = new SerialQueue();
+  #state = createPiStreamState(createTurnId());
+
+  constructor(binding: PicklePiBinding, client: MatrixClient) {
+    this.publisher = new BeeperStreamPublisher({
+      client,
+      initialMessageMetadata: { binding_id: binding.id, cwd: binding.cwd },
+      roomId: binding.roomId,
+      turnId: this.#state.turnId,
+    });
+  }
+
+  get closed(): boolean {
+    return this.#closed;
+  }
+
+  handle(event: unknown): Promise<boolean> {
+    const chunks = mapPiAgentSessionEvent(this.#state, event);
+    if (!chunks.length) return Promise.resolve(false);
+    return this.#queue.run(async () => {
+      for (const chunk of chunks) {
+        if (this.#closed) return true;
+        if (chunk.type === "start") {
+          await this.publisher.start();
+          continue;
+        }
+        if (chunk.type === "finish") {
+          await this.publisher.finalize({
+            finishReason: typeof chunk.finishReason === "string" ? chunk.finishReason : "stop",
+            terminalPart: chunk,
+          });
+          this.#closed = true;
+          return true;
+        }
+        if (chunk.type === "error") {
+          await this.publisher.finalize({
+            body: typeof chunk.errorText === "string" ? chunk.errorText : "Pi stream failed",
+            terminalPart: chunk,
+          });
+          this.#closed = true;
+          return true;
+        }
+        if (chunk.type === "abort") {
+          await this.publisher.finalize({
+            body: typeof chunk.reason === "string" ? chunk.reason : "Pi stream aborted",
+            terminalPart: chunk,
+          });
+          this.#closed = true;
+          return true;
+        }
+        await this.publisher.publish(chunk);
+      }
+      return true;
+    });
+  }
+
 }
 
 function isTextMessageEvent(event: MatrixClientEvent): event is MatrixMessageEvent {

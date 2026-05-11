@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createPiEventMapper } from "./pi-event-map";
+import { createPiStreamState, mapPiAgentSessionEvent } from "./pi-event-map";
 
 describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
   it("maps assistant message start, text/thinking deltas, and message end", () => {
-    const mapper = createPiEventMapper("turn_message");
+    const state = createPiStreamState("turn_message");
     const assistantMessage = {
       content: [],
       role: "assistant",
     };
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         message: assistantMessage,
         type: "message_start",
       })
@@ -23,7 +23,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         assistantMessageEvent: {
           contentIndex: 0,
           partial: assistantMessage,
@@ -35,7 +35,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ).toEqual([{ id: "reasoning_turn_message", type: "reasoning-start" }]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         assistantMessageEvent: {
           contentIndex: 0,
           delta: "Need to inspect the files.",
@@ -57,7 +57,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         assistantMessageEvent: {
           contentIndex: 1,
           partial: assistantMessage,
@@ -69,7 +69,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ).toEqual([{ id: "text_turn_message", type: "text-start" }]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         assistantMessageEvent: {
           contentIndex: 1,
           delta: "The mapping is ready.",
@@ -90,7 +90,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         message: {
           ...assistantMessage,
           content: [
@@ -112,10 +112,10 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
   });
 
   it("maps tool_call and tool execution lifecycle events", () => {
-    const mapper = createPiEventMapper("turn_tools");
+    const state = createPiStreamState("turn_tools");
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         input: { cmd: "pwd" },
         toolCallId: "call_bash",
         toolName: "bash",
@@ -131,7 +131,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         args: { path: "packages/pi" },
         toolCallId: "call_read",
         toolName: "read",
@@ -147,7 +147,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         args: { cmd: "pnpm test" },
         partialResult: "running tests...",
         toolCallId: "call_test",
@@ -165,7 +165,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         isError: false,
         result: "all tests passed",
         toolCallId: "call_test",
@@ -184,13 +184,13 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
   });
 
   it("maps successful and failed tool_result events", () => {
-    const mapper = createPiEventMapper("turn_results");
+    const state = createPiStreamState("turn_results");
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         content: [{ text: "src/index.ts", type: "text" }],
         details: { matches: 1 },
-        input: { pattern: "createPiEventMapState" },
+        input: { pattern: "createPiStreamState" },
         isError: false,
         toolCallId: "call_grep",
         toolName: "grep",
@@ -207,7 +207,7 @@ describe("Pi AgentSessionEvent to Beeper Desktop chunk mapping", () => {
     ]);
 
     expect(
-      mapper.map({
+      mapPiAgentSessionEvent(state, {
         content: [{ text: "permission denied", type: "text" }],
         details: undefined,
         input: { path: "/private" },

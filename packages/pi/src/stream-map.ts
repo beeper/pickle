@@ -2,14 +2,17 @@ export type BeeperUIMessageChunk = Record<string, unknown> & { type: string };
 
 export interface StreamRunState {
   reasoningPartId?: string;
-  seq: number;
   textPartId?: string;
   toolCallIdToApprovalId: Record<string, string>;
   turnId: string;
 }
 
 export function createStreamRunState(turnId: string): StreamRunState {
-  return { seq: 1, toolCallIdToApprovalId: {}, turnId };
+  return { toolCallIdToApprovalId: {}, turnId };
+}
+
+export function createTurnId(): string {
+  return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function startChunk(state: StreamRunState): BeeperUIMessageChunk {
@@ -140,19 +143,6 @@ export function mapPiApprovalResponse(event: {
     approvedAlways: event.approvedAlways,
     toolCallId: event.toolCallId,
     type: "tool-approval-response",
-  };
-}
-
-export function withStreamEnvelope(state: StreamRunState, chunk: BeeperUIMessageChunk): Record<string, unknown> {
-  return {
-    "com.beeper.llm.deltas": [
-      {
-        parts: [chunk],
-        seq: state.seq++,
-        timestamp: Date.now(),
-        turn_id: state.turnId,
-      },
-    ],
   };
 }
 

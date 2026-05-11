@@ -8,7 +8,6 @@ import {
   mapPiToolInput,
   mapPiToolOutput,
   startChunk,
-  withStreamEnvelope,
 } from "./stream-map";
 
 describe("Pi event to Beeper stream mapping", () => {
@@ -62,14 +61,5 @@ describe("Pi event to Beeper stream mapping", () => {
       toolCallId: "call_1",
       type: "tool-approval-request",
     });
-  });
-
-  it("envelopes chunks with monotonic Desktop stream seq values", () => {
-    const state = createStreamRunState("turn_3");
-    const first = withStreamEnvelope(state, { type: "start" });
-    const second = withStreamEnvelope(state, { type: "finish" });
-
-    expect(first["com.beeper.llm.deltas"]).toMatchObject([{ seq: 1, turn_id: "turn_3" }]);
-    expect(second["com.beeper.llm.deltas"]).toMatchObject([{ seq: 2, turn_id: "turn_3" }]);
   });
 });

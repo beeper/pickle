@@ -1,5 +1,6 @@
 import type { MatrixBeeper, MatrixMessages, SentEvent } from "@beeper/pickle";
-import type { BeeperUIMessageChunk } from "./stream-map";
+import { SerialQueue } from "./serial";
+import { createTurnId, type BeeperUIMessageChunk } from "./stream-map";
 
 export interface BeeperStreamPublisherClient {
   beeper: MatrixBeeper;
@@ -40,6 +41,7 @@ export class BeeperStreamPublisher {
   #descriptor: Record<string, unknown> | undefined;
   #finalized = false;
   #initialMessageMetadata: Record<string, unknown>;
+  #queue = new SerialQueue();
   #seq = 1;
   #targetEventId: string | undefined;
   #threadRoot: string | undefined;
@@ -59,6 +61,81 @@ export class BeeperStreamPublisher {
   }
 
   async start(): Promise<BeeperStreamStartResult> {
+    return this.#queue.run(() => this.#start());
+  }
+
+  async publish(part: BeeperUIMessageChunk): Promise<void> {
+    return this.#queue.run(async () => {
+      if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
+      const { eventId: targetEventId } = await this.#start();
+      await this.#publishPart(targetEventId, part);
+    });
+  }
+
+  async publishMany(parts: Iterable<BeeperUIMessageChunk>): Promise<void> {
+    return this.#queue.run(async () => {
+      for (const part of parts) {
+        if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
+        const { eventId: targetEventId } = await this.#start();
+        await this.#publishPart(targetEventId, part);
+      }
+    });
+  }
+
+  async error(error: unknown): Promise<void> {
+    await this.publish({ errorText: errorText(error), type: "error" });
+  }
+
+  async abort(reason?: string): Promise<void> {
+    await this.publish({ ...(reason ? { reason } : {}), type: "abort" });
+  }
+
+  async finalize(options: BeeperStreamFinalizeOptions = {}): Promise<SentEvent> {
+    return this.#queue.run(async () => {
+      if (this.#finalized) throw new Error("Beeper stream is already finalized");
+      const finishReason = options.finishReason ?? "stop";
+      const { eventId: targetEventId } = await this.#start();
+      await this.#publishPart(targetEventId, options.terminalPart ?? {
+          finishReason,
+          messageMetadata: { finish_reason: finishReason, turn_id: this.turnId, ...options.messageMetadata },
+          type: "finish",
+        });
+      const finalAIMessage = options.message ?? finalizeAccumulatedAIMessage(this.#accumulator);
+      const finalText = options.body ?? options.finalText ?? getFinalMessageText(finalAIMessage);
+      const finalContent = compactFinalContent({
+        aiMessage: finalAIMessage,
+        body: finalText,
+      });
+      const replacement = await this.#client.messages.edit({
+        content: {
+          body: finalContent.body || "...",
+          "com.beeper.ai": finalContent.aiMessage,
+          "com.beeper.stream": null,
+          msgtype: "m.text",
+        },
+        eventId: targetEventId,
+        messageType: "m.text",
+        roomId: this.roomId,
+        text: finalContent.body || "...",
+        topLevelContent: {
+          "com.beeper.dont_render_edited": true,
+          "com.beeper.stream": null,
+        },
+      });
+      this.#finalized = true;
+      return {
+        ...replacement,
+        eventId: targetEventId,
+        raw: {
+          logicalEventId: targetEventId,
+          raw: replacement.raw,
+          replacementEventId: replacement.eventId,
+        },
+      };
+    });
+  }
+
+  async #start(): Promise<BeeperStreamStartResult> {
     if (this.#targetEventId && this.#descriptor) {
       return { descriptor: this.#descriptor, eventId: this.#targetEventId, turnId: this.turnId };
     }
@@ -91,13 +168,11 @@ export class BeeperStreamPublisher {
       eventId: target.eventId,
       roomId: this.roomId,
     });
-    await this.publish({ messageId: this.turnId, messageMetadata: { turn_id: this.turnId, ...this.#initialMessageMetadata }, type: "start" });
+    await this.#publishPart(target.eventId, { messageId: this.turnId, messageMetadata: { turn_id: this.turnId, ...this.#initialMessageMetadata }, type: "start" });
     return { descriptor: stream.descriptor, eventId: target.eventId, turnId: this.turnId };
   }
 
-  async publish(part: BeeperUIMessageChunk): Promise<void> {
-    if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
-    const { eventId: targetEventId } = await this.start();
+  async #publishPart(targetEventId: string, part: BeeperUIMessageChunk): Promise<void> {
     const descriptorType = descriptorTypeOf(this.#descriptor);
     const seq = this.#seq;
     await this.#client.beeper.streams.publish({
@@ -117,61 +192,6 @@ export class BeeperStreamPublisher {
     });
     this.#seq = seq + 1;
     applyFinalMessagePart(this.#accumulator, part);
-  }
-
-  async publishMany(parts: Iterable<BeeperUIMessageChunk>): Promise<void> {
-    for (const part of parts) await this.publish(part);
-  }
-
-  async error(error: unknown): Promise<void> {
-    await this.publish({ errorText: errorText(error), type: "error" });
-  }
-
-  async abort(reason?: string): Promise<void> {
-    await this.publish({ ...(reason ? { reason } : {}), type: "abort" });
-  }
-
-  async finalize(options: BeeperStreamFinalizeOptions = {}): Promise<SentEvent> {
-    if (this.#finalized) throw new Error("Beeper stream is already finalized");
-    const finishReason = options.finishReason ?? "stop";
-    await this.publish(options.terminalPart ?? {
-        finishReason,
-        messageMetadata: { finish_reason: finishReason, turn_id: this.turnId, ...options.messageMetadata },
-        type: "finish",
-      });
-    const { eventId: targetEventId } = await this.start();
-    const finalAIMessage = options.message ?? finalizeAccumulatedAIMessage(this.#accumulator);
-    const finalText = options.body ?? options.finalText ?? getFinalMessageText(finalAIMessage);
-    const finalContent = compactFinalContent({
-      aiMessage: finalAIMessage,
-      body: finalText,
-    });
-    const replacement = await this.#client.messages.edit({
-      content: {
-        body: finalContent.body || "...",
-        "com.beeper.ai": finalContent.aiMessage,
-        "com.beeper.stream": null,
-        msgtype: "m.text",
-      },
-      eventId: targetEventId,
-      messageType: "m.text",
-      roomId: this.roomId,
-      text: finalContent.body || "...",
-      topLevelContent: {
-        "com.beeper.dont_render_edited": true,
-        "com.beeper.stream": null,
-      },
-    });
-    this.#finalized = true;
-    return {
-      ...replacement,
-      eventId: targetEventId,
-      raw: {
-        logicalEventId: targetEventId,
-        raw: replacement.raw,
-        replacementEventId: replacement.eventId,
-      },
-    };
   }
 }
 
@@ -433,10 +453,6 @@ function getFinalMessageText(message: Record<string, unknown>): string {
 
 function descriptorTypeOf(descriptor: Record<string, unknown> | undefined): string {
   return typeof descriptor?.type === "string" ? descriptor.type : "com.beeper.llm";
-}
-
-function createTurnId(): string {
-  return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

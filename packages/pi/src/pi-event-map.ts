@@ -14,25 +14,8 @@ import {
   type StreamRunState,
 } from "./stream-map";
 
-export interface PiEventMapper {
-  readonly state: StreamRunState;
-  map(event: unknown): BeeperUIMessageChunk[];
-}
-
-export function createPiEventMapper(turnId: string): PiEventMapper {
-  const state = createStreamRunState(turnId);
-  return {
-    state,
-    map: (event) => mapPiAgentSessionEvent(state, event),
-  };
-}
-
-export function createPiEventMapState(turnId: string): StreamRunState {
+export function createPiStreamState(turnId: string): StreamRunState {
   return createStreamRunState(turnId);
-}
-
-export function mapPiAgentSessionEventToBeeperChunks(state: StreamRunState, event: unknown): BeeperUIMessageChunk[] {
-  return mapPiAgentSessionEvent(state, event);
 }
 
 export function mapPiAgentSessionEvent(state: StreamRunState, event: unknown): BeeperUIMessageChunk[] {

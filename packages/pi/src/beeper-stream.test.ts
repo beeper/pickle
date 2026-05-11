@@ -113,6 +113,40 @@ describe("Beeper stream publisher", () => {
     expect(edit.mock.calls[0]![0].content.body).toBe("ok");
   });
 
+  it("serializes concurrent publishes through one stream target and monotonic sequence", async () => {
+    const { client, create, publish, register, send } = createClient();
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_concurrent" });
+
+    await Promise.all([
+      publisher.publish({ id: "text_turn_concurrent", type: "text-start" }),
+      publisher.publish({ delta: "a", id: "text_turn_concurrent", type: "text-delta" }),
+      publisher.publish({ delta: "b", id: "text_turn_concurrent", type: "text-delta" }),
+    ]);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls.map(([options]) => delta(options).seq)).toEqual([1, 2, 3, 4]);
+    expect(publish.mock.calls.map(([options]) => delta(options).part.type)).toEqual([
+      "start",
+      "text-start",
+      "text-delta",
+      "text-delta",
+    ]);
+  });
+
+  it("continues the publish queue after a failed publish", async () => {
+    const { client, publish } = createClient();
+    publish.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("network down"));
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_queue_retry" });
+
+    await expect(publisher.publish({ id: "text_turn_queue_retry", type: "text-start" })).rejects.toThrow("network down");
+    await publisher.publish({ delta: "ok", id: "text_turn_queue_retry", type: "text-delta" });
+
+    expect(delta(publish.mock.calls[1]![0]).seq).toBe(2);
+    expect(delta(publish.mock.calls[2]![0]).seq).toBe(2);
+  });
+
   it("finalizes by publishing finish and editing com.beeper.ai while clearing the stream", async () => {
     const { client, edit, publish } = createClient();
     const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_3" });
