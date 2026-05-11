@@ -107,7 +107,7 @@ function mapToolExecutionStart(event: Record<string, unknown>): BeeperUIMessageC
   const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   const toolName = stringValue(event.toolName) ?? stringValue(event.name);
   if (!toolCallId) return [];
-  return [mapPiToolInput({ input: event.args, toolCallId, ...(toolName ? { toolName } : {}) })];
+  return [mapPiToolInput({ input: event.input ?? event.args ?? parseMaybeJSONValue(event.arguments), toolCallId, ...(toolName ? { toolName } : {}) })];
 }
 
 function mapToolExecutionUpdate(event: Record<string, unknown>): BeeperUIMessageChunk[] {
@@ -140,8 +140,8 @@ function mapToolResult(event: Record<string, unknown>): BeeperUIMessageChunk[] {
 
 function mapToolResultMessage(message: unknown): BeeperUIMessageChunk[] {
   const record = recordValue(message);
-  const toolCallId = stringValue(record?.toolCallId);
-  const toolName = stringValue(record?.toolName);
+  const toolCallId = stringValue(record?.toolCallId) ?? stringValue(record?.callId) ?? stringValue(record?.id);
+  const toolName = stringValue(record?.toolName) ?? stringValue(record?.name);
   if (!toolCallId) return [];
   if (record?.isError === true) {
     return [mapPiToolOutput({ error: record.content, toolCallId, ...(toolName ? { toolName } : {}) })];

@@ -259,7 +259,10 @@ export class AppserviceWebsocket {
     const method = request.method ?? "GET";
     const transactionMatch = /^\/?_matrix\/app\/v1\/transactions\/([^/]+)$/.exec(path);
     if (method === "PUT" && transactionMatch) {
-      const transaction = objectValue(request.body) ?? {};
+      const transaction: Record<string, unknown> = {
+        ...(objectValue(request.body) ?? {}),
+        txn_id: transactionMatch[1],
+      };
       const events = Array.isArray(transaction.events) ? transaction.events : [];
       this.#log("debug", "appservice_websocket_http_transaction", {
         eventCount: events.length,

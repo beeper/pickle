@@ -253,7 +253,7 @@ function stringField(input: Record<string, unknown>, camel: string, snake?: stri
 }
 
 function booleanField(input: Record<string, unknown>, ...keys: string[]): boolean | undefined {
-  const value = keys.map((key) => input[key]).find((candidate) => candidate !== undefined);
+  const value = keys.map((key) => input[key]).find((candidate) => candidate != null);
   return typeof value === "boolean" ? value : undefined;
 }
 

@@ -37,13 +37,13 @@ export function piEventNoticeText(event: unknown): string | undefined {
   if (type === "auto_retry_start") {
     const attempt = numberValue(record.attempt);
     const maxAttempts = numberValue(record.maxAttempts);
-    const label = attempt && maxAttempts ? ` ${attempt} of ${maxAttempts}` : "";
+    const label = attempt !== undefined ? (maxAttempts !== undefined ? ` ${attempt} of ${maxAttempts}` : ` ${attempt}`) : "";
     return `Retry${label} started${errorSuffix(record.errorMessage)}.`;
   }
 
   if (type === "auto_retry_end") {
     const attempt = numberValue(record.attempt);
-    const label = attempt ? ` ${attempt}` : "";
+    const label = attempt !== undefined ? ` ${attempt}` : "";
     return record.success === true
       ? `Retry${label} succeeded.`
       : `Retry${label} failed${errorSuffix(record.finalError)}.`;

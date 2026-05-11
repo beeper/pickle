@@ -208,7 +208,7 @@ func (c *Core) handleInitAppservice(ctx context.Context, payload []byte) ([]byte
 
 func (c *Core) handleAppserviceApplyTransaction(ctx context.Context, payload []byte) ([]byte, error) {
 	if c.appserviceProcessor == nil {
-		return c.empty()
+		return nil, errors.New("appservice transaction pipeline unavailable")
 	}
 	var req MatrixAppserviceTransactionOptions
 	if err := json.Unmarshal(payload, &req); err != nil {

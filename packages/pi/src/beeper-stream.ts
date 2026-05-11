@@ -3,7 +3,7 @@ import type { BeeperUIMessageChunk } from "./stream-map";
 
 export interface BeeperStreamPublisherClient {
   beeper: MatrixBeeper;
-  messages: Pick<MatrixMessages, "edit" | "send">;
+  messages: Pick<MatrixMessages, "edit" | "get" | "send">;
 }
 
 export interface CreateBeeperStreamPublisherOptions {
@@ -62,6 +62,15 @@ export class BeeperStreamPublisher {
     if (this.#targetEventId && this.#descriptor) {
       return { descriptor: this.#descriptor, eventId: this.#targetEventId, turnId: this.turnId };
     }
+    if (this.#targetEventId) {
+      const { message } = await this.#client.messages.get({ eventId: this.#targetEventId, roomId: this.roomId });
+      const descriptor = message?.content["com.beeper.stream"];
+      if (!isRecord(descriptor)) {
+        throw new Error(`Target message ${this.#targetEventId} does not contain a Beeper stream descriptor`);
+      }
+      this.#descriptor = descriptor;
+      return { descriptor, eventId: this.#targetEventId, turnId: this.turnId };
+    }
     const stream = await this.#client.beeper.streams.create({ roomId: this.roomId, streamType: "com.beeper.llm" });
     this.#descriptor = stream.descriptor;
     const target = await this.#client.messages.send({
@@ -89,15 +98,15 @@ export class BeeperStreamPublisher {
   async publish(part: BeeperUIMessageChunk): Promise<void> {
     if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
     const { eventId: targetEventId } = await this.start();
-    applyFinalMessagePart(this.#accumulator, part);
     const descriptorType = descriptorTypeOf(this.#descriptor);
+    const seq = this.#seq;
     await this.#client.beeper.streams.publish({
       content: {
         [`${descriptorType}.deltas`]: [
           {
             "m.relates_to": { event_id: targetEventId, rel_type: "m.reference" },
             part,
-            seq: this.#seq++,
+            seq,
             target_event: targetEventId,
             turn_id: this.turnId,
           },
@@ -106,6 +115,8 @@ export class BeeperStreamPublisher {
       eventId: targetEventId,
       roomId: this.roomId,
     });
+    this.#seq = seq + 1;
+    applyFinalMessagePart(this.#accumulator, part);
   }
 
   async publishMany(parts: Iterable<BeeperUIMessageChunk>): Promise<void> {
@@ -438,7 +449,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
-  return JSON.stringify(error);
+  return JSON.stringify(error) ?? String(error);
 }
 
 function parseMaybeJSON(text: string): unknown {

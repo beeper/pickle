@@ -27,18 +27,28 @@ export async function createHeadlessPiSession(options: HeadlessPiRuntimeOptions)
   await mkdir(dirname(options.binding.piSessionFile), { recursive: true });
   await mkdir(nativeSessionDir, { recursive: true });
 
+  const previousOwnedSession = process.env.PICKLE_PI_OWNED_SESSION;
   process.env.PICKLE_PI_OWNED_SESSION = "1";
-  const sessionManager = pi.SessionManager.open(options.binding.piSessionFile, nativeSessionDir, options.binding.cwd);
-  const resourceLoader = new pi.DefaultResourceLoader({ cwd: options.binding.cwd });
-  await resourceLoader.reload();
-  const result = await pi.createAgentSession({
-    cwd: options.binding.cwd,
-    customTools: [],
-    resourceLoader,
-    sessionManager,
-    sessionStartEvent: { reason: "startup", type: "session_start" },
-    tools: pi.createCodingTools(options.binding.cwd),
-  });
+  let result: { modelFallbackMessage?: string; session: PiAgentSession };
+  try {
+    const sessionManager = pi.SessionManager.open(options.binding.piSessionFile, nativeSessionDir, options.binding.cwd);
+    const resourceLoader = new pi.DefaultResourceLoader({ cwd: options.binding.cwd });
+    await resourceLoader.reload();
+    result = await pi.createAgentSession({
+      cwd: options.binding.cwd,
+      customTools: [],
+      resourceLoader,
+      sessionManager,
+      sessionStartEvent: { reason: "startup", type: "session_start" },
+      tools: pi.createCodingTools(options.binding.cwd),
+    });
+  } finally {
+    if (previousOwnedSession === undefined) {
+      delete process.env.PICKLE_PI_OWNED_SESSION;
+    } else {
+      process.env.PICKLE_PI_OWNED_SESSION = previousOwnedSession;
+    }
+  }
   const unsubscribe = result.session.subscribe((event: unknown) => {
     void Promise.resolve(options.onEvent(event));
   });

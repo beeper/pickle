@@ -256,6 +256,7 @@ func (c *Core) handleClose() ([]byte, error) {
 		_ = c.beeperStream.Close()
 	}
 	c.beeperStream = nil
+	c.appserviceProcessor = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
 	c.skipNextSync = false

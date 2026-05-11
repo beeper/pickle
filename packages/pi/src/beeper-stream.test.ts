@@ -40,6 +40,27 @@ describe("Beeper stream publisher", () => {
     });
   });
 
+  it("reuses an existing target message stream descriptor", async () => {
+    const { client, create, get, register, send } = createClient();
+    const publisher = createBeeperStreamPublisher({
+      client,
+      roomId: "!room:example.com",
+      targetEventId: "$existing",
+      turnId: "turn_reuse",
+    });
+
+    await expect(publisher.start()).resolves.toEqual({
+      descriptor: streamDescriptor,
+      eventId: "$existing",
+      turnId: "turn_reuse",
+    });
+
+    expect(get).toHaveBeenCalledWith({ eventId: "$existing", roomId: "!room:example.com" });
+    expect(create).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+  });
+
   it("publishes callback chunks as monotonic com.beeper.llm.deltas envelopes", async () => {
     const { client, publish } = createClient();
     const publisher = createBeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_2" });
@@ -74,6 +95,22 @@ describe("Beeper stream publisher", () => {
         roomId: "!room:example.com",
       });
     }
+  });
+
+  it("does not mutate final content or sequence when publish fails", async () => {
+    const { client, edit, publish } = createClient();
+    publish.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("network down"));
+    const publisher = createBeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_retry" });
+
+    await publisher.start();
+    await expect(publisher.publish({ delta: "lost", id: "text_turn_retry", type: "text-delta" })).rejects.toThrow("network down");
+    await publisher.publish({ delta: "ok", id: "text_turn_retry", type: "text-delta" });
+    await publisher.finalize({ body: "ok" });
+
+    expect(delta(publish.mock.calls[1]![0]).seq).toBe(2);
+    expect(delta(publish.mock.calls[2]![0]).seq).toBe(2);
+    expect(delta(publish.mock.calls[3]![0]).seq).toBe(3);
+    expect(edit.mock.calls[0]![0].content.body).toBe("ok");
   });
 
   it("finalizes by publishing finish and editing com.beeper.ai while clearing the stream", async () => {
@@ -208,6 +245,23 @@ function createClient() {
   const publish = vi.fn(async () => undefined);
   const send = vi.fn(async () => ({ eventId: "$target", raw: {}, roomId: "!room:example.com" }));
   const edit = vi.fn(async () => ({ eventId: "$edit", raw: {}, roomId: "!room:example.com" }));
+  const get = vi.fn(async () => ({
+    message: {
+      attachments: [],
+      class: "message",
+      content: {
+        "com.beeper.stream": streamDescriptor,
+      },
+      edited: false,
+      encrypted: false,
+      eventId: "$existing",
+      kind: "message",
+      raw: {},
+      roomId: "!room:example.com",
+      text: "...",
+      type: "m.room.message",
+    },
+  }));
   const client = {
     beeper: {
       streams: {
@@ -218,11 +272,12 @@ function createClient() {
     },
     messages: {
       edit,
+      get,
       send,
     },
   } as unknown as MatrixClient;
 
-  return { client, create, edit, publish, register, send };
+  return { client, create, edit, get, publish, register, send };
 }
 
 function delta(options: { content?: Record<string, unknown> }): Record<string, unknown> {

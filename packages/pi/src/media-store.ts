@@ -125,9 +125,10 @@ function safeMediaId(id: string): string {
 }
 
 function assertInside(root: string, target: string): string {
-  const relative = target.slice(root.length);
-  if (target !== root && !relative.startsWith("/") && !relative.startsWith("\\")) {
+  const resolvedRoot = resolve(root);
+  const resolvedTarget = resolve(target);
+  if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}/`)) {
     throw new Error("Resolved media path escapes media root");
   }
-  return target;
+  return resolvedTarget;
 }

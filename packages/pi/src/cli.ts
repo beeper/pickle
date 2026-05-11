@@ -31,6 +31,7 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
   console.log("Usage: pickle-pi-agent <init|register [path]|start|status>");
+  process.exitCode = 1;
 }
 
 main(process.argv).catch((error: unknown) => {

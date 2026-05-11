@@ -73,7 +73,17 @@ export class PicklePiAgent {
     const binding = this.registry.getBindingByRoom(event.roomId);
     if (!binding) return;
     const headless = await this.#ensureHeadlessSession(binding.id);
-    await headless.session.prompt(event.text, { source: "matrix" });
+    try {
+      await headless.session.prompt(event.text, { source: "matrix" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to prompt Pi session", { bindingId: binding.id, error, text: event.text });
+      await this.#client?.messages.send({
+        messageType: "m.notice",
+        roomId: event.roomId,
+        text: `Pi session error: ${message}`,
+      });
+    }
   }
 
   async #handleCommand(event: MatrixMessageEvent): Promise<void> {
