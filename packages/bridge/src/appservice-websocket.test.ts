@@ -120,7 +120,11 @@ describe("AppserviceWebsocket", () => {
     websockets.push(websocket);
 
     websocket.start();
-    await delay(20);
+    const ackBeforeRelease = await Promise.race([
+      connected.then(() => true),
+      delay(20).then(() => false),
+    ]);
+    expect(ackBeforeRelease).toBe(false);
     expect(acknowledged).toBe(false);
     releaseTransaction();
     await connected;

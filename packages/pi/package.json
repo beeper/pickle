@@ -15,15 +15,11 @@
   "bin": {
     "pickle-pi-agent": "./dist/cli.mjs"
   },
-  "main": "./dist/index.mjs",
-  "module": "./dist/index.mjs",
-  "types": "./dist/index.d.mts",
+  "main": "./dist/appservice.mjs",
+  "module": "./dist/appservice.mjs",
+  "types": "./dist/appservice.d.mts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.mts",
-      "import": "./dist/index.mjs"
-    },
-    "./agent": {
       "types": "./dist/appservice.d.mts",
       "import": "./dist/appservice.mjs"
     },

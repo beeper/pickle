@@ -1,11 +1,11 @@
 import type { MatrixClient } from "@beeper/pickle";
 import { describe, expect, it, vi } from "vitest";
-import { createBeeperStreamPublisher } from "./beeper-stream";
+import { BeeperStreamPublisher } from "./beeper-stream";
 
 describe("Beeper stream publisher", () => {
   it("creates a target message and registers it with a Beeper stream", async () => {
     const { client, create, register, send } = createClient();
-    const publisher = createBeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_1" });
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_1" });
 
     await expect(publisher.start()).resolves.toEqual({
       descriptor: streamDescriptor,
@@ -42,7 +42,7 @@ describe("Beeper stream publisher", () => {
 
   it("reuses an existing target message stream descriptor", async () => {
     const { client, create, get, register, send } = createClient();
-    const publisher = createBeeperStreamPublisher({
+    const publisher = new BeeperStreamPublisher({
       client,
       roomId: "!room:example.com",
       targetEventId: "$existing",
@@ -63,7 +63,7 @@ describe("Beeper stream publisher", () => {
 
   it("publishes callback chunks as monotonic com.beeper.llm.deltas envelopes", async () => {
     const { client, publish } = createClient();
-    const publisher = createBeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_2" });
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_2" });
 
     await publisher.start();
     await publisher.publish({ id: "text_turn_2", type: "text-start" });
@@ -100,7 +100,7 @@ describe("Beeper stream publisher", () => {
   it("does not mutate final content or sequence when publish fails", async () => {
     const { client, edit, publish } = createClient();
     publish.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("network down"));
-    const publisher = createBeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_retry" });
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_retry" });
 
     await publisher.start();
     await expect(publisher.publish({ delta: "lost", id: "text_turn_retry", type: "text-delta" })).rejects.toThrow("network down");
@@ -115,7 +115,7 @@ describe("Beeper stream publisher", () => {
 
   it("finalizes by publishing finish and editing com.beeper.ai while clearing the stream", async () => {
     const { client, edit, publish } = createClient();
-    const publisher = createBeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_3" });
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_3" });
 
     await publisher.start();
     await publisher.publish({ id: "text_turn_3", type: "text-start" });
@@ -162,7 +162,7 @@ describe("Beeper stream publisher", () => {
 
   it("publishes terminal error and abort parts without finalizing the message", async () => {
     const errored = createClient();
-    const errorPublisher = createBeeperStreamPublisher({
+    const errorPublisher = new BeeperStreamPublisher({
       client: errored.client,
       roomId: "!room:example.com",
       turnId: "turn_error",
@@ -178,7 +178,7 @@ describe("Beeper stream publisher", () => {
     expect(errored.edit).not.toHaveBeenCalled();
 
     const aborted = createClient();
-    const abortPublisher = createBeeperStreamPublisher({
+    const abortPublisher = new BeeperStreamPublisher({
       client: aborted.client,
       roomId: "!room:example.com",
       turnId: "turn_abort",
@@ -196,7 +196,7 @@ describe("Beeper stream publisher", () => {
 
   it("compacts oversized final Matrix content without dropping text or tool calls", async () => {
     const { client, edit } = createClient();
-    const publisher = createBeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_big" });
+    const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_big" });
     const largeOutput = "x".repeat(70 * 1024);
 
     await publisher.start();

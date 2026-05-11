@@ -19,6 +19,7 @@ export class PicklePiAgent {
   readonly config: PicklePiConfig;
   readonly registry: PicklePiRegistry;
   #client: MatrixClient | undefined;
+  #sessionPromises = new Map<string, Promise<HeadlessPiSession>>();
   #sessions = new Map<string, HeadlessPiSession>();
   #subscription: MatrixSubscription | undefined;
 
@@ -49,6 +50,7 @@ export class PicklePiAgent {
   stop(): void {
     void this.#subscription?.stop();
     for (const session of this.#sessions.values()) session.unsubscribe();
+    this.#sessionPromises.clear();
     this.#sessions.clear();
     void this.#client?.close();
   }
@@ -154,17 +156,25 @@ export class PicklePiAgent {
   async #ensureHeadlessSession(bindingId: string): Promise<HeadlessPiSession> {
     const existing = this.#sessions.get(bindingId);
     if (existing) return existing;
+    const pending = this.#sessionPromises.get(bindingId);
+    if (pending) return pending;
     const binding = this.registry.data.bindings.find((item) => item.id === bindingId);
     if (!binding) throw new Error(`Unknown Pi binding: ${bindingId}`);
-    const session = await createHeadlessPiSession({
+    let promise!: Promise<HeadlessPiSession>;
+    promise = createHeadlessPiSession({
       binding,
       config: this.config,
       onEvent: async (event) => {
         await this.#mirrorPiEvent(binding.roomId, event);
       },
+    }).then((session) => {
+      if (this.#sessionPromises.get(bindingId) === promise) this.#sessions.set(bindingId, session);
+      return session;
+    }).finally(() => {
+      this.#sessionPromises.delete(bindingId);
     });
-    this.#sessions.set(bindingId, session);
-    return session;
+    this.#sessionPromises.set(bindingId, promise);
+    return promise;
   }
 
   async #mirrorPiEvent(roomId: string, event: unknown): Promise<void> {

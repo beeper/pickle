@@ -21,20 +21,19 @@ export interface HeadlessPiRuntimeOptions {
   onEvent(event: unknown): void | Promise<void>;
 }
 
+let ownedSessionEnvLock = Promise.resolve();
+
 export async function createHeadlessPiSession(options: HeadlessPiRuntimeOptions): Promise<HeadlessPiSession> {
   const pi = await loadPiCodingAgent();
   const nativeSessionDir = resolve(options.config.dataDir, "sessions", "native");
   await mkdir(dirname(options.binding.piSessionFile), { recursive: true });
   await mkdir(nativeSessionDir, { recursive: true });
 
-  const previousOwnedSession = process.env.PICKLE_PI_OWNED_SESSION;
-  process.env.PICKLE_PI_OWNED_SESSION = "1";
-  let result: { modelFallbackMessage?: string; session: PiAgentSession };
-  try {
+  const result = await withOwnedSessionEnv(async () => {
     const sessionManager = pi.SessionManager.open(options.binding.piSessionFile, nativeSessionDir, options.binding.cwd);
     const resourceLoader = new pi.DefaultResourceLoader({ cwd: options.binding.cwd });
     await resourceLoader.reload();
-    result = await pi.createAgentSession({
+    return pi.createAgentSession({
       cwd: options.binding.cwd,
       customTools: [],
       resourceLoader,
@@ -42,15 +41,11 @@ export async function createHeadlessPiSession(options: HeadlessPiRuntimeOptions)
       sessionStartEvent: { reason: "startup", type: "session_start" },
       tools: pi.createCodingTools(options.binding.cwd),
     });
-  } finally {
-    if (previousOwnedSession === undefined) {
-      delete process.env.PICKLE_PI_OWNED_SESSION;
-    } else {
-      process.env.PICKLE_PI_OWNED_SESSION = previousOwnedSession;
-    }
-  }
+  });
   const unsubscribe = result.session.subscribe((event: unknown) => {
-    void Promise.resolve(options.onEvent(event));
+    void Promise.resolve(options.onEvent(event)).catch((error: unknown) => {
+      console.error("Failed to handle Pi session event", { bindingId: options.binding.id, error });
+    });
   });
   const headless: HeadlessPiSession = {
     binding: options.binding,
@@ -59,6 +54,27 @@ export async function createHeadlessPiSession(options: HeadlessPiRuntimeOptions)
   };
   if (result.modelFallbackMessage) headless.modelFallbackMessage = result.modelFallbackMessage;
   return headless;
+}
+
+async function withOwnedSessionEnv<T>(callback: () => Promise<T>): Promise<T> {
+  const previousLock = ownedSessionEnvLock;
+  let release!: () => void;
+  ownedSessionEnvLock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previousLock;
+  const previousOwnedSession = process.env.PICKLE_PI_OWNED_SESSION;
+  process.env.PICKLE_PI_OWNED_SESSION = "1";
+  try {
+    return await callback();
+  } finally {
+    if (previousOwnedSession === undefined) {
+      delete process.env.PICKLE_PI_OWNED_SESSION;
+    } else {
+      process.env.PICKLE_PI_OWNED_SESSION = previousOwnedSession;
+    }
+    release();
+  }
 }
 
 async function loadPiCodingAgent(): Promise<{

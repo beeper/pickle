@@ -175,10 +175,6 @@ export class BeeperStreamPublisher {
   }
 }
 
-export function createBeeperStreamPublisher(options: CreateBeeperStreamPublisherOptions): BeeperStreamPublisher {
-  return new BeeperStreamPublisher(options);
-}
-
 type FinalMessageAccumulator = {
   message: { id: string; metadata: Record<string, unknown>; parts: Record<string, unknown>[]; role: "assistant" };
   reasoningIndexById: Map<string, number>;
@@ -275,7 +271,8 @@ function compactParts(parts: unknown[], options: { keepToolInput: boolean; maxTe
 function truncateWithNotice(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
   if (maxChars <= 0) return "";
-  const notice = "\n\n[Matrix event compacted: text truncated to fit the 64 KiB event content limit.]";
+  const limitKiB = Math.floor(MAX_MATRIX_EVENT_CONTENT_BYTES / 1024);
+  const notice = `\n\n[Matrix event compacted: text truncated to fit the ${limitKiB} KiB event content limit.]`;
   return `${value.slice(0, Math.max(0, maxChars - notice.length))}${notice}`;
 }
 
