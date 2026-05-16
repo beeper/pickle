@@ -20,6 +20,14 @@ export interface OpenClawTransport {
   request<T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions): Promise<T>;
 }
 
+export interface OpenClawHttpTransportOptions {
+  accessToken?: string;
+  eventsPath?: string;
+  fetch?: typeof fetch;
+  requestPath?: string;
+  url: string;
+}
+
 export interface OpenClawSessionCreateOptions {
   agentId: string;
   key?: string;
@@ -194,6 +202,79 @@ export class OpenClawGatewayRuntime {
   }
 }
 
+export class OpenClawHttpTransport implements OpenClawTransport {
+  readonly #accessToken: string | undefined;
+  readonly #baseUrl: URL;
+  readonly #eventsPath: string;
+  readonly #fetch: typeof fetch;
+  readonly #requestPath: string;
+  #abortController = new AbortController();
+
+  constructor(options: OpenClawHttpTransportOptions) {
+    this.#accessToken = options.accessToken;
+    this.#baseUrl = normalizeGatewayUrl(options.url);
+    this.#eventsPath = options.eventsPath ?? "/events";
+    this.#fetch = options.fetch ?? fetch;
+    this.#requestPath = options.requestPath ?? "/rpc";
+  }
+
+  async request<T = unknown>(method: string, params?: unknown, options: GatewayRequestOptions = {}): Promise<T> {
+    const abort = new AbortController();
+    const timeout = options.timeoutMs == null ? undefined : setTimeout(() => abort.abort(), options.timeoutMs);
+    try {
+      const response = await this.#fetch(endpointUrl(this.#baseUrl, this.#requestPath), {
+        body: JSON.stringify(stripUndefined({
+          expectFinal: options.expectFinal,
+          method,
+          params: params ?? {},
+        })),
+        headers: {
+          ...this.#headers("application/json"),
+          "content-type": "application/json",
+        },
+        method: "POST",
+        signal: abort.signal,
+      });
+      const raw = await readGatewayResponse(response);
+      const record = recordValue(raw);
+      if (record?.error !== undefined) throw new Error(`OpenClaw gateway ${method} failed: ${errorMessage(record.error)}`);
+      return (record && "result" in record ? record.result : raw) as T;
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+    }
+  }
+
+  async *events(filter?: (event: OpenClawGatewayEvent) => boolean): AsyncIterable<OpenClawGatewayEvent> {
+    const response = await this.#fetch(endpointUrl(this.#baseUrl, this.#eventsPath), {
+      headers: this.#headers("text/event-stream"),
+      method: "GET",
+      signal: this.#abortController.signal,
+    });
+    if (!response.ok) throw new Error(`OpenClaw gateway events failed (${response.status}): ${await response.text()}`);
+    const stream = response.body;
+    if (!stream) return;
+    for await (const event of parseEventStream(stream)) {
+      if (!filter || filter(event)) yield event;
+    }
+  }
+
+  close(): void {
+    this.#abortController.abort();
+    this.#abortController = new AbortController();
+  }
+
+  #headers(accept: string): Record<string, string> {
+    return stripUndefined({
+      accept,
+      authorization: this.#accessToken ? `Bearer ${this.#accessToken}` : undefined,
+    });
+  }
+}
+
+export function createOpenClawHttpTransport(options: OpenClawHttpTransportOptions): OpenClawHttpTransport {
+  return new OpenClawHttpTransport(options);
+}
+
 function arrayValue(value: unknown): unknown[] | undefined {
   return Array.isArray(value) ? value : undefined;
 }
@@ -205,6 +286,99 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+async function readGatewayResponse(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!response.ok) throw new Error(`OpenClaw gateway request failed (${response.status}): ${text || response.statusText}`);
+  return text ? JSON.parse(text) : undefined;
+}
+
+function normalizeGatewayUrl(value: string): URL {
+  const url = new URL(value);
+  if (url.protocol === "ws:") url.protocol = "http:";
+  if (url.protocol === "wss:") url.protocol = "https:";
+  return url;
+}
+
+function endpointUrl(baseUrl: URL, path: string): URL {
+  if (/^https?:\/\//.test(path)) return new URL(path);
+  const base = new URL(baseUrl);
+  base.pathname = joinPath(base.pathname, path);
+  base.search = "";
+  base.hash = "";
+  return base;
+}
+
+function joinPath(basePath: string, path: string): string {
+  const base = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
+  const next = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${next}` || "/";
+}
+
+async function* parseEventStream(stream: ReadableStream<Uint8Array>): AsyncIterable<OpenClawGatewayEvent> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let split = eventBoundary(buffer);
+      while (split >= 0) {
+        const frame = buffer.slice(0, split);
+        buffer = buffer.slice(split + frameBoundaryLength(buffer, split));
+        const event = parseEventFrame(frame);
+        if (event) yield event;
+        split = eventBoundary(buffer);
+      }
+    }
+    buffer += decoder.decode();
+    const event = parseEventFrame(buffer);
+    if (event) yield event;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function eventBoundary(value: string): number {
+  const lf = value.indexOf("\n\n");
+  const crlf = value.indexOf("\r\n\r\n");
+  if (lf < 0) return crlf;
+  if (crlf < 0) return lf;
+  return Math.min(lf, crlf);
+}
+
+function frameBoundaryLength(value: string, index: number): number {
+  return value.slice(index, index + 4) === "\r\n\r\n" ? 4 : 2;
+}
+
+function parseEventFrame(frame: string): OpenClawGatewayEvent | undefined {
+  const lines = frame.split(/\r?\n/);
+  let event: string | undefined;
+  const data: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("event:")) event = line.slice("event:".length).trim();
+    if (line.startsWith("data:")) data.push(line.slice("data:".length).trimStart());
+  }
+  if (data.length === 0) return undefined;
+  const payload = JSON.parse(data.join("\n")) as unknown;
+  const record = recordValue(payload);
+  if (record && ("event" in record || "payload" in record || "seq" in record)) {
+    return stripUndefined({
+      event: stringValue(record.event) ?? event,
+      payload: record.payload ?? payload,
+      seq: typeof record.seq === "number" ? record.seq : undefined,
+      stateVersion: record.stateVersion,
+    });
+  }
+  return stripUndefined({ event, payload });
+}
+
+function errorMessage(error: unknown): string {
+  const record = recordValue(error);
+  return stringValue(record?.message) ?? stringValue(error) ?? JSON.stringify(error);
 }
 
 type StripUndefined<T extends object> = {

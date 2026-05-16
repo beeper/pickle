@@ -31,7 +31,7 @@ import { buildBackfillImport } from "./backfill";
 import { parseApprovalResponseContent } from "./approval";
 import { OpenClawMatrixBridgeAgent, type OpenClawBridgeStreamPublisher } from "./bridge-agent";
 import { createDefaultConfig } from "./config";
-import { OpenClawGatewayRuntime, type OpenClawTransport } from "./openclaw-runtime";
+import { createOpenClawHttpTransport, OpenClawGatewayRuntime, type OpenClawTransport } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 import { agentContactFromOpenClawAgent } from "./rooms";
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding } from "./types";
@@ -62,7 +62,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       options.runtimeFactory ??
       ((login, config) => new OpenClawGatewayRuntime({
         config,
-        transport: options.transportFactory?.(login, config) ?? missingTransport(),
+        transport: options.transportFactory?.(login, config) ?? transportFromLogin(login, config),
       }));
   }
 
@@ -347,13 +347,14 @@ function bindingFromPortal(portal: Portal): OpenClawSessionBinding | undefined {
   };
 }
 
-function missingTransport(): OpenClawTransport {
-  return {
-    async *events() {},
-    async request() {
-      throw new Error("OpenClaw transport is not configured");
-    },
-  };
+function transportFromLogin(login: UserLogin, config: OpenClawBridgeConfig): OpenClawTransport {
+  const metadata = recordValue(login.metadata);
+  const gatewayUrl = stringValue(metadata?.gatewayUrl) ?? config.gatewayUrl;
+  if (!gatewayUrl) throw new Error("OpenClaw gateway URL is not configured");
+  const options: Parameters<typeof createOpenClawHttpTransport>[0] = { url: gatewayUrl };
+  const accessToken = stringValue(metadata?.accessToken) ?? config.accessToken;
+  if (accessToken !== undefined) options.accessToken = accessToken;
+  return createOpenClawHttpTransport(options);
 }
 
 function encodeLoginId(value: string): string {

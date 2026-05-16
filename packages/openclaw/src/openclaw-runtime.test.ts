@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
-import { OpenClawGatewayRuntime, type OpenClawGatewayEvent, type OpenClawTransport } from "./openclaw-runtime";
+import {
+  OpenClawGatewayRuntime,
+  createOpenClawHttpTransport,
+  type OpenClawGatewayEvent,
+  type OpenClawTransport,
+} from "./openclaw-runtime";
 
 describe("OpenClawGatewayRuntime", () => {
   it("lists OpenClaw agents as Matrix ghost contacts", async () => {
@@ -73,6 +78,76 @@ describe("OpenClawGatewayRuntime", () => {
       approvalId: "approval_1",
       decision: "approve",
     });
+  });
+
+  it("sends OpenClaw requests over the HTTP gateway transport", async () => {
+    const requests: Array<{ body: unknown; headers: Headers; url: string }> = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        body: JSON.parse(String(init?.body)),
+        headers: new Headers(init?.headers),
+        url: String(input),
+      });
+      return new Response(JSON.stringify({ result: { runId: "run_1" } }), { status: 200 });
+    });
+    const transport = createOpenClawHttpTransport({
+      accessToken: "secret",
+      fetch: fetchImpl,
+      url: "ws://127.0.0.1:29390/openclaw",
+    });
+
+    await expect(transport.request("sessions.send", { key: "session", message: "hi" }, { expectFinal: true })).resolves.toEqual({
+      runId: "run_1",
+    });
+    expect(requests).toEqual([
+      {
+        body: {
+          expectFinal: true,
+          method: "sessions.send",
+          params: { key: "session", message: "hi" },
+        },
+        headers: expect.any(Headers),
+        url: "http://127.0.0.1:29390/openclaw/rpc",
+      },
+    ]);
+    expect(requests[0]?.headers.get("authorization")).toBe("Bearer secret");
+  });
+
+  it("streams OpenClaw gateway events from SSE frames", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode([
+          "event: assistant.delta",
+          "data: {\"payload\":{\"runId\":\"skip\",\"delta\":\"no\"}}",
+          "",
+          "event: assistant.delta",
+          "data: {\"payload\":{\"runId\":\"run_1\",\"delta\":\"yes\"},\"seq\":2}",
+          "",
+          "",
+        ].join("\n")));
+        controller.close();
+      },
+    });
+    const transport = createOpenClawHttpTransport({
+      fetch: vi.fn(async () => new Response(stream, { status: 200 })),
+      url: "http://gateway",
+    });
+
+    const events: OpenClawGatewayEvent[] = [];
+    for await (const event of transport.events((candidate) => {
+      const payload = candidate.payload as { runId?: string };
+      return payload.runId === "run_1";
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        event: "assistant.delta",
+        payload: { runId: "run_1", delta: "yes" },
+        seq: 2,
+      },
+    ]);
   });
 });
 
