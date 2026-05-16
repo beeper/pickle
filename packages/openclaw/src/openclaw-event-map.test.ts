@@ -138,4 +138,54 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       },
     ]);
   });
+
+  it("normalizes upstream gateway session and approval event families", () => {
+    const state = createOpenClawStreamState("turn_gateway");
+
+    expect(mapOpenClawEventToBeeperChunks(state, {
+      event: "session.operation",
+      payload: { phase: "started", runId: "run_1", sessionKey: "session_1" },
+    })).toEqual([
+      {
+        messageId: "turn_gateway",
+        messageMetadata: {
+          run_id: "run_1",
+          session_key: "session_1",
+          turn_id: "turn_gateway",
+        },
+        type: "start",
+      },
+    ]);
+    expect(mapOpenClawEventToBeeperChunks(state, {
+      event: "session.message",
+      payload: { deltaText: "Hello", role: "assistant", runId: "run_1" },
+    })).toEqual([
+      { id: "text_turn_gateway", type: "text-start" },
+      { delta: "Hello", id: "text_turn_gateway", type: "text-delta" },
+    ]);
+    expect(mapOpenClawEventToBeeperChunks(state, {
+      event: "session.tool",
+      payload: { args: { cmd: "pwd" }, phase: "started", tool: "exec", toolCallId: "tool_1" },
+    })).toEqual([
+      {
+        dynamic: true,
+        input: { cmd: "pwd" },
+        toolCallId: "tool_1",
+        toolName: "exec",
+        type: "tool-input-available",
+      },
+    ]);
+    expect(mapOpenClawEventToBeeperChunks(state, {
+      event: "exec.approval.requested",
+      payload: { id: "approval_1", reason: "Run command?", tool: "exec", toolCallId: "tool_1" },
+    })).toEqual([
+      {
+        approvalId: "approval_1",
+        message: "Run command?",
+        toolCallId: "tool_1",
+        toolName: "exec",
+        type: "tool-approval-request",
+      },
+    ]);
+  });
 });

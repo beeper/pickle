@@ -26,7 +26,8 @@ export function mapOpenClawEventToBeeperChunks(
   event: unknown
 ): BeeperUIMessageChunk[] {
   const record = recordValue(event);
-  const type = stringValue(record?.type) ?? stringValue(record?.event);
+  const rawType = stringValue(record?.type) ?? stringValue(record?.event);
+  const type = normalizeOpenClawEventType(rawType, record);
   if (!record || !type) return [];
   const data = recordValue(record.data) ?? recordValue(record.payload) ?? record;
   const metadata = streamMetadata(record);
@@ -37,11 +38,11 @@ export function mapOpenClawEventToBeeperChunks(
     case "run.started":
       return [startChunk(state, metadata)];
     case "assistant.delta": {
-      const delta = stringValue(data.delta) ?? stringValue(data.text) ?? stringValue(data.content);
+      const delta = stringValue(data.delta) ?? stringValue(data.deltaText) ?? stringValue(data.text) ?? stringValue(data.content);
       return delta ? mapOpenClawMessageDelta(state, { kind: "text", value: delta }) : [];
     }
     case "assistant.message": {
-      const text = stringValue(data.text) ?? stringValue(data.content) ?? stringValue(data.message);
+      const text = stringValue(data.deltaText) ?? stringValue(data.text) ?? stringValue(data.content) ?? stringValue(data.message);
       return text ? mapOpenClawMessageDelta(state, { kind: "text", value: text }) : [];
     }
     case "thinking.delta": {
@@ -83,13 +84,44 @@ export function mapOpenClawEventToBeeperChunks(
   }
 }
 
+export function normalizeOpenClawEventType(type: string | undefined, event?: Record<string, unknown>): string | undefined {
+  if (!type) return undefined;
+  const payload = recordValue(event?.payload) ?? recordValue(event?.data) ?? event;
+  const phase = stringValue(payload?.phase) ?? stringValue(payload?.status) ?? stringValue(payload?.kind);
+  if (type === "chat") return "assistant.delta";
+  if (type === "session.message") {
+    const role = stringValue(payload?.role);
+    if (role === "assistant") return "assistant.delta";
+    if (role === "reasoning" || role === "thinking") return "thinking.delta";
+    return "assistant.message";
+  }
+  if (type === "session.operation") {
+    if (phase === "started" || phase === "queued" || phase === "running") return "run.started";
+    if (phase === "completed" || phase === "complete" || phase === "done") return "run.completed";
+    if (phase === "failed" || phase === "error") return "run.failed";
+    if (phase === "cancelled" || phase === "canceled") return "run.cancelled";
+    if (phase === "timed_out" || phase === "timeout") return "run.timed_out";
+    return type;
+  }
+  if (type === "session.tool") {
+    if (phase === "delta" || payload?.delta !== undefined || payload?.inputTextDelta !== undefined) return "tool.call.delta";
+    if (phase === "completed" || phase === "complete" || phase === "result") return "tool.call.completed";
+    if (phase === "failed" || phase === "error") return "tool.call.failed";
+    return "tool.call.started";
+  }
+  if (type === "exec.approval.requested" || type === "plugin.approval.requested") return "approval.requested";
+  if (type === "exec.approval.resolved" || type === "plugin.approval.resolved") return "approval.resolved";
+  return type;
+}
+
 function streamMetadata(event: Record<string, unknown>): Record<string, unknown> {
+  const payload = recordValue(event.payload) ?? recordValue(event.data);
   return stripUndefined({
-    agent_id: stringValue(event.agentId),
-    run_id: stringValue(event.runId),
-    session_id: stringValue(event.sessionId),
-    session_key: stringValue(event.sessionKey),
-    task_id: stringValue(event.taskId),
+    agent_id: stringValue(event.agentId) ?? stringValue(payload?.agentId),
+    run_id: stringValue(event.runId) ?? stringValue(payload?.runId),
+    session_id: stringValue(event.sessionId) ?? stringValue(payload?.sessionId),
+    session_key: stringValue(event.sessionKey) ?? stringValue(payload?.sessionKey),
+    task_id: stringValue(event.taskId) ?? stringValue(payload?.taskId),
   });
 }
 
@@ -154,7 +186,7 @@ function toolCallId(data: Record<string, unknown>): string {
 }
 
 function toolName(data: Record<string, unknown>): string | undefined {
-  return stringValue(data.toolName) ?? stringValue(data.name);
+  return stringValue(data.toolName) ?? stringValue(data.name) ?? stringValue(data.tool);
 }
 
 function parseMaybeJSONValue(value: unknown): unknown {
