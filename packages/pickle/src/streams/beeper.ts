@@ -1,6 +1,6 @@
-import type { MatrixBeeper, MatrixMessages } from "../client-types";
+import type { MatrixBeeper } from "../client-types";
 import { stripUndefined } from "../object";
-import type { SendMatrixStreamOptions, SendMessageOptions, SentEvent } from "../types";
+import type { SendMatrixStreamOptions, SentEvent } from "../types";
 import {
   applyFinalMessagePart,
   compactFinalContent,
@@ -13,59 +13,33 @@ import { streamChunkText } from "./edits";
 export async function sendBeeperStream(
   client: {
     beeper: MatrixBeeper;
-    messages: MatrixMessages;
   },
   opts: SendMatrixStreamOptions
 ): Promise<SentEvent> {
-  const stream = await client.beeper.streams.create({
-    roomId: opts.roomId,
-    streamType: "com.beeper.llm",
-  });
   const turnId = `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  const targetOptions: SendMessageOptions = {
+  const target = await client.beeper.streams.startMessage(stripUndefined({
     content: {
       body: "...",
       "com.beeper.ai": { id: turnId, metadata: { turn_id: turnId }, parts: [], role: "assistant" },
-      "com.beeper.stream": stream.descriptor,
       msgtype: "m.text",
     },
-    messageType: "m.text" as const,
     roomId: opts.roomId,
-    text: "...",
-    ...(opts.threadRoot === undefined ? {} : { threadRoot: opts.threadRoot }),
-  };
-  const target = await client.messages.send(targetOptions);
-  await client.beeper.streams.register({
-    descriptor: stream.descriptor,
-    eventId: target.eventId,
-    roomId: opts.roomId,
-  });
+    streamType: "com.beeper.llm",
+    threadRootEventId: opts.threadRoot,
+  }));
   const textId = `text_${turnId}`;
   const accumulator = createFinalMessageAccumulator(turnId);
-  let seq = 1;
   let textOpen = false;
   let sawFinish = false;
-  const pendingPublishes = new Set<Promise<void>>();
-  const publishPart = (part: Record<string, unknown>) => {
-    const publish = publishBeeperStreamPart(client.beeper, opts.roomId, target.eventId, stream.descriptor, turnId, seq++, part)
-      .catch((error) => {
-        console.warn("[pickle] failed to publish beeper stream part", error);
-      })
-      .finally(() => {
-        pendingPublishes.delete(publish);
-      });
-    pendingPublishes.add(publish);
-  };
-  const waitForPublishes = async () => {
-    while (pendingPublishes.size) await Promise.all([...pendingPublishes]);
-  };
+  const publishPart = (part: Record<string, unknown>) =>
+    client.beeper.streams.publishPart({ eventId: target.eventId, part, roomId: opts.roomId, turnId });
   const startPart = {
     messageId: turnId,
     messageMetadata: { turn_id: turnId },
     type: "start",
   };
   applyFinalMessagePart(accumulator, startPart);
-  publishPart(startPart);
+  await publishPart(startPart);
   for await (const chunk of opts.stream) {
     const normalizedChunks = normalizeRichStreamChunk(chunk);
     if (normalizedChunks.length > 0) {
@@ -73,7 +47,7 @@ export async function sendBeeperStream(
         const type = typeof normalizedChunk.type === "string" ? normalizedChunk.type : "";
         if (type === "finish" || type === "error" || type === "abort") sawFinish = true;
         applyFinalMessagePart(accumulator, normalizedChunk);
-        publishPart(normalizedChunk);
+        await publishPart(normalizedChunk);
       }
       continue;
     }
@@ -81,7 +55,7 @@ export async function sendBeeperStream(
       const type = typeof chunk.type === "string" ? chunk.type : "";
       if (type === "finish" || type === "error" || type === "abort") sawFinish = true;
       applyFinalMessagePart(accumulator, chunk);
-      publishPart(chunk);
+      await publishPart(chunk);
       continue;
     }
     const text = streamChunkText(chunk);
@@ -90,10 +64,10 @@ export async function sendBeeperStream(
       const textStartPart = {
         id: textId,
         type: "text-start",
-      };
-      applyFinalMessagePart(accumulator, textStartPart);
-      publishPart(textStartPart);
-      textOpen = true;
+    };
+    applyFinalMessagePart(accumulator, textStartPart);
+    await publishPart(textStartPart);
+    textOpen = true;
     }
     const textDeltaPart = {
       delta: text,
@@ -101,7 +75,7 @@ export async function sendBeeperStream(
       type: "text-delta",
     };
     applyFinalMessagePart(accumulator, textDeltaPart);
-    publishPart(textDeltaPart);
+    await publishPart(textDeltaPart);
   }
   if (textOpen) {
     const textEndPart = {
@@ -109,7 +83,7 @@ export async function sendBeeperStream(
       type: "text-end",
     };
     applyFinalMessagePart(accumulator, textEndPart);
-    publishPart(textEndPart);
+    await publishPart(textEndPart);
   }
   if (!sawFinish) {
     const finishPart = {
@@ -118,35 +92,31 @@ export async function sendBeeperStream(
       type: "finish",
     };
     applyFinalMessagePart(accumulator, finishPart);
-    publishPart(finishPart);
+    await publishPart(finishPart);
   }
-  await waitForPublishes();
   const finalAIMessage = opts.finalAIMessage ?? finalizeAccumulatedAIMessage(accumulator);
   const finalText = opts.finalText ?? getFinalMessageText(finalAIMessage);
   const finalContent = compactFinalContent({ aiMessage: finalAIMessage, body: finalText });
-  const replacement = await client.messages.edit({
+  const replacement = await client.beeper.streams.finalizeMessage({
+    body: finalContent.body || "...",
     content: {
       body: finalContent.body || "...",
       "com.beeper.ai": finalContent.aiMessage,
-      "com.beeper.stream": null,
       msgtype: "m.text",
     },
     eventId: target.eventId,
-    messageType: "m.text",
     roomId: opts.roomId,
-    text: finalContent.body || "...",
     topLevelContent: {
       "com.beeper.dont_render_edited": true,
-      "com.beeper.stream": null,
     },
   });
   return {
-    ...replacement,
     eventId: target.eventId,
+    roomId: replacement.roomId,
     raw: {
       logicalEventId: target.eventId,
       raw: replacement.raw,
-      replacementEventId: replacement.eventId,
+      replacementEventId: replacement.replacementEventId,
     },
   };
 }
@@ -445,28 +415,3 @@ const NATIVE_STREAM_PART_TYPES = new Set([
   "tool-output-denied",
   "tool-output-error",
 ]);
-
-async function publishBeeperStreamPart(
-  beeper: MatrixBeeper,
-  roomId: string,
-  eventId: string,
-  descriptor: Record<string, unknown>,
-  turnId: string,
-  seq: number,
-  part: Record<string, unknown>
-): Promise<void> {
-  const descriptorType = typeof descriptor.type === "string" ? descriptor.type : "com.beeper.llm";
-  await beeper.streams.publish({
-    content: {
-      [`${descriptorType}.deltas`]: [{
-        "m.relates_to": { event_id: eventId, rel_type: "m.reference" },
-        part,
-        seq,
-        target_event: eventId,
-        turn_id: turnId,
-      }],
-    },
-    eventId,
-    roomId,
-  });
-}

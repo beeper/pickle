@@ -201,27 +201,44 @@ export interface MatrixRawMessage {
   roomId: string;
   raw: unknown;
 }
-export interface MatrixCreateBeeperStreamResult {
-  descriptor: { [key: string]: unknown };
-}
-export interface MatrixCreateBeeperStreamOptions {
-  roomId: string;
-  streamType?: string;
-}
-export interface MatrixBeeperStreamOptions {
-  content?: { [key: string]: unknown};
-  eventId: string;
-  roomId: string;
-}
-export interface MatrixRegisterBeeperStreamOptions {
-  descriptor: { [key: string]: unknown };
-  eventId: string;
-  roomId: string;
-  subscribers?: MatrixBeeperStreamSubscriber[];
-}
 export interface MatrixBeeperStreamSubscriber {
   deviceId: string;
   userId: string;
+}
+export interface MatrixStartBeeperStreamMessageOptions {
+  body?: string;
+  content?: { [key: string]: unknown };
+  roomId: string;
+  streamType?: string;
+  subscribers?: MatrixBeeperStreamSubscriber[];
+  threadRootEventId?: string;
+  userId?: string;
+}
+export interface MatrixStartBeeperStreamMessageResult {
+  descriptor: { [key: string]: unknown };
+  eventId: string;
+  roomId: string;
+}
+export interface MatrixPublishBeeperStreamMessagePartOptions {
+  agentId?: string;
+  eventId: string;
+  part: { [key: string]: unknown };
+  roomId: string;
+  turnId: string;
+}
+export interface MatrixFinalizeBeeperStreamMessageOptions {
+  body?: string;
+  content?: { [key: string]: unknown };
+  eventId: string;
+  roomId: string;
+  topLevelContent?: { [key: string]: unknown };
+  userId?: string;
+}
+export interface MatrixFinalizeBeeperStreamMessageResult {
+  eventId: string;
+  replacementEventId: string;
+  roomId: string;
+  raw: unknown;
 }
 export interface MatrixEditMessageOptions {
   roomId: string;

@@ -3,7 +3,6 @@ import type {
   AccountDataOptions,
   AccountDataResult,
   BanUserOptions,
-  CreateBeeperStreamOptions,
   CreateRoomOptions,
   CreateRoomResult,
   DownloadEncryptedMediaOptions,
@@ -39,10 +38,8 @@ import type {
   OpenDMResult,
   OwnAvatarUrlResult,
   OwnDisplayNameResult,
-  PublishBeeperStreamOptions,
   ReactionOptions,
   RedactMessageOptions,
-  RegisterBeeperStreamOptions,
   ResolveRoomAliasOptions,
   ResolveRoomAliasResult,
   RawRequestOptions,
@@ -81,6 +78,11 @@ import type {
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
   MatrixAppserviceUserOptions,
+  MatrixFinalizeBeeperStreamMessageOptions,
+  MatrixFinalizeBeeperStreamMessageResult,
+  MatrixPublishBeeperStreamMessagePartOptions,
+  MatrixStartBeeperStreamMessageOptions,
+  MatrixStartBeeperStreamMessageResult,
 } from "./runtime-types";
 
 export interface MatrixClient {
@@ -146,9 +148,9 @@ export interface MatrixBeeper {
     send(options: SendBeeperEphemeralOptions): Promise<SentEvent>;
   };
   streams: {
-    create(options: CreateBeeperStreamOptions): Promise<{ descriptor: Record<string, unknown> }>;
-    publish(options: PublishBeeperStreamOptions): Promise<void>;
-    register(options: RegisterBeeperStreamOptions): Promise<void>;
+    finalizeMessage(options: MatrixFinalizeBeeperStreamMessageOptions): Promise<MatrixFinalizeBeeperStreamMessageResult>;
+    publishPart(options: MatrixPublishBeeperStreamMessagePartOptions): Promise<void>;
+    startMessage(options: MatrixStartBeeperStreamMessageOptions): Promise<MatrixStartBeeperStreamMessageResult>;
   };
 }
 

@@ -3,9 +3,15 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
@@ -88,6 +94,196 @@ func TestAppserviceTransactionParsesBeeperStreamSubscribe(t *testing.T) {
 	if got.RoomID != id.RoomID("!room:example") || got.EventID != id.EventID("$event") || got.DeviceID != id.DeviceID("DESKTOP") {
 		t.Fatalf("unexpected parsed subscribe content: %#v", got)
 	}
+}
+
+func TestBeeperStreamClientUsesAppserviceBotDevice(t *testing.T) {
+	core := New(nil)
+	mainClient, err := mautrix.NewClient("https://matrix.example/_hungryserv/alice", id.UserID("@bot:example"), "login-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainClient.StateStore = mautrix.NewMemoryStateStore()
+	core.client = mainClient
+
+	cli, err := core.beeperStreamClient(MatrixCoreInitOptions{
+		Appservice: &MatrixAppserviceInitOptions{
+			Homeserver:       "https://matrix.example/_hungryserv/alice",
+			HomeserverDomain: "example",
+			Registration: MatrixAppserviceRegistration{
+				AppToken:        "as-token",
+				SenderLocalpart: "bot",
+			},
+		},
+		DeviceID: "PICKLE",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cli.UserID != id.UserID("@bot:example") {
+		t.Fatalf("unexpected stream user ID: %s", cli.UserID)
+	}
+	if cli.DeviceID != id.DeviceID("PICKLE") {
+		t.Fatalf("unexpected stream device ID: %s", cli.DeviceID)
+	}
+	if cli.AccessToken != "as-token" {
+		t.Fatalf("expected appservice token, got %q", cli.AccessToken)
+	}
+	if !cli.SetAppServiceUserID || !cli.SetAppServiceDeviceID {
+		t.Fatalf("expected appservice user and device query flags")
+	}
+	if cli.StateStore != mainClient.StateStore {
+		t.Fatalf("expected stream client to share state store")
+	}
+}
+
+func TestCreateBeeperStreamUsesMautrixEncryptionDecision(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"event_id":"$stream"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@testbot:example"), "device-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.DeviceID = id.DeviceID("PICKLE")
+	cli.StateStore = mautrix.NewMemoryStateStore()
+	core.client = cli
+	core.beeperStream, err = beeperstream.New(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := json.Marshal(MatrixStartBeeperStreamMessageOptions{
+		RoomID:     "!room:example",
+		StreamType: "com.beeper.llm",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := core.handleStartBeeperStreamMessage(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Descriptor event.BeeperStreamInfo `json:"descriptor"`
+	}
+	if err = json.Unmarshal(resp, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Descriptor.Encryption != nil {
+		t.Fatal("expected unencrypted beeper stream descriptor for unencrypted room")
+	}
+
+	if err = cli.StateStore.SetEncryptionEvent(context.Background(), id.RoomID("!room:example"), &event.EncryptionEventContent{
+		Algorithm: id.AlgorithmMegolmV1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err = core.handleStartBeeperStreamMessage(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(resp, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Descriptor.Encryption == nil {
+		t.Fatal("expected encrypted beeper stream descriptor")
+	}
+	if result.Descriptor.Encryption.Algorithm != id.AlgorithmBeeperStreamV1 {
+		t.Fatalf("unexpected stream encryption algorithm: %s", result.Descriptor.Encryption.Algorithm)
+	}
+	if len(result.Descriptor.Encryption.Key) != 32 {
+		t.Fatalf("unexpected stream encryption key length: %d", len(result.Descriptor.Encryption.Key))
+	}
+}
+
+func TestRegisterBeeperStreamInjectsDirectSubscribers(t *testing.T) {
+	requests := make(chan recordedRequest, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.URL.Path}
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/sendToDevice/") {
+			_, _ = w.Write([]byte(`{}`))
+		} else {
+			_, _ = w.Write([]byte(`{"event_id":"$stream"}`))
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@testbot:example"), "device-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.DeviceID = id.DeviceID("PICKLE")
+	cli.StateStore = mautrix.NewMemoryStateStore()
+	core.client = cli
+	core.beeperStream, err = beeperstream.New(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err = cli.StateStore.SetEncryptionEvent(context.Background(), id.RoomID("!room:example"), &event.EncryptionEventContent{
+		Algorithm: id.AlgorithmMegolmV1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	startReq, err := json.Marshal(MatrixStartBeeperStreamMessageOptions{
+		RoomID:     "!room:example",
+		StreamType: "com.beeper.llm",
+		Subscribers: []MatrixBeeperStreamSubscriber{{
+			DeviceID: "DESKTOP",
+			UserID:   "@alice:example",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleStartBeeperStreamMessage(context.Background(), startReq); err != nil {
+		t.Fatal(err)
+	}
+
+	publishReq, err := json.Marshal(MatrixPublishBeeperStreamMessagePartOptions{
+		EventID: "$stream",
+		Part:    OutboundEvent{"type": "text-delta", "delta": "hi"},
+		RoomID:  "!room:example",
+		TurnID:  "turn-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handlePublishBeeperStreamMessagePart(context.Background(), publishReq); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case req := <-requests:
+			if !strings.Contains(req.path, "/sendToDevice/") {
+				continue
+			}
+			if !strings.Contains(req.path, "/sendToDevice/m.room.encrypted/") {
+				t.Fatalf("expected encrypted stream update sendToDevice request, got %s", req.path)
+			}
+			if !strings.Contains(req.body, "@alice:example") || !strings.Contains(req.body, "DESKTOP") {
+				t.Fatalf("expected desktop subscriber in sendToDevice body, got %s", req.body)
+			}
+			return
+		case <-deadline:
+			t.Fatal("timed out waiting for stream update sendToDevice request")
+		}
+	}
+}
+
+type recordedRequest struct {
+	body string
+	path string
 }
 
 func mustJSON(t *testing.T, value any) json.RawMessage {

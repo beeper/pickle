@@ -1,4 +1,4 @@
-import type { MatrixBeeper, MatrixMessages, SentEvent } from "@beeper/pickle";
+import type { MatrixBeeper, SentEvent } from "@beeper/pickle";
 import {
   applyFinalMessagePart,
   compactFinalContent,
@@ -12,7 +12,6 @@ import { createTurnId, type BeeperUIMessageChunk } from "./stream-map";
 
 export interface BeeperStreamPublisherClient {
   beeper: MatrixBeeper;
-  messages: Pick<MatrixMessages, "edit" | "get" | "send">;
 }
 
 export interface BeeperStreamSubscriber {
@@ -21,13 +20,14 @@ export interface BeeperStreamSubscriber {
 }
 
 export interface CreateBeeperStreamPublisherOptions {
+  agentId?: string;
   client: BeeperStreamPublisherClient;
   initialMessageMetadata?: Record<string, unknown>;
   roomId: string;
   subscribers?: BeeperStreamSubscriber[];
-  targetEventId?: string;
   threadRoot?: string;
   turnId?: string;
+  userId?: string;
 }
 
 export interface BeeperStreamStartResult {
@@ -49,24 +49,26 @@ export class BeeperStreamPublisher {
   readonly roomId: string;
   readonly turnId: string;
   #accumulator: BeeperFinalMessageAccumulator;
+  #agentId: string | undefined;
   #client: BeeperStreamPublisherClient;
   #descriptor: Record<string, unknown> | undefined;
   #finalized = false;
   #initialMessageMetadata: Record<string, unknown>;
   #queue = new SerialQueue();
-  #seq = 1;
   #subscribers: BeeperStreamSubscriber[];
   #targetEventId: string | undefined;
   #threadRoot: string | undefined;
+  #userId: string | undefined;
 
   constructor(options: CreateBeeperStreamPublisherOptions) {
+    this.#agentId = options.agentId;
     this.#client = options.client;
     this.#initialMessageMetadata = options.initialMessageMetadata ?? {};
     this.roomId = options.roomId;
     this.turnId = options.turnId ?? createTurnId();
     this.#subscribers = options.subscribers ?? [];
-    this.#targetEventId = options.targetEventId;
     this.#threadRoot = options.threadRoot;
+    this.#userId = options.userId;
     this.#accumulator = createFinalMessageAccumulator(this.turnId);
   }
 
@@ -120,30 +122,28 @@ export class BeeperStreamPublisher {
         aiMessage: finalAIMessage,
         body: finalText,
       });
-      const replacement = await this.#client.messages.edit({
+      const replacement = await this.#client.beeper.streams.finalizeMessage({
+        body: finalContent.body || "...",
         content: {
           body: finalContent.body || "...",
           "com.beeper.ai": finalContent.aiMessage,
-          "com.beeper.stream": null,
           msgtype: "m.text",
         },
         eventId: targetEventId,
-        messageType: "m.text",
         roomId: this.roomId,
-        text: finalContent.body || "...",
         topLevelContent: {
           "com.beeper.dont_render_edited": true,
-          "com.beeper.stream": null,
         },
+        ...(this.#userId ? { userId: this.#userId } : {}),
       });
       this.#finalized = true;
       return {
-        ...replacement,
         eventId: targetEventId,
+        roomId: replacement.roomId,
         raw: {
           logicalEventId: targetEventId,
           raw: replacement.raw,
-          replacementEventId: replacement.eventId,
+          replacementEventId: replacement.replacementEventId,
         },
       };
     });
@@ -153,70 +153,34 @@ export class BeeperStreamPublisher {
     if (this.#targetEventId && this.#descriptor) {
       return { descriptor: this.#descriptor, eventId: this.#targetEventId, turnId: this.turnId };
     }
-    if (this.#targetEventId) {
-      const { message } = await this.#client.messages.get({ eventId: this.#targetEventId, roomId: this.roomId });
-      const descriptor = message?.content["com.beeper.stream"];
-      if (!isRecord(descriptor)) {
-        throw new Error(`Target message ${this.#targetEventId} does not contain a Beeper stream descriptor`);
-      }
-      this.#descriptor = descriptor;
-      return { descriptor, eventId: this.#targetEventId, turnId: this.turnId };
-    }
-    const stream = await this.#client.beeper.streams.create({ roomId: this.roomId, streamType: "com.beeper.llm" });
-    this.#descriptor = stream.descriptor;
-    const target = await this.#client.messages.send({
+    const target = await this.#client.beeper.streams.startMessage({
       content: {
         body: "...",
         "com.beeper.ai": { id: this.turnId, metadata: { turn_id: this.turnId, ...this.#initialMessageMetadata }, parts: [], role: "assistant" },
-        "com.beeper.stream": stream.descriptor,
         msgtype: "m.text",
       },
-      messageType: "m.text",
       roomId: this.roomId,
-      text: "...",
-      ...(this.#threadRoot ? { threadRoot: this.#threadRoot } : {}),
-    });
-    this.#targetEventId = target.eventId;
-    await this.#client.beeper.streams.register({
-      descriptor: stream.descriptor,
-      eventId: target.eventId,
-      roomId: this.roomId,
+      streamType: "com.beeper.llm",
       ...(this.#subscribers.length > 0 ? { subscribers: this.#subscribers } : {}),
+      ...(this.#threadRoot ? { threadRootEventId: this.#threadRoot } : {}),
+      ...(this.#userId ? { userId: this.#userId } : {}),
     });
+    this.#descriptor = target.descriptor;
+    this.#targetEventId = target.eventId;
     await this.#publishPart(target.eventId, { messageId: this.turnId, messageMetadata: { turn_id: this.turnId, ...this.#initialMessageMetadata }, type: "start" });
-    return { descriptor: stream.descriptor, eventId: target.eventId, turnId: this.turnId };
+    return { descriptor: target.descriptor, eventId: target.eventId, turnId: this.turnId };
   }
 
   async #publishPart(targetEventId: string, part: BeeperUIMessageChunk): Promise<void> {
-    const descriptorType = descriptorTypeOf(this.#descriptor);
-    const seq = this.#seq;
-    const content = {
-      [`${descriptorType}.deltas`]: [
-        {
-          "m.relates_to": { event_id: targetEventId, rel_type: "m.reference" },
-          part,
-          seq,
-          target_event: targetEventId,
-          turn_id: this.turnId,
-        },
-      ],
-    };
-    await this.#client.beeper.streams.publish({
-      content,
+    await this.#client.beeper.streams.publishPart({
+      ...(this.#agentId ? { agentId: this.#agentId } : {}),
       eventId: targetEventId,
+      part,
       roomId: this.roomId,
+      turnId: this.turnId,
     });
-    this.#seq = seq + 1;
     applyFinalMessagePart(this.#accumulator, part);
   }
-}
-
-function descriptorTypeOf(descriptor: Record<string, unknown> | undefined): string {
-  return typeof descriptor?.type === "string" ? descriptor.type : "com.beeper.llm";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function errorText(error: unknown): string {

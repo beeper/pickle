@@ -15,10 +15,7 @@ import type {
   MatrixAppserviceTransactionOptions,
   MatrixAppserviceUserOptions,
   MatrixBanUserOptions,
-  MatrixBeeperStreamOptions,
   MatrixCoreInitOptions,
-  MatrixCreateBeeperStreamOptions,
-  MatrixCreateBeeperStreamResult,
   MatrixCreateRoomOptions,
   MatrixCreateRoomResult,
   MatrixCryptoStatus,
@@ -37,6 +34,8 @@ import type {
   MatrixFetchRoomStateEventOptions,
   MatrixFetchRoomStateOptions,
   MatrixFetchRoomStateResult,
+  MatrixFinalizeBeeperStreamMessageOptions,
+  MatrixFinalizeBeeperStreamMessageResult,
   MatrixGetAccountDataOptions,
   MatrixGetRoomAccountDataOptions,
   MatrixGetUserOptions,
@@ -55,11 +54,11 @@ import type {
   MatrixOpenDMResult,
   MatrixOwnAvatarURLResult,
   MatrixOwnDisplayNameResult,
+  MatrixPublishBeeperStreamMessagePartOptions,
   MatrixRawMessage,
   MatrixRawRequestOptions,
   MatrixRawRequestResult,
   MatrixReactionOptions,
-  MatrixRegisterBeeperStreamOptions,
   MatrixResolveRoomAliasOptions,
   MatrixResolveRoomAliasResult,
   MatrixRoomInfo,
@@ -76,6 +75,8 @@ import type {
   MatrixSetOwnAvatarURLOptions,
   MatrixSetOwnDisplayNameOptions,
   MatrixSetRoomAccountDataOptions,
+  MatrixStartBeeperStreamMessageOptions,
+  MatrixStartBeeperStreamMessageResult,
   MatrixSyncOnceOptions,
   MatrixSyncStartOptions,
   MatrixTypingOptions,
@@ -119,10 +120,9 @@ export interface MatrixCoreOperations {
   addReaction(options: MatrixReactionOptions): Promise<MatrixRawMessage>;
   removeReaction(options: MatrixReactionOptions): Promise<void>;
   sendEphemeralEvent(options: MatrixSendEphemeralEventOptions): Promise<MatrixRawMessage>;
-  createBeeperStream(options: MatrixCreateBeeperStreamOptions): Promise<MatrixCreateBeeperStreamResult>;
-  registerBeeperStream(options: MatrixRegisterBeeperStreamOptions): Promise<void>;
-  publishBeeperStream(options: MatrixBeeperStreamOptions): Promise<void>;
-  unsubscribeBeeperStream(options: MatrixBeeperStreamOptions): Promise<void>;
+  startBeeperStreamMessage(options: MatrixStartBeeperStreamMessageOptions): Promise<MatrixStartBeeperStreamMessageResult>;
+  publishBeeperStreamMessagePart(options: MatrixPublishBeeperStreamMessagePartOptions): Promise<void>;
+  finalizeBeeperStreamMessage(options: MatrixFinalizeBeeperStreamMessageOptions): Promise<MatrixFinalizeBeeperStreamMessageResult>;
   setTyping(options: MatrixTypingOptions): Promise<void>;
   fetchMessage(options: MatrixFetchMessageOptions): Promise<MatrixFetchMessageResult>;
   fetchMessages(options: MatrixFetchMessagesOptions): Promise<MatrixFetchMessagesResult>;
@@ -284,20 +284,16 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
     return this.call<MatrixRawMessage>("send_ephemeral_event", options);
   }
 
-  createBeeperStream(options: MatrixCreateBeeperStreamOptions): Promise<MatrixCreateBeeperStreamResult> {
-    return this.call<MatrixCreateBeeperStreamResult>("create_beeper_stream", options);
+  startBeeperStreamMessage(options: MatrixStartBeeperStreamMessageOptions): Promise<MatrixStartBeeperStreamMessageResult> {
+    return this.call<MatrixStartBeeperStreamMessageResult>("start_beeper_stream_message", options);
   }
 
-  registerBeeperStream(options: MatrixRegisterBeeperStreamOptions): Promise<void> {
-    return this.call<void>("register_beeper_stream", options);
+  publishBeeperStreamMessagePart(options: MatrixPublishBeeperStreamMessagePartOptions): Promise<void> {
+    return this.call<void>("publish_beeper_stream_message_part", options);
   }
 
-  publishBeeperStream(options: MatrixBeeperStreamOptions): Promise<void> {
-    return this.call<void>("publish_beeper_stream", options);
-  }
-
-  unsubscribeBeeperStream(options: MatrixBeeperStreamOptions): Promise<void> {
-    return this.call<void>("unsubscribe_beeper_stream", options);
+  finalizeBeeperStreamMessage(options: MatrixFinalizeBeeperStreamMessageOptions): Promise<MatrixFinalizeBeeperStreamMessageResult> {
+    return this.call<MatrixFinalizeBeeperStreamMessageResult>("finalize_beeper_stream_message", options);
   }
 
   setTyping(options: MatrixTypingOptions): Promise<void> {
