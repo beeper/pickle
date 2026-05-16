@@ -31,7 +31,7 @@ import { buildBackfillImport } from "./backfill";
 import { parseApprovalResponseContent } from "./approval";
 import { OpenClawMatrixBridgeAgent, type OpenClawBridgeStreamPublisher } from "./bridge-agent";
 import { createDefaultConfig } from "./config";
-import { createOpenClawHttpTransport, OpenClawGatewayRuntime, type OpenClawTransport } from "./openclaw-runtime";
+import { createOpenClawHttpTransport, createOpenClawWebSocketTransport, OpenClawGatewayRuntime, type OpenClawTransport } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 import { agentContactFromOpenClawAgent } from "./rooms";
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding } from "./types";
@@ -371,6 +371,9 @@ function transportFromLogin(login: UserLogin, config: OpenClawBridgeConfig): Ope
   const options: Parameters<typeof createOpenClawHttpTransport>[0] = { url: gatewayUrl };
   const accessToken = stringValue(metadata?.accessToken) ?? config.accessToken;
   if (accessToken !== undefined) options.accessToken = accessToken;
+  if (gatewayUrl.startsWith("ws://") || gatewayUrl.startsWith("wss://")) {
+    return createOpenClawWebSocketTransport(options);
+  }
   return createOpenClawHttpTransport(options);
 }
 

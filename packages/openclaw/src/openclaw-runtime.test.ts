@@ -3,6 +3,7 @@ import { createDefaultConfig } from "./config";
 import {
   OpenClawGatewayRuntime,
   createOpenClawHttpTransport,
+  createOpenClawWebSocketTransport,
   type OpenClawGatewayEvent,
   type OpenClawTransport,
 } from "./openclaw-runtime";
@@ -149,7 +150,102 @@ describe("OpenClawGatewayRuntime", () => {
       },
     ]);
   });
+
+  it("uses OpenClaw gateway WebSocket req/res framing and broadcast events", async () => {
+    FakeWebSocket.instances = [];
+    const transport = createOpenClawWebSocketTransport({
+      accessToken: "secret",
+      WebSocket: FakeWebSocket as unknown as typeof WebSocket,
+      url: "ws://gateway",
+    });
+
+    const request = transport.request("sessions.send", { key: "session", message: "hi" });
+    const socket = FakeWebSocket.instances[0];
+    await waitFor(() => socket?.sent.length === 1);
+    expect(JSON.parse(socket?.sent[0] ?? "{}")).toMatchObject({
+      method: "connect",
+      params: {
+        auth: { token: "secret" },
+        role: "operator",
+        scopes: ["operator.read", "operator.write", "operator.approvals"],
+      },
+      type: "req",
+    });
+    socket?.receive({ id: JSON.parse(socket.sent[0] ?? "{}").id, ok: true, payload: { ok: true }, type: "res" });
+    await waitFor(() => socket?.sent.length === 2);
+    const sent = JSON.parse(socket?.sent[1] ?? "{}");
+    expect(sent).toMatchObject({
+      method: "sessions.send",
+      params: { key: "session", message: "hi" },
+      type: "req",
+    });
+    socket?.receive({ id: sent.id, ok: true, payload: { runId: "run_1" }, type: "res" });
+    await expect(request).resolves.toEqual({ runId: "run_1" });
+
+    const events: OpenClawGatewayEvent[] = [];
+    const iterator = transport.events((event) => {
+      const payload = event.payload as { runId?: string };
+      return payload.runId === "run_1";
+    });
+    const next = iterator[Symbol.asyncIterator]().next();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    socket?.receive({ event: "session.message", payload: { runId: "skip" }, type: "event" });
+    socket?.receive({ event: "session.message", payload: { runId: "run_1" }, seq: 3, type: "event" });
+    events.push((await next).value);
+    expect(events).toEqual([{ event: "session.message", payload: { runId: "run_1" }, seq: 3 }]);
+    transport.close();
+  });
 });
+
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  readonly sent: string[] = [];
+  readyState = 0;
+  #listeners = new Map<string, Set<(event: { data?: string }) => void>>();
+
+  constructor(readonly url: string) {
+    FakeWebSocket.instances.push(this);
+    queueMicrotask(() => {
+      this.readyState = 1;
+      this.#emit("open", {});
+    });
+  }
+
+  addEventListener(type: string, listener: (event: { data?: string }) => void): void {
+    const listeners = this.#listeners.get(type) ?? new Set();
+    listeners.add(listener);
+    this.#listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: (event: { data?: string }) => void): void {
+    this.#listeners.get(type)?.delete(listener);
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.readyState = 3;
+    this.#emit("close", {});
+  }
+
+  receive(frame: unknown): void {
+    this.#emit("message", { data: JSON.stringify(frame) });
+  }
+
+  #emit(type: string, event: { data?: string }): void {
+    for (const listener of this.#listeners.get(type) ?? []) listener(event);
+  }
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("Timed out waiting for condition");
+}
 
 function fakeTransport(responses: Record<string, unknown>, events: OpenClawGatewayEvent[] = []): OpenClawTransport & {
   request: ReturnType<typeof vi.fn>;

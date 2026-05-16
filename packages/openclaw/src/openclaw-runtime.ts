@@ -28,6 +28,15 @@ export interface OpenClawHttpTransportOptions {
   url: string;
 }
 
+export interface OpenClawWebSocketTransportOptions {
+  accessToken?: string;
+  clientId?: string;
+  clientVersion?: string;
+  requestTimeoutMs?: number;
+  url: string;
+  WebSocket?: typeof WebSocket;
+}
+
 export interface OpenClawSessionCreateOptions {
   agentId: string;
   key?: string;
@@ -273,6 +282,172 @@ export class OpenClawHttpTransport implements OpenClawTransport {
 
 export function createOpenClawHttpTransport(options: OpenClawHttpTransportOptions): OpenClawHttpTransport {
   return new OpenClawHttpTransport(options);
+}
+
+export class OpenClawWebSocketTransport implements OpenClawTransport {
+  readonly #options: OpenClawWebSocketTransportOptions;
+  readonly #pending = new Map<string, {
+    reject(error: Error): void;
+    resolve(value: unknown): void;
+    timeout: ReturnType<typeof setTimeout>;
+  }>();
+  readonly #subscribers = new Set<{
+    events: OpenClawGatewayEvent[];
+    filter: ((event: OpenClawGatewayEvent) => boolean) | undefined;
+    notify: (() => void) | undefined;
+    closed: boolean;
+  }>();
+  #connectPromise: Promise<void> | undefined;
+  #socket: WebSocket | undefined;
+
+  constructor(options: OpenClawWebSocketTransportOptions) {
+    this.#options = options;
+  }
+
+  async request<T = unknown>(method: string, params?: unknown, options: GatewayRequestOptions = {}): Promise<T> {
+    await this.#connect();
+    return await this.#sendRequest(method, params, options) as T;
+  }
+
+  #sendRequest(method: string, params?: unknown, options: GatewayRequestOptions = {}): Promise<unknown> {
+    const socket = this.#socket;
+    if (!socket) throw new Error("OpenClaw gateway socket is not connected");
+    const id = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const timeoutMs = options.timeoutMs ?? this.#options.requestTimeoutMs ?? 30_000;
+    const response = new Promise<unknown>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new Error(`OpenClaw gateway request timed out: ${method}`));
+      }, timeoutMs);
+      this.#pending.set(id, { reject, resolve, timeout });
+    });
+    socket.send(JSON.stringify({
+      id,
+      method,
+      params: params ?? {},
+      type: "req",
+    }));
+    return response;
+  }
+
+  async *events(filter?: (event: OpenClawGatewayEvent) => boolean): AsyncIterable<OpenClawGatewayEvent> {
+    await this.#connect();
+    const subscriber = { closed: false, events: [] as OpenClawGatewayEvent[], filter, notify: undefined as (() => void) | undefined };
+    this.#subscribers.add(subscriber);
+    try {
+      for (;;) {
+        const event = subscriber.events.shift();
+        if (event) {
+          yield event;
+          continue;
+        }
+        if (subscriber.closed) return;
+        await new Promise<void>((resolve) => {
+          subscriber.notify = resolve;
+        });
+      }
+    } finally {
+      subscriber.closed = true;
+      this.#subscribers.delete(subscriber);
+    }
+  }
+
+  close(): void {
+    const socket = this.#socket;
+    this.#socket = undefined;
+    this.#connectPromise = undefined;
+    socket?.close();
+    for (const pending of this.#pending.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error("OpenClaw gateway socket closed"));
+    }
+    this.#pending.clear();
+    for (const subscriber of this.#subscribers) {
+      subscriber.closed = true;
+      subscriber.notify?.();
+    }
+  }
+
+  async #connect(): Promise<void> {
+    if (this.#socket?.readyState === 1) return;
+    this.#connectPromise ??= this.#open();
+    await this.#connectPromise;
+  }
+
+  async #open(): Promise<void> {
+    const WebSocketCtor = this.#options.WebSocket ?? globalThis.WebSocket;
+    if (!WebSocketCtor) throw new Error("OpenClaw WebSocket transport requires WebSocket");
+    const socket = new WebSocketCtor(this.#options.url);
+    this.#socket = socket;
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        socket.removeEventListener("open", onOpen);
+        socket.removeEventListener("error", onError);
+      };
+      const onOpen = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("OpenClaw gateway socket failed to open"));
+      };
+      socket.addEventListener("open", onOpen);
+      socket.addEventListener("error", onError);
+    });
+    socket.addEventListener("message", (event) => {
+      this.#handleFrame(String(event.data));
+    });
+    socket.addEventListener("close", () => {
+      this.close();
+    });
+    await this.#sendRequest("connect", {
+      auth: this.#options.accessToken ? { token: this.#options.accessToken } : {},
+      client: {
+        id: this.#options.clientId ?? "pickle-openclaw",
+        mode: "backend",
+        platform: "matrix",
+        version: this.#options.clientVersion ?? "0.1.0",
+      },
+      maxProtocol: 4,
+      minProtocol: 4,
+      role: "operator",
+      scopes: ["operator.read", "operator.write", "operator.approvals"],
+    });
+  }
+
+  #handleFrame(raw: string): void {
+    const frame = JSON.parse(raw) as Record<string, unknown>;
+    if (frame.type === "res") {
+      const id = stringValue(frame.id);
+      const pending = id ? this.#pending.get(id) : undefined;
+      if (!id || !pending) return;
+      this.#pending.delete(id);
+      clearTimeout(pending.timeout);
+      if (frame.ok === false) pending.reject(new Error(`OpenClaw gateway request failed: ${errorMessage(frame.error)}`));
+      else pending.resolve(frame.payload);
+      return;
+    }
+    if (frame.type === "event") {
+      const event = stripUndefined({
+        event: stringValue(frame.event),
+        payload: frame.payload,
+        seq: typeof frame.seq === "number" ? frame.seq : undefined,
+        stateVersion: frame.stateVersion,
+      });
+      for (const subscriber of this.#subscribers) {
+        if (!subscriber.filter || subscriber.filter(event)) {
+          subscriber.events.push(event);
+          subscriber.notify?.();
+          subscriber.notify = undefined;
+        }
+      }
+    }
+  }
+}
+
+export function createOpenClawWebSocketTransport(options: OpenClawWebSocketTransportOptions): OpenClawWebSocketTransport {
+  return new OpenClawWebSocketTransport(options);
 }
 
 function arrayValue(value: unknown): unknown[] | undefined {
