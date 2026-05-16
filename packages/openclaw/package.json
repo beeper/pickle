@@ -27,6 +27,10 @@
       "types": "./dist/approval.d.mts",
       "import": "./dist/approval.mjs"
     },
+    "./appservice": {
+      "types": "./dist/appservice.d.mts",
+      "import": "./dist/appservice.mjs"
+    },
     "./backfill": {
       "types": "./dist/backfill.d.mts",
       "import": "./dist/backfill.mjs"

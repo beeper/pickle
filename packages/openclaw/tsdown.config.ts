@@ -3,6 +3,6 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   clean: true,
   dts: true,
-  entry: ["src/approval.ts", "src/backfill.ts", "src/beeper-setup.ts", "src/bridge-agent.ts", "src/cli.ts", "src/config.ts", "src/connector.ts", "src/index.ts", "src/openclaw-event-map.ts", "src/openclaw-runtime.ts", "src/registry.ts", "src/registration.ts", "src/rooms.ts", "src/stream-map.ts", "src/types.ts"],
+  entry: ["src/approval.ts", "src/appservice.ts", "src/backfill.ts", "src/beeper-setup.ts", "src/bridge-agent.ts", "src/cli.ts", "src/config.ts", "src/connector.ts", "src/index.ts", "src/openclaw-event-map.ts", "src/openclaw-runtime.ts", "src/registry.ts", "src/registration.ts", "src/rooms.ts", "src/stream-map.ts", "src/types.ts"],
   format: ["esm"],
 });

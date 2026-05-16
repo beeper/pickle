@@ -1,4 +1,5 @@
 export * from "./approval";
+export * from "./appservice";
 export * from "./backfill";
 export * from "./beeper-setup";
 export * from "./bridge-agent";
