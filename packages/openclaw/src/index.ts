@@ -8,6 +8,7 @@ export * from "./config";
 export * from "./connector";
 export * from "./openclaw-event-map";
 export * from "./openclaw-runtime";
+export * from "./protocol-coverage";
 export * from "./registry";
 export * from "./registration";
 export * from "./rooms";

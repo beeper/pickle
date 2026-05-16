@@ -63,6 +63,10 @@
       "types": "./dist/openclaw-runtime.d.mts",
       "import": "./dist/openclaw-runtime.mjs"
     },
+    "./protocol-coverage": {
+      "types": "./dist/protocol-coverage.d.mts",
+      "import": "./dist/protocol-coverage.mjs"
+    },
     "./registry": {
       "types": "./dist/registry.d.mts",
       "import": "./dist/registry.mjs"
