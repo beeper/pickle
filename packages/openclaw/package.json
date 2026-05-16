@@ -20,6 +20,10 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./approval": {
+      "types": "./dist/approval.d.mts",
+      "import": "./dist/approval.mjs"
+    },
     "./config": {
       "types": "./dist/config.d.mts",
       "import": "./dist/config.mjs"
