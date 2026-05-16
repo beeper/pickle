@@ -37,6 +37,31 @@ describe("OpenClaw Beeper setup", () => {
     });
   });
 
+  it("can request Beeper account creation instead of existing-account login", async () => {
+    const seen: unknown[] = [];
+    await loginToBeeperForOpenClaw({
+      email: "new@example.com",
+      getLoginCode: () => "123456",
+      login: async (options) => {
+        seen.push(options);
+        return {
+          accessToken: "mx-token",
+          deviceId: "DEV",
+          homeserver: "https://matrix.beeper.com",
+          userId: "@new:beeper.com",
+        };
+      },
+      onlyExistingAccounts: false,
+    });
+
+    expect(seen).toEqual([
+      expect.objectContaining({
+        email: "new@example.com",
+        onlyExistingAccounts: false,
+      }),
+    ]);
+  });
+
   it("registers the OpenClaw Beeper appservice with self-hosted defaults", async () => {
     const seen: unknown[] = [];
     const result = await createOpenClawBeeperAppService({

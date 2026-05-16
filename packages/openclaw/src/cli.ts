@@ -70,6 +70,7 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       const env = beeperEnvOption(options);
       if (env !== undefined) loginOptions.env = env;
       if (loginCode !== undefined) loginOptions.getLoginCode = () => loginCode;
+      if (booleanOption(options, "create-account")) loginOptions.onlyExistingAccounts = false;
       const result = await loginToBeeperForOpenClaw(loginOptions);
       const config = createDefaultConfig({
         ...configOverridesFromOptions(options),
@@ -140,6 +141,7 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       if (env !== undefined) setupOptions.env = env;
       if (loginCode !== undefined) setupOptions.getLoginCode = () => loginCode;
       if (homeserverDomain !== undefined) setupOptions.homeserverDomain = homeserverDomain;
+      if (booleanOption(options, "create-account")) setupOptions.onlyExistingAccounts = false;
       if (username !== undefined) setupOptions.username = username;
       const result = await setupOpenClawBeeperBridge(setupOptions);
       const config = createDefaultConfig({
@@ -191,6 +193,7 @@ function helpText(): string {
     "  --output <path>",
     "  --email <address>",
     "  --login-code <code>",
+    "  --create-account",
     "  --env <production|staging|dev|local>",
     "",
   ].join("\n");

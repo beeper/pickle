@@ -22,6 +22,7 @@ export interface BeeperLoginForOpenClawOptions {
   initialDeviceDisplayName?: string;
   login?: (options: BeeperAuthOptions) => Promise<BeeperSetupAccount>;
   metadata?: Record<string, unknown>;
+  onlyExistingAccounts?: boolean;
 }
 
 export interface BeeperLoginForOpenClawResult {
@@ -88,6 +89,7 @@ export async function loginToBeeperForOpenClaw(options: BeeperLoginForOpenClawOp
   if (options.env !== undefined) request.env = options.env;
   if (options.fetch !== undefined) request.fetch = options.fetch;
   if (options.getLoginCode !== undefined) request.getLoginCode = options.getLoginCode;
+  if (options.onlyExistingAccounts !== undefined) request.onlyExistingAccounts = options.onlyExistingAccounts;
   const account = await login(request);
   return {
     account,
