@@ -32,6 +32,8 @@ describe("OpenClaw Beeper setup", () => {
     expect(result.config).toEqual({
       accessToken: "mx-token",
       homeserver: "https://matrix.beeper.com",
+      matrixDeviceId: "DEV",
+      matrixUserId: "@batuhan:beeper.com",
     });
   });
 
@@ -109,6 +111,8 @@ describe("OpenClaw Beeper setup", () => {
       appserviceId: "openclaw",
       homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
       hsToken: "hs",
+      matrixDeviceId: "DEV",
+      matrixUserId: "@batuhan:beeper-staging.com",
       registrationUrl: "http://127.0.0.1:29391",
     });
   });

@@ -26,7 +26,7 @@ export interface BeeperLoginForOpenClawOptions {
 
 export interface BeeperLoginForOpenClawResult {
   account: BeeperSetupAccount;
-  config: Pick<OpenClawBridgeConfig, "accessToken" | "homeserver">;
+  config: Pick<OpenClawBridgeConfig, "accessToken" | "homeserver" | "matrixDeviceId" | "matrixUserId">;
 }
 
 export interface CreateOpenClawBeeperAppServiceOptions {
@@ -74,7 +74,7 @@ export interface SetupOpenClawBeeperBridgeOptions extends BeeperLoginForOpenClaw
 
 export interface SetupOpenClawBeeperBridgeResult {
   account: BeeperSetupAccount;
-  config: Pick<OpenClawBridgeConfig, "accessToken" | "appserviceId" | "homeserver" | "hsToken" | "registrationUrl">;
+  config: Pick<OpenClawBridgeConfig, "accessToken" | "appserviceId" | "homeserver" | "hsToken" | "matrixDeviceId" | "matrixUserId" | "registrationUrl">;
   init: MatrixAppserviceInitOptions;
 }
 
@@ -94,6 +94,8 @@ export async function loginToBeeperForOpenClaw(options: BeeperLoginForOpenClawOp
     config: {
       accessToken: account.accessToken,
       homeserver: account.homeserver,
+      matrixDeviceId: account.deviceId,
+      matrixUserId: account.userId,
     },
   };
 }

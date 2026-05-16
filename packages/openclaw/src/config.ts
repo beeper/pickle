@@ -44,10 +44,14 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   const gatewayUrl = overrides.gatewayUrl ?? process.env.PICKLE_OPENCLAW_GATEWAY_URL;
   const homeserver = overrides.homeserver ?? process.env.PICKLE_OPENCLAW_HOMESERVER;
   const hsToken = overrides.hsToken ?? process.env.PICKLE_OPENCLAW_HS_TOKEN;
+  const matrixDeviceId = overrides.matrixDeviceId ?? process.env.PICKLE_OPENCLAW_MATRIX_DEVICE_ID;
+  const matrixUserId = overrides.matrixUserId ?? process.env.PICKLE_OPENCLAW_MATRIX_USER_ID;
   if (accessToken) config.accessToken = accessToken;
   if (gatewayUrl) config.gatewayUrl = gatewayUrl;
   if (homeserver) config.homeserver = homeserver;
   if (hsToken) config.hsToken = hsToken;
+  if (matrixDeviceId) config.matrixDeviceId = matrixDeviceId;
+  if (matrixUserId) config.matrixUserId = matrixUserId;
   if (overrides.allowedRoomIds) config.allowedRoomIds = overrides.allowedRoomIds;
   if (overrides.allowedUserIds) config.allowedUserIds = overrides.allowedUserIds;
   return config;

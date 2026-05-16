@@ -37,6 +37,8 @@ export interface OpenClawBridgeConfig {
   gatewayUrl?: string;
   homeserver?: string;
   hsToken?: string;
+  matrixDeviceId?: string;
+  matrixUserId?: string;
   nonFederatedRooms: boolean;
   registrationUrl: string;
   senderLocalpart: string;

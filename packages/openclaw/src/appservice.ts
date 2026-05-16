@@ -40,6 +40,19 @@ export async function startOpenClawBeeperBridge(options: CreateOpenClawBeeperBri
   return bridge;
 }
 
+export function accountFromOpenClawConfig(config: OpenClawBridgeConfig): MatrixAccount {
+  if (!config.accessToken) throw new Error("OpenClaw config is missing accessToken");
+  if (!config.homeserver) throw new Error("OpenClaw config is missing homeserver");
+  if (!config.matrixDeviceId) throw new Error("OpenClaw config is missing matrixDeviceId");
+  if (!config.matrixUserId) throw new Error("OpenClaw config is missing matrixUserId");
+  return {
+    accessToken: config.accessToken,
+    deviceId: config.matrixDeviceId,
+    homeserver: config.homeserver,
+    userId: config.matrixUserId,
+  };
+}
+
 function connectorOptions(options: CreateOpenClawBeeperBridgeOptions): OpenClawConnectorOptions {
   const output: OpenClawConnectorOptions = {};
   if (options.config !== undefined) output.config = options.config;

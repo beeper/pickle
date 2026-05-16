@@ -165,6 +165,8 @@ function helpText(): string {
     "  --homeserver <url>",
     "  --gateway-url <url>",
     "  --registration-url <url>",
+    "  --matrix-device-id <id>",
+    "  --matrix-user-id <mxid>",
     "  --access-token <token>",
     "  --hs-token <token>",
     "  --as-token <token>",
@@ -183,12 +185,16 @@ function configOverridesFromOptions(options: Map<string, string | boolean>): Par
   const dataDir = stringOption(options, "data-dir");
   const gatewayUrl = stringOption(options, "gateway-url");
   const homeserver = stringOption(options, "homeserver");
+  const matrixDeviceId = stringOption(options, "matrix-device-id");
+  const matrixUserId = stringOption(options, "matrix-user-id");
   const registrationUrl = stringOption(options, "registration-url");
   if (accessToken) overrides.accessToken = accessToken;
   if (appserviceId) overrides.appserviceId = appserviceId;
   if (dataDir) overrides.dataDir = dataDir;
   if (gatewayUrl) overrides.gatewayUrl = gatewayUrl;
   if (homeserver) overrides.homeserver = homeserver;
+  if (matrixDeviceId) overrides.matrixDeviceId = matrixDeviceId;
+  if (matrixUserId) overrides.matrixUserId = matrixUserId;
   if (registrationUrl) overrides.registrationUrl = registrationUrl;
   return overrides;
 }

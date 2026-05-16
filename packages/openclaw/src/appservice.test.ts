@@ -1,7 +1,7 @@
 import type { CreateNodeBeeperBridgeOptions, PickleBridge } from "@beeper/pickle-bridge";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
-import { createOpenClawBeeperBridge, startOpenClawBeeperBridge } from "./appservice";
+import { accountFromOpenClawConfig, createOpenClawBeeperBridge, startOpenClawBeeperBridge } from "./appservice";
 
 describe("OpenClaw Beeper appservice runtime", () => {
   it("creates a Pickle Beeper bridge with the OpenClaw connector defaults", async () => {
@@ -41,6 +41,16 @@ describe("OpenClaw Beeper appservice runtime", () => {
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
     })).resolves.toBe(bridge);
     expect(bridge.start).toHaveBeenCalledOnce();
+  });
+
+  it("recreates the Beeper Matrix account from persisted setup config", () => {
+    expect(accountFromOpenClawConfig(createDefaultConfig({
+      accessToken: "mx-token",
+      dataDir: "/tmp/openclaw",
+      homeserver: "https://matrix.beeper.com",
+      matrixDeviceId: "DEVICE",
+      matrixUserId: "@batuhan:beeper.com",
+    }))).toEqual(account());
   });
 });
 
