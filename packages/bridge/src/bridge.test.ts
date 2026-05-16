@@ -33,7 +33,7 @@ describe("RuntimeBridge", () => {
     expect(connector.init).toHaveBeenCalledOnce();
     expect(connector.start).toHaveBeenCalledOnce();
     expect(client.subscribe).toHaveBeenCalledWith(
-      { kind: ["message", "reaction", "redaction", "typing"] },
+      { kind: ["message", "reaction", "redaction", "typing", "toDevice"] },
       expect.any(Function),
       { live: true }
     );

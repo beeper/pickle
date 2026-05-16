@@ -252,6 +252,51 @@ describe("createMatrixClient", () => {
     await typingSub.stop();
   });
 
+  it("maps Beeper stream updates through subscriptions", async () => {
+    installRuntime({ init: { deviceId: "DEVICE", userId: "@bot:example.com" }, start_sync: {}, stop_sync: {} });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.example.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+    const stream = vi.fn();
+    const sub = await client.subscribe({ kind: "stream", roomId: "!room:example.com" }, stream);
+
+    globalThis.__matrixCoreEmit?.(
+      "core-1",
+      JSON.stringify({
+        event: {
+          content: {
+            "com.beeper.llm.deltas": [{
+              part: { delta: "hi", id: "text", type: "text-delta" },
+              seq: 1,
+              target_event: "$message",
+              turn_id: "turn_1",
+            }],
+            event_id: "$message",
+            room_id: "!room:example.com",
+          },
+          eventId: "$message",
+          raw: {},
+          roomId: "!room:example.com",
+          sender: "@bot:example.com",
+        },
+        type: "beeper_stream_update",
+      })
+    );
+
+    expect(stream).toHaveBeenCalledWith(expect.objectContaining({
+      class: "toDevice",
+      content: expect.objectContaining({ event_id: "$message" }),
+      eventId: "$message",
+      kind: "stream",
+      roomId: "!room:example.com",
+      sender: { isMe: false, userId: "@bot:example.com" },
+      type: "com.beeper.stream.update",
+    }));
+    await sub.stop();
+  });
+
   it("keeps pure event helpers as thin subscription filters", async () => {
     installRuntime({ init: { deviceId: "DEVICE", userId: "@bot:example.com" }, start_sync: {}, stop_sync: {} });
     const client = createMatrixClient({

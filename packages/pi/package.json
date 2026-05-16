@@ -1,0 +1,100 @@
+{
+  "name": "@beeper/pickle-pi",
+  "version": "0.1.0",
+  "description": "Beeper appservice bridge for remote-controlling Pi sessions",
+  "type": "module",
+  "homepage": "https://github.com/beeper/pickle#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beeper/pickle.git",
+    "directory": "packages/pi"
+  },
+  "bugs": {
+    "url": "https://github.com/beeper/pickle/issues"
+  },
+  "bin": {
+    "pickle-pi-agent": "./dist/cli.mjs"
+  },
+  "main": "./dist/appservice.mjs",
+  "module": "./dist/appservice.mjs",
+  "types": "./dist/appservice.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/appservice.d.mts",
+      "import": "./dist/appservice.mjs"
+    },
+    "./beeper-stream": {
+      "types": "./dist/beeper-stream.d.mts",
+      "import": "./dist/beeper-stream.mjs"
+    },
+    "./config": {
+      "types": "./dist/config.d.mts",
+      "import": "./dist/config.mjs"
+    },
+    "./media-store": {
+      "types": "./dist/media-store.d.mts",
+      "import": "./dist/media-store.mjs"
+    },
+    "./pi-event-map": {
+      "types": "./dist/pi-event-map.d.mts",
+      "import": "./dist/pi-event-map.mjs"
+    },
+    "./pi-notice": {
+      "types": "./dist/pi-notice.d.mts",
+      "import": "./dist/pi-notice.mjs"
+    },
+    "./rooms": {
+      "types": "./dist/rooms.d.mts",
+      "import": "./dist/rooms.mjs"
+    },
+    "./spaces": {
+      "types": "./dist/spaces.d.mts",
+      "import": "./dist/spaces.mjs"
+    },
+    "./stream-map": {
+      "types": "./dist/stream-map.d.mts",
+      "import": "./dist/stream-map.mjs"
+    },
+    "./types": {
+      "types": "./dist/types.d.mts",
+      "import": "./dist/types.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf dist",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@beeper/pickle": "workspace:*",
+    "@beeper/pickle-bridge": "workspace:*",
+    "@beeper/pickle-state-file": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "tsdown": "^0.21.10",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "keywords": [
+    "beeper",
+    "matrix",
+    "appservice",
+    "pi",
+    "bridge"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MPL-2.0"
+}

@@ -27,7 +27,6 @@ export interface MatrixAppserviceNamespaces {
 }
 export interface MatrixAppserviceRegistration {
   asToken: string;
-  ephemeralEvents?: boolean;
   hsToken: string;
   id: string;
   msc3202?: boolean;
@@ -75,6 +74,7 @@ export interface MatrixAppserviceCreatePortalRoomOptions {
   autoJoinInvites?: boolean;
   bridge: MatrixAppserviceBridgeName;
   bridgeName?: string;
+  initialState?: MatrixRoomStateInput[];
   initialMembers?: string[];
   invite?: string[];
   isDirect?: boolean;
@@ -122,6 +122,9 @@ export interface MatrixAppserviceBatchSendResult {
   eventIds: string[];
   raw: unknown;
 }
+export interface MatrixAppserviceTransactionOptions {
+  transaction: { [key: string]: unknown };
+}
 export interface MatrixCryptoStatus {
   deviceId?: string;
   hasRecoveryKey: boolean;
@@ -133,6 +136,7 @@ export interface MatrixCryptoStatus {
 }
 export interface MatrixCoreInitOptions {
   accessToken: string;
+  appservice?: MatrixAppserviceInitOptions;
   catchUpOnStart?: boolean;
   deviceId?: string;
   homeserverUrl: string;
@@ -213,6 +217,11 @@ export interface MatrixRegisterBeeperStreamOptions {
   descriptor: { [key: string]: unknown };
   eventId: string;
   roomId: string;
+  subscribers?: MatrixBeeperStreamSubscriber[];
+}
+export interface MatrixBeeperStreamSubscriber {
+  deviceId: string;
+  userId: string;
 }
 export interface MatrixEditMessageOptions {
   roomId: string;

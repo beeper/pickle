@@ -1,3 +1,5 @@
+import type { MatrixAppserviceInitOptions } from "./generated-runtime-types";
+
 export interface MatrixStore {
   delete(key: string): Promise<void>;
   get(key: string): Promise<Uint8Array | null>;
@@ -11,8 +13,10 @@ export interface MatrixLogger {
 
 export interface MatrixClientOptions {
   account?: MatrixAccount;
+  appservice?: MatrixAppserviceInitOptions;
   beeper?: boolean;
   boot?: boolean;
+  deviceId?: string;
   fetch?: typeof fetch;
   homeserver?: string;
   logger?: MatrixLogger;
@@ -53,12 +57,18 @@ export interface RegisterBeeperStreamOptions {
   descriptor: Record<string, unknown>;
   eventId: string;
   roomId: string;
+  subscribers?: BeeperStreamSubscriber[];
 }
 
 export interface PublishBeeperStreamOptions {
   content?: Record<string, unknown>;
   eventId: string;
   roomId: string;
+}
+
+export interface BeeperStreamSubscriber {
+  deviceId: string;
+  userId: string;
 }
 
 export interface SendBeeperEphemeralOptions {
@@ -192,10 +202,21 @@ export interface MatrixGenericEvent extends MatrixBaseEvent {
     | "redaction"
     | "roomState"
     | "typing"
-      | "toDevice";
+    | "toDevice";
   nextBatch?: string;
   section?: string;
   since?: string;
+}
+
+export interface MatrixBeeperStreamEvent {
+  class: "toDevice";
+  content: Record<string, unknown>;
+  eventId: string;
+  kind: "stream";
+  raw: unknown;
+  roomId: string;
+  sender?: MatrixEventSender;
+  type: "com.beeper.stream.update";
 }
 
 export interface MatrixSyncStatusEvent {
@@ -317,6 +338,7 @@ export type MatrixClientEvent =
   | MatrixReactionEvent
   | MatrixInviteEvent
   | MatrixGenericEvent
+  | MatrixBeeperStreamEvent
   | MatrixSyncStatusEvent
   | MatrixCryptoStatusEvent
   | MatrixDecryptionErrorEvent

@@ -79,6 +79,7 @@ class DefaultMatrixClient implements MatrixClient {
       ensureJoined: (opts) => this.#withCore((core) => core.appserviceEnsureJoined(opts)),
       ensureRegistered: (opts) => this.#withCore((core) => core.appserviceEnsureRegistered(opts)),
       init: (opts) => this.#withCore((core) => core.initAppservice(opts)),
+      applyTransaction: (opts) => this.#withCore((core) => core.appserviceApplyTransaction(opts)),
       sendMessage: (opts) => this.#withCore(async (core) => {
         const result = await core.appserviceSendMessage(stripUndefined(opts));
         return { eventId: result.eventId, raw: result.raw, roomId: result.roomId };
@@ -329,7 +330,8 @@ class DefaultMatrixClient implements MatrixClient {
     }
     return this.#core.init(stripUndefined({
       accessToken: account.accessToken,
-      deviceId: account.deviceId,
+      appservice: this.#options.appservice,
+      deviceId: this.#options.deviceId ?? account.deviceId,
       homeserverUrl: account.homeserver,
       initialSyncMode: "latest" as const,
       pickleKey: this.#options.pickleKey,
@@ -425,6 +427,14 @@ class DefaultMatrixClient implements MatrixClient {
   #emit(event: MatrixCoreEvent): void {
     const mapped = toClientEvent(event);
     if (!mapped) return;
+    if (mapped.kind === "stream") {
+      this.#options.logger?.("debug", "pickle_stream_event_emitted", {
+        contentKeys: Object.keys(mapped.content ?? {}),
+        eventId: mapped.eventId,
+        roomId: mapped.roomId,
+        type: mapped.type,
+      });
+    }
     if (mapped.kind === "error") {
       for (const subscription of this.#subscriptions) {
         subscription.fail(new Error(mapped.error));

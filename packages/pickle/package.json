@@ -40,6 +40,10 @@
       "types": "./dist/streams/index.d.ts",
       "import": "./dist/streams/index.js"
     },
+    "./streams/beeper-message": {
+      "types": "./dist/streams/beeper-message.d.ts",
+      "import": "./dist/streams/beeper-message.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"

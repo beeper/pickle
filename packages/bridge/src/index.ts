@@ -1,8 +1,9 @@
 import { createMatrixClient } from "@beeper/pickle/node";
 import { createFileMatrixStore } from "@beeper/pickle-state-file";
 import { resolve } from "node:path";
-import { RuntimeBridge, createBeeperBridgeWithClient } from "./bridge";
-import { createBridgeDataStore } from "./store";
+import { createBeeperAppServiceInit } from "./beeper";
+import { RuntimeBridge } from "./bridge";
+import { createBridgeDataStore, getOrCreateAppserviceDeviceId } from "./store";
 import type { CreateNodeBeeperBridgeOptions, CreateNodeBridgeOptions, PickleBridge } from "./types";
 
 export { createBridgeDataStore, MatrixBridgeDataStore } from "./store";
@@ -19,19 +20,37 @@ export function createBridge(options: CreateNodeBridgeOptions): PickleBridge {
 
 export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions): Promise<PickleBridge> {
   const store = options.store ?? options.matrix?.store ?? createFileMatrixStore(defaultDataDir(options));
+  const appservice = options.matrix?.appservice ?? await createBeeperAppServiceInit({
+    bridge: options.bridge,
+    token: options.account.accessToken,
+    ...(options.address ? { address: options.address } : {}),
+    ...(options.baseDomain ? { baseDomain: options.baseDomain } : {}),
+    ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
+    ...(options.getOnly !== undefined ? { getOnly: options.getOnly } : {}),
+    ...(options.homeserverDomain ? { homeserverDomain: options.homeserverDomain } : {}),
+  });
   const matrix = {
     ...options.matrix,
+    appservice,
+    beeper: true,
+    deviceId: options.matrix?.deviceId ?? await getOrCreateAppserviceDeviceId(store, options.bridge),
+    homeserver: options.matrix?.homeserver ?? appservice.homeserver,
     store,
+    token: options.matrix?.token ?? appservice.registration.asToken,
   };
-  return createBeeperBridgeWithClient({
-    ...options,
+  return new RuntimeBridge({
+    appservice,
+    beeper: {
+      bridge: options.bridge,
+      ownerUserId: options.account.userId,
+      ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
+    },
+    connector: options.connector,
     dataStore: options.dataStore ?? createBridgeDataStore(store),
+    ...(options.log ? { log: options.log } : {}),
     matrix,
   }, createMatrixClient({
     ...matrix,
-    account: options.account,
-    homeserver: matrix.homeserver ?? options.account.homeserver,
-    token: matrix.token ?? options.account.accessToken,
   }));
 }
 

@@ -453,7 +453,32 @@ func (c *Core) processBeeperStreamSync(ctx context.Context, resp *mautrix.RespSy
 	if c.beeperStream == nil || resp == nil {
 		return
 	}
-	for _, evt := range c.beeperStream.HandleSyncResponse(ctx, resp) {
+	toDeviceCount := len(resp.ToDevice.Events)
+	subscribeCount := 0
+	updateCount := 0
+	for _, evt := range resp.ToDevice.Events {
+		if evt == nil {
+			continue
+		}
+		switch evt.Type.Type {
+		case event.ToDeviceBeeperStreamSubscribe.Type:
+			subscribeCount++
+		case event.ToDeviceBeeperStreamUpdate.Type, event.ToDeviceEncrypted.Type:
+			updateCount++
+		}
+	}
+	updates := c.beeperStream.HandleSyncResponse(ctx, resp)
+	if c.client != nil && (toDeviceCount > 0 || len(updates) > 0) {
+		c.client.Log.Debug().
+			Int("to_device_events", toDeviceCount).
+			Int("stream_subscribe_events", subscribeCount).
+			Int("stream_update_events", updateCount).
+			Int("normalized_stream_updates", len(updates)).
+			Str("user_id", c.client.UserID.String()).
+			Str("device_id", c.client.DeviceID.String()).
+			Msg("Processed beeper stream sync")
+	}
+	for _, evt := range updates {
 		c.processBeeperStreamUpdate(evt)
 	}
 }
@@ -466,6 +491,18 @@ func (c *Core) processBeeperStreamUpdate(evt *event.Event) {
 	raw := evt.Content.Raw
 	if raw == nil && len(evt.Content.VeryRaw) > 0 {
 		_ = json.Unmarshal(evt.Content.VeryRaw, &raw)
+	}
+	if c.client != nil {
+		trace := beeperStreamUpdateTrace(raw)
+		c.client.Log.Debug().
+			Int("delta_count", trace.DeltaCount).
+			Interface("first_seq", trace.FirstSeq).
+			Str("first_part_type", trace.FirstPartType).
+			Str("first_turn_id", trace.FirstTurnID).
+			Stringer("room_id", update.RoomID).
+			Stringer("event_id", update.EventID).
+			Stringer("sender", evt.Sender).
+			Msg("Emitting beeper stream update")
 	}
 	c.emit(OutboundEvent{
 		"type": "beeper_stream_update",

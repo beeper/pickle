@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"maunium.net/go/mautrix"
+	mautrixbeeperstream "maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
@@ -91,6 +92,13 @@ func (c *Core) handleCreateBeeperStream(ctx context.Context, payload []byte) ([]
 	if err != nil {
 		return nil, err
 	}
+	c.client.Log.Debug().
+		Str("stream_type", descriptor.Type).
+		Stringer("room_id", id.RoomID(req.RoomID)).
+		Stringer("user_id", descriptor.UserID).
+		Stringer("device_id", descriptor.DeviceID).
+		Bool("encrypted", descriptor.Encryption != nil).
+		Msg("Created beeper stream descriptor")
 	return json.Marshal(MatrixCreateBeeperStreamResult{Descriptor: descriptor})
 }
 
@@ -101,9 +109,15 @@ type MatrixBeeperStreamOptions struct {
 }
 
 type MatrixRegisterBeeperStreamOptions struct {
-	Descriptor json.RawMessage `json:"descriptor" tstype:"{ [key: string]: unknown }"`
-	EventID    string          `json:"eventId"`
-	RoomID     string          `json:"roomId"`
+	Descriptor  json.RawMessage                `json:"descriptor" tstype:"{ [key: string]: unknown }"`
+	EventID     string                         `json:"eventId"`
+	RoomID      string                         `json:"roomId"`
+	Subscribers []MatrixBeeperStreamSubscriber `json:"subscribers,omitempty"`
+}
+
+type MatrixBeeperStreamSubscriber struct {
+	DeviceID string `json:"deviceId"`
+	UserID   string `json:"userId"`
 }
 
 func (c *Core) handleRegisterBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
@@ -124,7 +138,46 @@ func (c *Core) handleRegisterBeeperStream(ctx context.Context, payload []byte) (
 	if err := c.beeperStream.Register(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID), &descriptor); err != nil {
 		return nil, err
 	}
+	c.addBeeperStreamSubscribers(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID), req.Subscribers)
+	c.client.Log.Debug().
+		Str("stream_type", descriptor.Type).
+		Stringer("room_id", id.RoomID(req.RoomID)).
+		Stringer("event_id", id.EventID(req.EventID)).
+		Stringer("user_id", descriptor.UserID).
+		Stringer("device_id", descriptor.DeviceID).
+		Int("direct_subscribers", len(req.Subscribers)).
+		Msg("Registered beeper stream")
 	return c.empty()
+}
+
+func (c *Core) addBeeperStreamSubscribers(ctx context.Context, roomID id.RoomID, eventID id.EventID, subscribers []MatrixBeeperStreamSubscriber) {
+	if c.beeperStream == nil || c.client == nil || len(subscribers) == 0 {
+		return
+	}
+	events := make([]*event.Event, 0, len(subscribers))
+	for _, sub := range subscribers {
+		if sub.UserID == "" || sub.DeviceID == "" {
+			continue
+		}
+		events = append(events, &event.Event{
+			Content: event.Content{Parsed: &event.BeeperStreamSubscribeEventContent{
+				DeviceID: id.DeviceID(sub.DeviceID),
+				EventID:  eventID,
+				ExpiryMS: mautrixbeeperstream.DefaultSubscribeExpiry.Milliseconds(),
+				RoomID:   roomID,
+			}},
+			Sender:     id.UserID(sub.UserID),
+			ToDeviceID: c.client.DeviceID,
+			ToUserID:   c.client.UserID,
+			Type:       event.ToDeviceBeeperStreamSubscribe,
+		})
+	}
+	if len(events) == 0 {
+		return
+	}
+	c.beeperStream.HandleSyncResponse(ctx, &mautrix.RespSync{
+		ToDevice: mautrix.SyncEventsList{Events: events},
+	})
 }
 
 func (c *Core) handlePublishBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
@@ -138,6 +191,17 @@ func (c *Core) handlePublishBeeperStream(ctx context.Context, payload []byte) ([
 	if err := c.beeperStream.Publish(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID), req.Content); err != nil {
 		return nil, err
 	}
+	trace := beeperStreamUpdateTrace(req.Content)
+	c.client.Log.Debug().
+		Int("delta_count", trace.DeltaCount).
+		Interface("first_seq", trace.FirstSeq).
+		Str("first_part_type", trace.FirstPartType).
+		Str("first_target_event", trace.FirstTargetEvent).
+		Str("first_turn_id", trace.FirstTurnID).
+		Int("keys", len(req.Content)).
+		Stringer("room_id", id.RoomID(req.RoomID)).
+		Stringer("event_id", id.EventID(req.EventID)).
+		Msg("Published beeper stream update")
 	return c.empty()
 }
 
@@ -152,6 +216,69 @@ func (c *Core) handleUnsubscribeBeeperStream(payload []byte) ([]byte, error) {
 	c.beeperStream.Unregister(id.RoomID(req.RoomID), id.EventID(req.EventID))
 	c.beeperStream.Unsubscribe(id.RoomID(req.RoomID), id.EventID(req.EventID))
 	return c.empty()
+}
+
+type beeperStreamUpdateTraceData struct {
+	DeltaCount       int
+	FirstPartType    string
+	FirstSeq         any
+	FirstTargetEvent string
+	FirstTurnID      string
+}
+
+func beeperStreamUpdateTrace(content map[string]any) beeperStreamUpdateTraceData {
+	trace := beeperStreamUpdateTraceData{}
+	if updates, ok := content["updates"].([]any); ok {
+		for _, update := range updates {
+			updateMap, ok := update.(map[string]any)
+			if !ok {
+				continue
+			}
+			trace.merge(beeperStreamUpdateTrace(updateMap))
+		}
+		return trace
+	}
+	for key, value := range content {
+		if len(key) < len(".deltas") || key[len(key)-len(".deltas"):] != ".deltas" {
+			continue
+		}
+		deltas, ok := value.([]any)
+		if !ok {
+			continue
+		}
+		trace.DeltaCount += len(deltas)
+		if trace.FirstSeq != nil || len(deltas) == 0 {
+			continue
+		}
+		delta, ok := deltas[0].(map[string]any)
+		if !ok {
+			continue
+		}
+		trace.FirstSeq = delta["seq"]
+		if turnID, ok := delta["turn_id"].(string); ok {
+			trace.FirstTurnID = turnID
+		}
+		if targetEvent, ok := delta["target_event"].(string); ok {
+			trace.FirstTargetEvent = targetEvent
+		}
+		if part, ok := delta["part"].(map[string]any); ok {
+			if partType, ok := part["type"].(string); ok {
+				trace.FirstPartType = partType
+			}
+		}
+	}
+	return trace
+}
+
+func (trace *beeperStreamUpdateTraceData) merge(next beeperStreamUpdateTraceData) {
+	trace.DeltaCount += next.DeltaCount
+	if trace.FirstSeq != nil {
+		return
+	}
+	trace.FirstSeq = next.FirstSeq
+	trace.FirstPartType = next.FirstPartType
+	trace.FirstTargetEvent = next.FirstTargetEvent
+	trace.FirstTurnID = next.FirstTurnID
 }
 
 type MatrixEditMessageOptions struct {

@@ -33,6 +33,8 @@ const (
 	opAppserviceSendMessage = "appservice_send_message"
 	// ts:operation appserviceBatchSend appservice_batch_send MatrixAppserviceBatchSendOptions MatrixAppserviceBatchSendResult
 	opAppserviceBatchSend = "appservice_batch_send"
+	// ts:operation appserviceApplyTransaction appservice_apply_transaction MatrixAppserviceTransactionOptions void
+	opAppserviceApplyTransaction = "appservice_apply_transaction"
 	// ts:operation applySyncResponse apply_sync_response MatrixApplySyncResponseOptions void
 	opApplySyncResponse = "apply_sync_response"
 	// ts:operation getAccountData get_account_data MatrixGetAccountDataOptions MatrixAccountDataResult

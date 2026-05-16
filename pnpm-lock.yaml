@@ -210,6 +210,34 @@ importers:
         specifier: ^4.0.18
         version: 4.1.5(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(@vitest/coverage-v8@4.1.5)(vite@8.0.10(@types/node@20.19.39)(esbuild@0.27.7))
 
+  packages/pi:
+    dependencies:
+      '@beeper/pickle':
+        specifier: workspace:*
+        version: link:../pickle
+      '@beeper/pickle-bridge':
+        specifier: workspace:*
+        version: link:../bridge
+      '@beeper/pickle-state-file':
+        specifier: workspace:*
+        version: link:../state-file
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
+      '@vitest/coverage-v8':
+        specifier: ^4.0.18
+        version: 4.1.5(vitest@4.1.5)
+      tsdown:
+        specifier: ^0.21.10
+        version: 0.21.10(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.1.5(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(@vitest/coverage-v8@4.1.5)(vite@8.0.10(@types/node@20.19.39)(esbuild@0.27.7))
+
   packages/pickle:
     devDependencies:
       '@types/node':

@@ -35,7 +35,6 @@ type MatrixAppserviceNamespaces struct {
 
 type MatrixAppserviceRegistration struct {
 	AppToken        string                     `json:"asToken"`
-	EphemeralEvents bool                       `json:"ephemeralEvents,omitempty"`
 	HSToken         string                     `json:"hsToken"`
 	ID              string                     `json:"id"`
 	MSC3202         bool                       `json:"msc3202,omitempty"`
@@ -92,6 +91,7 @@ type MatrixAppserviceCreatePortalRoomOptions struct {
 	AutoJoinInvites bool                       `json:"autoJoinInvites,omitempty"`
 	Bridge          MatrixAppserviceBridgeName `json:"bridge"`
 	BridgeName      string                     `json:"bridgeName,omitempty"`
+	InitialState    []MatrixRoomStateInput     `json:"initialState,omitempty"`
 	InitialMembers  []string                   `json:"initialMembers,omitempty"`
 	Invite          []string                   `json:"invite,omitempty"`
 	IsDirect        bool                       `json:"isDirect,omitempty"`
@@ -145,6 +145,36 @@ type MatrixAppserviceBatchSendResult struct {
 	Raw      any      `json:"raw"`
 }
 
+type MatrixAppserviceTransactionOptions struct {
+	Transaction json.RawMessage `json:"transaction" tstype:"{ [key: string]: unknown }"`
+}
+
+type matrixAppserviceTransaction struct {
+	Events         []*event.Event `json:"events"`
+	ToDeviceEvents []*event.Event `json:"to_device,omitempty"`
+}
+
+type beeperStreamEventProcessor struct {
+	handlers map[event.Type][]mautrix.EventHandler
+}
+
+func newBeeperStreamEventProcessor() *beeperStreamEventProcessor {
+	return &beeperStreamEventProcessor{handlers: make(map[event.Type][]mautrix.EventHandler)}
+}
+
+func (ep *beeperStreamEventProcessor) On(evtType event.Type, handler mautrix.EventHandler) {
+	ep.handlers[evtType] = append(ep.handlers[evtType], handler)
+}
+
+func (ep *beeperStreamEventProcessor) Dispatch(ctx context.Context, evt *event.Event) {
+	if ep == nil || evt == nil {
+		return
+	}
+	for _, handler := range ep.handlers[evt.Type] {
+		handler(ctx, evt)
+	}
+}
+
 func (c *Core) handleInitAppservice(ctx context.Context, payload []byte) ([]byte, error) {
 	var req MatrixAppserviceInitOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
@@ -174,6 +204,59 @@ func (c *Core) handleInitAppservice(ctx context.Context, payload []byte) ([]byte
 	}
 	c.appservice = as
 	return json.Marshal(MatrixAppserviceInfo{BotUserID: as.botUserID.String(), ID: req.Registration.ID})
+}
+
+func (c *Core) handleAppserviceApplyTransaction(ctx context.Context, payload []byte) ([]byte, error) {
+	if c.appserviceProcessor == nil {
+		return nil, errors.New("appservice transaction pipeline unavailable")
+	}
+	var req MatrixAppserviceTransactionOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	if len(req.Transaction) == 0 {
+		return nil, errors.New("missing appservice transaction")
+	}
+	var txn matrixAppserviceTransaction
+	if err := json.Unmarshal(req.Transaction, &txn); err != nil {
+		return nil, err
+	}
+	if c.client != nil && len(txn.ToDeviceEvents) > 0 {
+		c.client.Log.Debug().
+			Int("events", len(txn.Events)).
+			Int("to_device_events", len(txn.ToDeviceEvents)).
+			Msg("Applying appservice transaction")
+	}
+	c.dispatchAppserviceEvents(ctx, txn.Events, event.MessageEventType)
+	c.dispatchAppserviceEvents(ctx, txn.ToDeviceEvents, event.ToDeviceEventType)
+	return c.empty()
+}
+
+func (c *Core) dispatchAppserviceEvents(ctx context.Context, events []*event.Event, class event.TypeClass) {
+	for _, evt := range events {
+		if evt == nil {
+			continue
+		}
+		evt.Type.Class = class
+		if err := evt.Content.ParseRaw(evt.Type); err != nil && c.client != nil && (evt.Type == event.ToDeviceBeeperStreamSubscribe || evt.Type == event.ToDeviceEncrypted || evt.Type == event.ToDeviceBeeperStreamUpdate) {
+			c.client.Log.Debug().Err(err).Str("event_type", evt.Type.Type).Msg("Failed to parse appservice stream event content")
+		}
+		if c.client != nil && class == event.ToDeviceEventType && (evt.Type == event.ToDeviceBeeperStreamSubscribe || evt.Type == event.ToDeviceEncrypted || evt.Type == event.ToDeviceBeeperStreamUpdate) {
+			subscribe := evt.Content.AsBeeperStreamSubscribe()
+			encrypted := evt.Content.AsEncrypted()
+			c.client.Log.Debug().
+				Str("event_type", evt.Type.Type).
+				Str("sender", evt.Sender.String()).
+				Str("to_user_id", evt.ToUserID.String()).
+				Str("to_device_id", evt.ToDeviceID.String()).
+				Str("room_id", subscribe.RoomID.String()).
+				Str("event_id", subscribe.EventID.String()).
+				Str("subscriber_device_id", subscribe.DeviceID.String()).
+				Str("encrypted_stream_id", encrypted.StreamID).
+				Msg("Dispatching appservice stream to-device event")
+		}
+		c.appserviceProcessor.Dispatch(ctx, evt)
+	}
 }
 
 func (c *Core) handleAppserviceEnsureRegistered(ctx context.Context, payload []byte) ([]byte, error) {
@@ -297,6 +380,14 @@ func (as *matrixAppservice) makePortalCreateRoomRequest(req MatrixAppserviceCrea
 		bridgeInfoStateKey = req.Bridge.NetworkID
 	}
 	bridgeInfo := bridgeInfoContent(req, bridgeBot, roomType)
+	for _, state := range req.InitialState {
+		stateKey := state.StateKey
+		createReq.InitialState = append(createReq.InitialState, &event.Event{
+			Type:     event.NewEventType(state.Type),
+			StateKey: &stateKey,
+			Content:  event.Content{Raw: state.Content},
+		})
+	}
 	createReq.InitialState = append(createReq.InitialState,
 		bridgeStateEvent(event.StateHalfShotBridge, bridgeInfoStateKey, bridgeInfo),
 		bridgeStateEvent(event.StateBridge, bridgeInfoStateKey, bridgeInfo),

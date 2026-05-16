@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
 	"maunium.net/go/mautrix"
@@ -44,6 +46,57 @@ func TestMakePortalCreateRoomRequestBuildsBridgeV2Room(t *testing.T) {
 	}
 	assertHasBridgeState(t, createReq, event.StateBridge.Type)
 	assertHasBridgeState(t, createReq, event.StateHalfShotBridge.Type)
+}
+
+func TestAppserviceTransactionParsesBeeperStreamSubscribe(t *testing.T) {
+	core := New(nil)
+	core.appserviceProcessor = newBeeperStreamEventProcessor()
+
+	var got *event.BeeperStreamSubscribeEventContent
+	core.appserviceProcessor.On(event.ToDeviceBeeperStreamSubscribe, func(_ context.Context, evt *event.Event) {
+		got = evt.Content.AsBeeperStreamSubscribe()
+		if evt.Type != event.ToDeviceBeeperStreamSubscribe {
+			t.Fatalf("unexpected event type %#v", evt.Type)
+		}
+	})
+
+	rawTxn := map[string]any{
+		"to_device": []any{map[string]any{
+			"content": map[string]any{
+				"device_id": "DESKTOP",
+				"event_id":  "$event",
+				"expiry_ms": 300000,
+				"room_id":   "!room:example",
+			},
+			"sender":       "@alice:example",
+			"to_device_id": "PICKLE",
+			"to_user_id":   "@bridge:example",
+			"type":         "com.beeper.stream.subscribe",
+		}},
+	}
+	payload, err := json.Marshal(MatrixAppserviceTransactionOptions{Transaction: mustJSON(t, rawTxn)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.handleAppserviceApplyTransaction(context.Background(), payload); err != nil {
+		t.Fatal(err)
+	}
+
+	if got == nil {
+		t.Fatal("expected stream subscribe handler to be called")
+	}
+	if got.RoomID != id.RoomID("!room:example") || got.EventID != id.EventID("$event") || got.DeviceID != id.DeviceID("DESKTOP") {
+		t.Fatalf("unexpected parsed subscribe content: %#v", got)
+	}
+}
+
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func assertHasUserID(t *testing.T, users []id.UserID, expected id.UserID) {

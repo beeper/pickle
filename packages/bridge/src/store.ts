@@ -150,6 +150,15 @@ export function createBridgeDataStore(store: MatrixStore): BridgeDataStore {
   return new MatrixBridgeDataStore(store);
 }
 
+export async function getOrCreateAppserviceDeviceId(store: Pick<MatrixStore, "get" | "set">, bridge: string): Promise<string> {
+  const storageKey = key("appservice-device-id", "current");
+  const existing = await store.get(storageKey);
+  if (existing && existing.length > 0) return new TextDecoder().decode(existing);
+  const id = `PICKLE${bridge.replace(/[^A-Za-z0-9]/g, "").slice(0, 12).toUpperCase()}${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+  await store.set(storageKey, new TextEncoder().encode(id));
+  return id;
+}
+
 export function portalStoreKey(portal: Pick<Portal, "portalKey">): string {
   return `${portal.portalKey.receiver ?? ""}\u0000${portal.portalKey.id}`;
 }

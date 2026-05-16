@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"maunium.net/go/mautrix"
@@ -18,16 +19,17 @@ import (
 )
 
 type MatrixCoreInitOptions struct {
-	AccessToken           string `json:"accessToken"`
-	CatchUpOnStart        *bool  `json:"catchUpOnStart,omitempty"`
-	DeviceID              string `json:"deviceId,omitempty"`
-	HomeserverURL         string `json:"homeserverUrl"`
-	InitialSyncMode       string `json:"initialSyncMode,omitempty" tstype:"\"persisted\" | \"latest\" | \"catch_up\""`
-	InitialSyncSince      string `json:"initialSyncSince,omitempty"`
-	PickleKey             string `json:"pickleKey,omitempty"`
-	RecoveryKey           string `json:"recoveryKey,omitempty"`
-	UserID                string `json:"userId,omitempty"`
-	VerifyRecoveryOnStart bool   `json:"verifyRecoveryOnStart,omitempty"`
+	AccessToken           string                       `json:"accessToken"`
+	Appservice            *MatrixAppserviceInitOptions `json:"appservice,omitempty"`
+	CatchUpOnStart        *bool                        `json:"catchUpOnStart,omitempty"`
+	DeviceID              string                       `json:"deviceId,omitempty"`
+	HomeserverURL         string                       `json:"homeserverUrl"`
+	InitialSyncMode       string                       `json:"initialSyncMode,omitempty" tstype:"\"persisted\" | \"latest\" | \"catch_up\""`
+	InitialSyncSince      string                       `json:"initialSyncSince,omitempty"`
+	PickleKey             string                       `json:"pickleKey,omitempty"`
+	RecoveryKey           string                       `json:"recoveryKey,omitempty"`
+	UserID                string                       `json:"userId,omitempty"`
+	VerifyRecoveryOnStart bool                         `json:"verifyRecoveryOnStart,omitempty"`
 }
 
 type MatrixWhoami struct {
@@ -42,27 +44,11 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 	c.emitInitStep("start", initStarted)
-	cli, err := mautrix.NewClient(req.HomeserverURL, "", req.AccessToken)
+	cli, resp, err := c.initClient(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	configureHTTPClient(cli, c.host)
-	var resp MatrixWhoami
-	if req.UserID != "" && req.DeviceID != "" {
-		cli.UserID = id.UserID(req.UserID)
-		cli.DeviceID = id.DeviceID(req.DeviceID)
-		resp = MatrixWhoami{UserID: req.UserID, DeviceID: req.DeviceID}
-		c.emitInitStep("whoami_cached", initStarted)
-	} else {
-		whoami, err := cli.Whoami(ctx)
-		if err != nil {
-			return nil, err
-		}
-		c.emitInitStep("whoami", initStarted)
-		cli.UserID = whoami.UserID
-		cli.DeviceID = whoami.DeviceID
-		resp = MatrixWhoami{UserID: whoami.UserID.String(), DeviceID: whoami.DeviceID.String()}
-	}
+	c.emitInitStep("client_ready", initStarted)
 
 	c.pickleKey = c.resolvePickleKey(req)
 	stores, err := loadStoreBundle(ctx, c.host, req.HomeserverURL, cli.UserID, cli.DeviceID, c.pickleKey)
@@ -81,6 +67,7 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 		_ = c.beeperStream.Close()
 	}
 	c.beeperStream = nil
+	c.appserviceProcessor = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil
 	c.emittedTimelineIDs = make(map[id.EventID]struct{})
@@ -126,6 +113,56 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 	c.emitInitStep("beeper_stream_ready", initStarted)
 	c.emit(OutboundEvent{"type": "sync_status", "status": "initialized", "durationMs": time.Since(initStarted).Milliseconds()})
 	return json.Marshal(resp)
+}
+
+func (c *Core) initClient(ctx context.Context, req MatrixCoreInitOptions) (*mautrix.Client, MatrixWhoami, error) {
+	if req.Appservice != nil {
+		botUserID := id.NewUserID(req.Appservice.Registration.SenderLocalpart, req.Appservice.HomeserverDomain)
+		deviceID := id.DeviceID(req.DeviceID)
+		cli, err := mautrix.NewClient(req.Appservice.Homeserver, botUserID, req.Appservice.Registration.AppToken)
+		if err != nil {
+			return nil, MatrixWhoami{}, err
+		}
+		configureHTTPClient(cli, c.host)
+		flows, err := cli.GetLoginFlows(ctx)
+		if err != nil {
+			return nil, MatrixWhoami{}, fmt.Errorf("failed to get supported login flows: %w", err)
+		} else if !flows.HasFlow(mautrix.AuthTypeAppservice) {
+			return nil, MatrixWhoami{}, fmt.Errorf("homeserver does not support appservice login")
+		}
+		_, err = cli.Login(ctx, &mautrix.ReqLogin{
+			Type: mautrix.AuthTypeAppservice,
+			Identifier: mautrix.UserIdentifier{
+				Type: mautrix.IdentifierTypeUser,
+				User: botUserID.String(),
+			},
+			DeviceID:                 deviceID,
+			InitialDeviceDisplayName: req.Appservice.Registration.ID + " bridge",
+			StoreCredentials:         true,
+		})
+		if err != nil {
+			return nil, MatrixWhoami{}, fmt.Errorf("failed to log in as appservice bot: %w", err)
+		}
+		return cli, MatrixWhoami{UserID: cli.UserID.String(), DeviceID: cli.DeviceID.String()}, nil
+	}
+
+	cli, err := mautrix.NewClient(req.HomeserverURL, "", req.AccessToken)
+	if err != nil {
+		return nil, MatrixWhoami{}, err
+	}
+	configureHTTPClient(cli, c.host)
+	if req.UserID != "" && req.DeviceID != "" {
+		cli.UserID = id.UserID(req.UserID)
+		cli.DeviceID = id.DeviceID(req.DeviceID)
+		return cli, MatrixWhoami{UserID: req.UserID, DeviceID: req.DeviceID}, nil
+	}
+	whoami, err := cli.Whoami(ctx)
+	if err != nil {
+		return nil, MatrixWhoami{}, err
+	}
+	cli.UserID = whoami.UserID
+	cli.DeviceID = whoami.DeviceID
+	return cli, MatrixWhoami{UserID: whoami.UserID.String(), DeviceID: whoami.DeviceID.String()}, nil
 }
 
 type startupSyncPlan struct {
@@ -207,10 +244,12 @@ func (c *Core) setupBeeperStream() error {
 	if err != nil {
 		return err
 	}
-	if err := helper.Init(); err != nil {
+	processor := newBeeperStreamEventProcessor()
+	if err := helper.InitAppservice(processor); err != nil {
 		return err
 	}
 	c.beeperStream = helper
+	c.appserviceProcessor = processor
 	return nil
 }
 
@@ -274,7 +313,35 @@ func (c *Core) setupCrypto(ctx context.Context, req MatrixCoreInitOptions) error
 		})
 	}
 	if err := helper.Init(ctx); err != nil {
-		return fmt.Errorf("failed to initialize Matrix E2EE; if this access token belongs to an existing encrypted device, the matching local crypto store is required. Logging in as a fresh device or adding durable crypto storage fixes this: %w", err)
+		if req.Appservice != nil && isMissingServerKeysError(err) {
+			if resetErr := c.resetCryptoStore(ctx); resetErr != nil {
+				return fmt.Errorf("failed to reset stale appservice Matrix E2EE store after missing server keys: %w", resetErr)
+			}
+			helper, err = cryptohelper.NewCryptoHelper(cli, c.pickleKey, c.cryptoStore)
+			if err == nil {
+				helper.DecryptErrorCallback = func(evt *event.Event, err error) {
+					c.rememberPendingDecryption(ctx, evt)
+					if c.retryPendingDecryptionEvent(ctx, evt) {
+						return
+					}
+					eventData := OutboundEvent{}
+					if evt != nil {
+						eventData["eventId"] = evt.ID.String()
+						eventData["roomId"] = evt.RoomID.String()
+						eventData["sender"] = evt.Sender.String()
+					}
+					c.emit(OutboundEvent{
+						"type":  "decryption_error",
+						"error": err.Error(),
+						"event": eventData,
+					})
+				}
+				err = helper.Init(ctx)
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("failed to initialize Matrix E2EE; if this access token belongs to an existing encrypted device, the matching local crypto store is required. Logging in as a fresh device or adding durable crypto storage fixes this: %w", err)
+		}
 	}
 	if err := helper.Machine().ShareKeys(ctx, -1); err != nil {
 		return fmt.Errorf("failed to upload Matrix E2EE device keys: %w", err)
@@ -310,6 +377,18 @@ func (c *Core) setupCrypto(ctx context.Context, req MatrixCoreInitOptions) error
 	syncer.OnEventType(event.EventReaction, c.processEvent)
 	syncer.OnEventType(event.EventRedaction, c.processEvent)
 	return nil
+}
+
+func isMissingServerKeysError(err error) bool {
+	return strings.Contains(err.Error(), "keys seem to have disappeared from the server")
+}
+
+func (c *Core) resetCryptoStore(ctx context.Context) error {
+	store, ok := c.cryptoStore.(*persistentCryptoStore)
+	if !ok {
+		return nil
+	}
+	return store.reset(ctx)
 }
 
 func (c *Core) loadRecoveryBackup(ctx context.Context, mach *crypto.OlmMachine, code string, verifyIdentity bool) (id.KeyBackupVersion, *backup.MegolmBackupKey, error) {

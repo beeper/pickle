@@ -22,6 +22,17 @@ func (store *persistentCryptoStore) save(ctx context.Context) error {
 	return store.kv.Set(ctx, store.key, raw)
 }
 
+func (store *persistentCryptoStore) reset(ctx context.Context) error {
+	store.auxLock.Lock()
+	defer store.auxLock.Unlock()
+	store.MemoryStore = crypto.NewMemoryStore(func() error {
+		return store.save(context.Background())
+	})
+	store.messageIndices = make(map[storedMessageIndexKey]storedMessageIndexValue)
+	store.olmHashes = make(map[[32]byte]time.Time)
+	return store.kv.Delete(ctx, store.key)
+}
+
 func (store *persistentCryptoStore) PutOlmHash(ctx context.Context, hash [32]byte, receivedAt time.Time) error {
 	store.auxLock.Lock()
 	store.olmHashes[hash] = receivedAt

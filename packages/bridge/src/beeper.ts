@@ -105,6 +105,7 @@ export class BeeperBridgeManagerClient {
     const registration = normalizeRegistration(await this.#hungryRequest("PUT", options.bridge, {
       address: options.address,
       push: options.push ?? Boolean(options.address),
+      receive_ephemeral: true,
       self_hosted: options.selfHosted ?? true,
     }));
     if (options.postState !== false) {
@@ -230,7 +231,6 @@ function normalizeRegistration(raw: unknown): MatrixAppserviceRegistration {
   const namespaces = input.namespaces as Record<string, unknown> | undefined;
   return stripUndefined({
     asToken: stringField(input, "asToken", "as_token"),
-    ephemeralEvents: booleanField(input, "ephemeralEvents", "ephemeral_events"),
     hsToken: stringField(input, "hsToken", "hs_token"),
     id: stringField(input, "id"),
     msc3202: booleanField(input, "msc3202"),
@@ -253,8 +253,8 @@ function stringField(input: Record<string, unknown>, camel: string, snake?: stri
   return value;
 }
 
-function booleanField(input: Record<string, unknown>, camel: string, snake?: string): boolean | undefined {
-  const value = input[camel] ?? (snake ? input[snake] : undefined);
+function booleanField(input: Record<string, unknown>, ...keys: string[]): boolean | undefined {
+  const value = keys.map((key) => input[key]).find((candidate) => candidate != null);
   return typeof value === "boolean" ? value : undefined;
 }
 

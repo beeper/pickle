@@ -83,6 +83,14 @@ export interface BridgeConnector<TConfig = unknown> {
   start(ctx: BridgeStartContext): Promise<void> | void;
 }
 
+export interface HTTPProxyHandlingBridgeConnector<TConfig = unknown> extends BridgeConnector<TConfig> {
+  handleHTTPProxy(ctx: BridgeRequestContext, request: {
+    body?: unknown;
+    method?: string;
+    path?: string;
+  }): Promise<{ body?: unknown; headers?: Record<string, string | string[]>; status: number } | null> | { body?: unknown; headers?: Record<string, string | string[]>; status: number } | null;
+}
+
 export interface CommandHandlingBridgeConnector<TConfig = unknown> extends BridgeConnector<TConfig> {
   handleCommand(ctx: BridgeRequestContext, command: MatrixCommand): Promise<MatrixCommandResponse> | MatrixCommandResponse;
 }
@@ -516,6 +524,7 @@ export interface PickleBridge {
   ghostUserId(localId: string): UserID;
   getMessageRequest(portalKey: PortalKey): Promise<MessageRequest | null>;
   getOwnProfile(): Promise<UserProfile>;
+  getOwnUserId(): UserID | null;
   getPortal(portalKey: PortalKey): Portal | null;
   getPortalByMXID(mxid: RoomID): Portal | null;
   getUserInfo(userId: UserID): Promise<MatrixUserInfo>;
@@ -543,6 +552,7 @@ export interface CreateBridgeOptions {
   beeper?: BridgeBeeperOptions;
   connector: BridgeConnector;
   dataStore?: BridgeDataStore;
+  log?: BridgeLogger;
   matrix: BridgeMatrixConfig;
 }
 
@@ -564,7 +574,7 @@ export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "ap
   store?: MatrixStore;
 }
 
-export interface BridgeMatrixConfig extends Pick<MatrixClientOptions, "account" | "beeper" | "fetch" | "homeserver" | "logger" | "pickleKey" | "randomBytes" | "recoveryKey" | "store" | "token" | "verifyRecoveryOnStart" | "wasmBytes" | "wasmModule" | "wasmUrl"> {
+export interface BridgeMatrixConfig extends Pick<MatrixClientOptions, "account" | "appservice" | "beeper" | "deviceId" | "fetch" | "homeserver" | "logger" | "pickleKey" | "randomBytes" | "recoveryKey" | "store" | "token" | "verifyRecoveryOnStart" | "wasmBytes" | "wasmModule" | "wasmUrl"> {
   store: MatrixStore;
 }
 
@@ -637,6 +647,7 @@ export interface BridgeRemoteBackfillMessageOptions<T = unknown> extends Omit<Br
 export interface BridgeCreatePortalRoomOptions {
   avatarUrl?: string;
   info?: ChatInfo;
+  initialState?: { content: Record<string, unknown>; stateKey: string; type: string }[];
   invite?: UserID[];
   messageRequest?: boolean;
   metadata?: unknown;

@@ -71,6 +71,76 @@ describe("AppserviceWebsocket", () => {
     }));
   });
 
+  it("forwards appservice transactions before acknowledging them", async () => {
+    const httpServer = createServer();
+    const wsServer = new WebSocketServer({ server: httpServer });
+    servers.push(wsServer, httpServer);
+    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
+    const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
+    let releaseTransaction!: () => void;
+    const transactionGate = new Promise<void>((resolve) => {
+      releaseTransaction = resolve;
+    });
+    const handleTransaction = vi.fn(() => transactionGate);
+    let acknowledged = false;
+    const connected = new Promise<void>((resolve, reject) => {
+      wsServer.on("connection", (socket) => {
+        socket.once("message", (raw) => {
+          try {
+            acknowledged = true;
+            const response = JSON.parse(raw.toString()) as { command: string; data: { txn_id: string }; id: number };
+            expect(response).toEqual({
+              command: "response",
+              data: { txn_id: "txn-td" },
+              id: 8,
+            });
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+        socket.send(JSON.stringify({
+          command: "transaction",
+          id: 8,
+          to_device: [{
+            content: { device_id: "DESKTOP", event_id: "$event", room_id: "!room:example" },
+            sender: "@alice:example",
+            to_device_id: "PICKLE",
+            to_user_id: "@bot:example",
+            type: "com.beeper.stream.subscribe",
+          }],
+          txn_id: "txn-td",
+        }));
+      });
+    });
+    const websocket = createWebsocket(homeserver, {
+      handleTransaction,
+      log: (() => {}) as BridgeLogger,
+    });
+    websockets.push(websocket);
+
+    websocket.start();
+    const ackBeforeRelease = await Promise.race([
+      connected.then(() => true),
+      delay(20).then(() => false),
+    ]);
+    expect(ackBeforeRelease).toBe(false);
+    expect(acknowledged).toBe(false);
+    releaseTransaction();
+    await connected;
+
+    expect(handleTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      to_device: [expect.objectContaining({
+        content: { device_id: "DESKTOP", event_id: "$event", room_id: "!room:example" },
+        sender: "@alice:example",
+        to_device_id: "PICKLE",
+        to_user_id: "@bot:example",
+        type: "com.beeper.stream.subscribe",
+      })],
+      txn_id: "txn-td",
+    }));
+  });
+
   it("handles http_proxy appservice transaction requests", async () => {
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer });
@@ -78,6 +148,7 @@ describe("AppserviceWebsocket", () => {
     await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
     const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
     const dispatch = vi.fn(async () => {});
+    const handleTransaction = vi.fn(async () => {});
     const connected = new Promise<void>((resolve, reject) => {
       wsServer.on("connection", (socket) => {
         socket.once("message", (raw) => {
@@ -113,6 +184,7 @@ describe("AppserviceWebsocket", () => {
     });
     const websocket = createWebsocket(homeserver, {
       dispatch,
+      handleTransaction,
       log: (() => {}) as BridgeLogger,
     });
     websockets.push(websocket);
@@ -124,6 +196,10 @@ describe("AppserviceWebsocket", () => {
       eventId: "$proxied",
       kind: "message",
       text: "proxied",
+    }));
+    expect(handleTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      events: [expect.objectContaining({ event_id: "$proxied" })],
+      txn_id: "txn-2",
     }));
   });
 

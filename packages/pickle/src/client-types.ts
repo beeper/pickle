@@ -118,6 +118,7 @@ export interface MatrixAppservice {
   ensureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void>;
   ensureRegistered(options: MatrixAppserviceUserOptions): Promise<void>;
   init(options: MatrixAppserviceInitOptions): Promise<MatrixAppserviceInfo>;
+  applyTransaction(options: { transaction: Record<string, unknown> }): Promise<void>;
   sendMessage(options: MatrixAppserviceSendMessageOptions): Promise<SentEvent>;
 }
 

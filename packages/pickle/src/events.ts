@@ -9,6 +9,7 @@ import type {
   MatrixClientEvent,
   MatrixCryptoStatus,
   MatrixCryptoStatusEvent,
+  MatrixBeeperStreamEvent,
   MatrixGenericEvent,
   MatrixMessageEvent,
   MatrixReactionEvent,
@@ -30,6 +31,7 @@ export function toClientEvent(event: MatrixCoreEvent): MatrixClientEvent | null 
   if (event.type === "membership") return toGenericEvent(event.event, "membership");
   if (event.type === "redaction") return toGenericEvent(event.event, "redaction");
   if (event.type === "room_state") return toGenericEvent(event.event, "roomState");
+  if (event.type === "beeper_stream_update") return toBeeperStreamEvent(event.event);
   if (event.type === "sync_status") return toSyncEvent(event);
   if (event.type === "crypto_status") return toCryptoEvent(event);
   if (event.type === "decryption_error") {
@@ -68,6 +70,21 @@ function toGenericEvent(
     timestamp: event.originServerTs,
     type: event.type,
   }) as MatrixGenericEvent;
+}
+
+function toBeeperStreamEvent(
+  event: Extract<MatrixCoreEvent, { type: "beeper_stream_update" }>["event"]
+): MatrixBeeperStreamEvent {
+  return stripUndefined({
+    class: "toDevice" as const,
+    content: event.content ?? {},
+    eventId: event.eventId,
+    kind: "stream" as const,
+    raw: event.raw,
+    roomId: event.roomId,
+    sender: event.sender ? { isMe: false, userId: event.sender } : undefined,
+    type: "com.beeper.stream.update" as const,
+  }) as MatrixBeeperStreamEvent;
 }
 
 export function toMessageEvent(event: RuntimeMessageEvent): MatrixMessageEvent {
