@@ -35,6 +35,10 @@
       "types": "./dist/bridge-agent.d.mts",
       "import": "./dist/bridge-agent.mjs"
     },
+    "./beeper-setup": {
+      "types": "./dist/beeper-setup.d.mts",
+      "import": "./dist/beeper-setup.mjs"
+    },
     "./cli": {
       "types": "./dist/cli.d.mts",
       "import": "./dist/cli.mjs"
