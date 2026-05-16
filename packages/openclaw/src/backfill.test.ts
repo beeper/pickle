@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildBackfillImport, discoverOneToOneSessions, isOneToOneSession } from "./backfill";
+import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions, isOneToOneSession } from "./backfill";
 import { createDefaultConfig } from "./config";
 import { OpenClawGatewayRuntime, type OpenClawTransport } from "./openclaw-runtime";
+import { OpenClawBridgeRegistry } from "./registry";
 
 describe("OpenClaw backfill", () => {
   it("discovers terminal, mac app, and DM-like sessions while skipping group sessions", async () => {
@@ -126,6 +127,59 @@ describe("OpenClaw backfill", () => {
     expect(isOneToOneSession({ chatType: "direct", key: "agent:main:direct:user" })).toBe(true);
     expect(isOneToOneSession({ key: "agent:main:whatsapp:user", lastTo: "user" })).toBe(true);
     expect(isOneToOneSession({ chatType: "group", key: "agent:main:group", lastTo: "a,b" })).toBe(false);
+  });
+
+  it("creates portals and imports every discovered one-to-one session", async () => {
+    const runtime = runtimeWith({
+      "chat.history": { messages: [{ content: "hello", id: "m1", role: "user" }] },
+      "sessions.list": {
+        sessions: [
+          { agentId: "codex", chatType: "dm", displayName: "Alice", key: "agent:codex:whatsapp:alice", lastProvider: "whatsapp", lastTo: "alice" },
+        ],
+      },
+    });
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-backfill-test.json");
+    const bridge = {
+      backfillPortal: vi.fn(async () => ({ eventIds: [] })),
+      createPortal: vi.fn(async () => ({
+        id: "session:created",
+        mxid: "!room:example.com",
+        portalKey: { id: "session:created", receiver: "login" },
+        receiver: "login",
+      })),
+    };
+    const login = { id: "login", userId: "@owner:example.com" };
+
+    await expect(backfillAllOpenClawSessions({
+      bridge: bridge as never,
+      limit: 25,
+      login,
+      registry,
+      runtime,
+    })).resolves.toMatchObject({
+      portals: [{ mxid: "!room:example.com" }],
+      sessions: [{ agentId: "codex", sessionKey: "agent:codex:whatsapp:alice" }],
+    });
+
+    expect(bridge.createPortal).toHaveBeenCalledWith(login, expect.objectContaining({
+      metadata: {
+        openclaw: {
+          agentId: "codex",
+          ghostUserId: "@openclaw_agent_codex:localhost",
+          humanGhostUserId: "@openclaw_user_alice:localhost",
+          sessionKey: "agent:codex:whatsapp:alice",
+          source: "channel",
+        },
+      },
+      name: "Alice",
+      roomType: "dm",
+      sender: "codex",
+    }));
+    expect(bridge.backfillPortal).toHaveBeenCalledWith(login, expect.objectContaining({
+      mxid: "!room:example.com",
+    }), { limit: 25 });
+    expect(registry.getUser("alice")?.ghostUserId).toBe("@openclaw_user_alice:localhost");
+    expect(registry.getBindingByRoom("!room:example.com")?.humanGhostUserId).toBe("@openclaw_user_alice:localhost");
   });
 });
 

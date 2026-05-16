@@ -1,9 +1,11 @@
+import type { PickleBridge, Portal, UserLogin } from "@beeper/pickle-bridge";
 import type {
   OpenClawChatHistoryMessage,
   OpenClawGatewayRuntime,
   OpenClawListedSession,
 } from "./openclaw-runtime";
-import { agentGhostUserId, bindingIdForRoom, userContactFromOpenClawSession } from "./rooms";
+import { agentContactFromOpenClawAgent, agentGhostUserId, bindingIdForRoom, userContactFromOpenClawSession } from "./rooms";
+import type { OpenClawBridgeRegistry } from "./registry";
 import type { OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
 
 export interface OpenClawBackfillSession {
@@ -28,6 +30,19 @@ export interface OpenClawBackfillImport {
   human?: OpenClawUserContact;
   messages: OpenClawBackfillMessage[];
   source: OpenClawBackfillSession["source"];
+}
+
+export interface BackfillAllOpenClawSessionsOptions {
+  bridge: PickleBridge;
+  limit?: number;
+  login: UserLogin;
+  registry: OpenClawBridgeRegistry;
+  runtime: OpenClawGatewayRuntime;
+}
+
+export interface BackfillAllOpenClawSessionsResult {
+  portals: Portal[];
+  sessions: OpenClawBackfillSession[];
 }
 
 export async function discoverOneToOneSessions(runtime: OpenClawGatewayRuntime): Promise<OpenClawBackfillSession[]> {
@@ -76,6 +91,50 @@ export async function buildBackfillImport(
     messages,
     source: session.source,
   };
+}
+
+export async function backfillAllOpenClawSessions(options: BackfillAllOpenClawSessionsOptions): Promise<BackfillAllOpenClawSessionsResult> {
+  const sessions = await discoverOneToOneSessions(options.runtime);
+  const portals: Portal[] = [];
+  for (const session of sessions) {
+    const agent = options.registry.getAgent(session.agentId) ?? agentContactFromOpenClawAgent(options.runtime.config, {
+      id: session.agentId,
+    });
+    options.registry.upsertAgent(agent);
+    if (session.human) options.registry.upsertUser(session.human);
+    const portal = await options.bridge.createPortal(options.login, {
+      id: portalIdForBackfillSession(session),
+      metadata: {
+        openclaw: stripUndefined({
+          agentId: session.agentId,
+          ghostUserId: agent.ghostUserId,
+          humanGhostUserId: session.human?.ghostUserId,
+          sessionKey: session.sessionKey,
+          source: session.source,
+        }),
+      },
+      name: session.label,
+      roomType: "dm",
+      sender: session.agentId,
+    });
+    portals.push(portal);
+    if (portal.mxid) {
+      const importOptions: { limit?: number; roomId: string } = { roomId: portal.mxid };
+      if (options.limit !== undefined) importOptions.limit = options.limit;
+      const imported = await buildBackfillImport(options.runtime, options.runtime.config, session, {
+        ...importOptions,
+      });
+      options.registry.upsertBinding(imported.binding);
+    }
+    await options.bridge.backfillPortal(options.login, portal, {
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    });
+  }
+  return { portals, sessions };
+}
+
+export function portalIdForBackfillSession(session: Pick<OpenClawBackfillSession, "sessionKey">): string {
+  return `session:${Buffer.from(session.sessionKey).toString("base64url")}`;
 }
 
 export function isOneToOneSession(session: OpenClawListedSession): boolean {
@@ -136,4 +195,11 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function stripUndefined<T extends Record<string, unknown>>(value: T): T {
+  for (const key of Object.keys(value)) {
+    if (value[key] === undefined) delete value[key];
+  }
+  return value;
 }
