@@ -62,6 +62,44 @@ describe("OpenClawMatrixBridgeAgent", () => {
     ]);
   });
 
+  it("preserves gateway event names when streaming protocol-v4 payload frames", async () => {
+    const registry = await tempRegistry();
+    const binding = testBinding();
+    registry.upsertBinding(binding);
+    const published: unknown[] = [];
+    const streams: OpenClawBridgeStreamPublisher = {
+      publish(_binding, chunks) {
+        published.push(...chunks);
+      },
+    };
+    const agent = new OpenClawMatrixBridgeAgent({
+      registry,
+      runtime: runtimeWith({
+        events: [
+          { event: "session.operation", payload: { phase: "started", runId: "run_1" } },
+          { event: "session.message", payload: { deltaText: "hello", role: "assistant", runId: "run_1" } },
+          { event: "session.tool", payload: { input: { cmd: "pwd" }, name: "shell", phase: "started", runId: "run_1", toolCallId: "tool_1" } },
+          { event: "exec.approval.requested", payload: { approvalId: "approval_1", message: "Run command?", runId: "run_1", toolCallId: "tool_1" } },
+          { event: "session.operation", payload: { phase: "completed", runId: "run_1" } },
+        ],
+        responses: {},
+      }),
+      streams,
+    });
+
+    await agent.streamRun(binding, "run_1");
+
+    expect(published.map((chunk) => (chunk as { type: string }).type)).toEqual([
+      "start",
+      "text-start",
+      "text-delta",
+      "tool-input-available",
+      "tool-approval-request",
+      "text-end",
+      "finish",
+    ]);
+  });
+
   it("forwards Beeper approval responses back to OpenClaw", async () => {
     const registry = await tempRegistry();
     const runtime = runtimeWith({ responses: { "exec.approval.resolve": { ok: true } } });

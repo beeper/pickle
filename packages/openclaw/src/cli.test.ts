@@ -79,7 +79,7 @@ describe("pickle-openclaw CLI", () => {
       "@batuhan:beeper.com",
     ], captureIO())).resolves.toBe(0);
 
-    await expect(runCli(["start", "--config", configPath, "--get-only"], io, { startBridge })).resolves.toBe(0);
+    await expect(runCli(["start", "--config", configPath, "--get-only", "--backfill", "--backfill-limit", "25"], io, { startBridge })).resolves.toBe(0);
 
     expect(startBridge).toHaveBeenCalledWith(expect.objectContaining({
       account: {
@@ -88,6 +88,8 @@ describe("pickle-openclaw CLI", () => {
         homeserver: "https://matrix.beeper.com",
         userId: "@batuhan:beeper.com",
       },
+      backfill: true,
+      backfillLimit: 25,
       config: expect.objectContaining({
         gatewayUrl: "http://127.0.0.1:29390",
         matrixUserId: "@batuhan:beeper.com",

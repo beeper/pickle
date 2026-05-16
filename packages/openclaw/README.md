@@ -65,6 +65,15 @@ Start the bridge:
 pickle-openclaw start --config ~/.openclaw/pickle-bridge/config.json
 ```
 
+Start the bridge and import discovered one-to-one OpenClaw sessions from terminal, mac app, and channel surfaces:
+
+```sh
+pickle-openclaw start \
+  --config ~/.openclaw/pickle-bridge/config.json \
+  --backfill \
+  --backfill-limit 500
+```
+
 ## Programmatic Runtime
 
 ```ts

@@ -377,6 +377,27 @@ function transportFromLogin(login: UserLogin, config: OpenClawBridgeConfig): Ope
   return createOpenClawHttpTransport(options);
 }
 
+export function userLoginFromOpenClawConfig(config: OpenClawBridgeConfig): UserLogin {
+  const gatewayUrl = config.gatewayUrl;
+  if (!gatewayUrl) throw new Error("OpenClaw gateway URL is not configured");
+  return {
+    id: `openclaw:${encodeLoginId(gatewayUrl)}`,
+    metadata: {
+      ...(config.accessToken ? { accessToken: config.accessToken } : {}),
+      gatewayUrl,
+    },
+    remoteName: "OpenClaw",
+    userId: config.matrixUserId ?? config.serviceBotLocalpart,
+  };
+}
+
+export function createOpenClawRuntimeFromLogin(login: UserLogin, config: OpenClawBridgeConfig): OpenClawGatewayRuntime {
+  return new OpenClawGatewayRuntime({
+    config,
+    transport: transportFromLogin(login, config),
+  });
+}
+
 function encodeLoginId(value: string): string {
   return Buffer.from(value).toString("base64url").slice(0, 32);
 }

@@ -1,11 +1,15 @@
 import type { MatrixAccount } from "@beeper/pickle";
 import { createBeeperBridge, type CreateNodeBeeperBridgeOptions, type PickleBridge } from "@beeper/pickle-bridge";
+import { backfillAllOpenClawSessions } from "./backfill";
 import { DEFAULT_BEEPER_BRIDGE, DEFAULT_BEEPER_BRIDGE_TYPE } from "./beeper-setup";
-import { createOpenClawConnector, type OpenClawConnectorOptions } from "./connector";
+import { createOpenClawConnector, createOpenClawRuntimeFromLogin, userLoginFromOpenClawConfig, type OpenClawConnectorOptions } from "./connector";
+import { OpenClawBridgeRegistry } from "./registry";
 import type { OpenClawBridgeConfig } from "./types";
 
 export interface CreateOpenClawBeeperBridgeOptions extends OpenClawConnectorOptions {
   account: MatrixAccount;
+  backfill?: boolean;
+  backfillLimit?: number;
   bridge?: string;
   bridgeFactory?: (options: CreateNodeBeeperBridgeOptions) => Promise<PickleBridge>;
   bridgeType?: string;
@@ -37,6 +41,21 @@ export async function createOpenClawBeeperBridge(options: CreateOpenClawBeeperBr
 export async function startOpenClawBeeperBridge(options: CreateOpenClawBeeperBridgeOptions): Promise<PickleBridge> {
   const bridge = await createOpenClawBeeperBridge(options);
   await bridge.start();
+  if (options.backfill) {
+    const config = options.config;
+    if (!config) throw new Error("OpenClaw backfill requires config");
+    const registry = options.registry ?? registryFromConnector(bridge.connector);
+    if (!registry) throw new Error("OpenClaw backfill requires registry");
+    const login = userLoginFromOpenClawConfig(config);
+    await backfillAllOpenClawSessions({
+      bridge,
+      ...(options.backfillLimit !== undefined ? { limit: options.backfillLimit } : {}),
+      login,
+      registry,
+      runtime: options.runtimeFactory?.(login, config) ?? createOpenClawRuntimeFromLogin(login, config),
+    });
+    await registry.save();
+  }
   return bridge;
 }
 
@@ -61,4 +80,10 @@ function connectorOptions(options: CreateOpenClawBeeperBridgeOptions): OpenClawC
   if (options.streams !== undefined) output.streams = options.streams;
   if (options.transportFactory !== undefined) output.transportFactory = options.transportFactory;
   return output;
+}
+
+function registryFromConnector(connector: unknown): OpenClawBridgeRegistry | undefined {
+  if (!connector || typeof connector !== "object" || !("registry" in connector)) return undefined;
+  const registry = (connector as { registry?: unknown }).registry;
+  return registry instanceof OpenClawBridgeRegistry ? registry : undefined;
 }

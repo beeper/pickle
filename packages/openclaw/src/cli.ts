@@ -56,6 +56,9 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
         config,
       };
       if (booleanOption(options, "get-only")) startOptions.getOnly = true;
+      if (booleanOption(options, "backfill")) startOptions.backfill = true;
+      const backfillLimit = numberOption(options, "backfill-limit");
+      if (backfillLimit !== undefined) startOptions.backfillLimit = backfillLimit;
       await (deps.startBridge ?? startOpenClawBeeperBridge)(startOptions);
       io.stdout.write("OpenClaw bridge started\n");
       return 0;
@@ -194,6 +197,8 @@ function helpText(): string {
     "  --email <address>",
     "  --login-code <code>",
     "  --create-account",
+    "  --backfill",
+    "  --backfill-limit <count>",
     "  --env <production|staging|dev|local>",
     "",
   ].join("\n");
@@ -264,6 +269,14 @@ function requiredStringOption(options: Map<string, string | boolean>, key: strin
 
 function booleanOption(options: Map<string, string | boolean>, key: string): boolean {
   return options.get(key) === true;
+}
+
+function numberOption(options: Map<string, string | boolean>, key: string): number | undefined {
+  const value = stringOption(options, key);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`Invalid --${key}: ${value}`);
+  return parsed;
 }
 
 function beeperEnvOption(options: Map<string, string | boolean>): BeeperEnvironment | undefined {

@@ -83,6 +83,9 @@ export class OpenClawMatrixBridgeAgent {
 }
 
 function openClawEventFromGateway(event: OpenClawGatewayEvent): unknown {
+  if (event.event && event.payload && typeof event.payload === "object") {
+    return { ...(event.payload as Record<string, unknown>), payload: event.payload, type: event.event };
+  }
   if (event.payload && typeof event.payload === "object") {
     return event.payload;
   }
