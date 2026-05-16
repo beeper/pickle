@@ -63,14 +63,12 @@ const (
 	opRemoveReaction = "remove_reaction"
 	// ts:operation sendEphemeralEvent send_ephemeral_event MatrixSendEphemeralEventOptions MatrixRawMessage
 	opSendEphemeralEvent = "send_ephemeral_event"
-	// ts:operation createBeeperStream create_beeper_stream MatrixCreateBeeperStreamOptions MatrixCreateBeeperStreamResult
-	opCreateBeeperStream = "create_beeper_stream"
-	// ts:operation registerBeeperStream register_beeper_stream MatrixRegisterBeeperStreamOptions void
-	opRegisterBeeperStream = "register_beeper_stream"
-	// ts:operation publishBeeperStream publish_beeper_stream MatrixBeeperStreamOptions void
-	opPublishBeeperStream = "publish_beeper_stream"
-	// ts:operation unsubscribeBeeperStream unsubscribe_beeper_stream MatrixBeeperStreamOptions void
-	opUnsubscribeBeeperStream = "unsubscribe_beeper_stream"
+	// ts:operation startBeeperStreamMessage start_beeper_stream_message MatrixStartBeeperStreamMessageOptions MatrixStartBeeperStreamMessageResult
+	opStartBeeperStreamMessage = "start_beeper_stream_message"
+	// ts:operation publishBeeperStreamMessagePart publish_beeper_stream_message_part MatrixPublishBeeperStreamMessagePartOptions void
+	opPublishBeeperStreamMessagePart = "publish_beeper_stream_message_part"
+	// ts:operation finalizeBeeperStreamMessage finalize_beeper_stream_message MatrixFinalizeBeeperStreamMessageOptions MatrixFinalizeBeeperStreamMessageResult
+	opFinalizeBeeperStreamMessage = "finalize_beeper_stream_message"
 	// ts:operation setTyping set_typing MatrixTypingOptions void
 	opSetTyping = "set_typing"
 	// ts:operation fetchMessage fetch_message MatrixFetchMessageOptions MatrixFetchMessageResult

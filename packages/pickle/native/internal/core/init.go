@@ -107,7 +107,7 @@ func (c *Core) handleInit(ctx context.Context, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 	c.emitInitStep("crypto_ready", initStarted)
-	if err := c.setupBeeperStream(); err != nil {
+	if err := c.setupBeeperStream(req); err != nil {
 		return nil, err
 	}
 	c.emitInitStep("beeper_stream_ready", initStarted)
@@ -235,8 +235,8 @@ func (c *Core) emitInitStep(step string, started time.Time) {
 	})
 }
 
-func (c *Core) setupBeeperStream() error {
-	cli, err := c.requireClient()
+func (c *Core) setupBeeperStream(req MatrixCoreInitOptions) error {
+	cli, err := c.beeperStreamClient(req)
 	if err != nil {
 		return err
 	}
@@ -251,6 +251,25 @@ func (c *Core) setupBeeperStream() error {
 	c.beeperStream = helper
 	c.appserviceProcessor = processor
 	return nil
+}
+
+func (c *Core) beeperStreamClient(req MatrixCoreInitOptions) (*mautrix.Client, error) {
+	if req.Appservice == nil {
+		return c.requireClient()
+	}
+	botUserID := id.NewUserID(req.Appservice.Registration.SenderLocalpart, req.Appservice.HomeserverDomain)
+	cli, err := mautrix.NewClient(req.Appservice.Homeserver, botUserID, req.Appservice.Registration.AppToken)
+	if err != nil {
+		return nil, err
+	}
+	configureHTTPClient(cli, c.host)
+	cli.DeviceID = id.DeviceID(req.DeviceID)
+	cli.SetAppServiceUserID = true
+	cli.SetAppServiceDeviceID = true
+	if c.client != nil {
+		cli.StateStore = c.client.StateStore
+	}
+	return cli, nil
 }
 
 func (c *Core) handleWhoami(ctx context.Context) ([]byte, error) {

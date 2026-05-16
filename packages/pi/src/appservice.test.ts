@@ -58,19 +58,18 @@ describe("PicklePiAgent streaming", () => {
       type: "m.room.message",
     });
 
-    expect(client.beeper.streams.create).toHaveBeenCalledTimes(1);
-    expect(client.beeper.streams.register).toHaveBeenCalledTimes(1);
-    expect(client.beeper.streams.publish.mock.calls.map(([options]) => delta(options).part.type)).toEqual([
+    expect(client.beeper.streams.startMessage).toHaveBeenCalledTimes(1);
+    expect(client.beeper.streams.publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
       "start",
       "text-start",
       "text-delta",
       "text-end",
       "finish",
     ]);
-    expect(client.messages.edit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(client.beeper.streams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       eventId: "$target",
       roomId: "!room:example",
-      text: "hello",
+      body: "hello",
     }));
   });
 });
@@ -107,9 +106,9 @@ function createClient() {
   const client = {
     beeper: {
       streams: {
-        create: vi.fn(async () => ({ descriptor: { device_id: "DEVICE", type: "com.beeper.llm", user_id: "@bot:example" } })),
-        publish: vi.fn(async () => undefined),
-        register: vi.fn(async () => undefined),
+        finalizeMessage: vi.fn(async () => ({ eventId: "$target", raw: {}, replacementEventId: "$edit", roomId: "!room:example" })),
+        publishPart: vi.fn(async () => undefined),
+        startMessage: vi.fn(async () => ({ descriptor: { device_id: "DEVICE", type: "com.beeper.llm", user_id: "@bot:example" }, eventId: "$target", roomId: "!room:example" })),
       },
     },
     close: vi.fn(async () => undefined),
@@ -123,12 +122,4 @@ function createClient() {
     },
   };
   return client as unknown as MatrixClient & typeof client;
-}
-
-function delta(options: { content?: Record<string, unknown> }): Record<string, unknown> {
-  const deltas = options.content?.["com.beeper.llm.deltas"];
-  if (!Array.isArray(deltas)) throw new Error("missing com.beeper.llm.deltas");
-  const [first] = deltas;
-  if (!first || typeof first !== "object") throw new Error("missing stream delta");
-  return first as Record<string, unknown>;
 }

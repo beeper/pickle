@@ -31,10 +31,6 @@ export interface MatrixClientOptions {
   wasmUrl?: string | URL;
 }
 
-export interface MatrixBeeperStreamDescriptor {
-  descriptor: Record<string, unknown>;
-}
-
 export type MatrixStream = AsyncIterable<string | Record<string, unknown>>;
 
 export interface SendMatrixStreamOptions {
@@ -46,24 +42,6 @@ export interface SendMatrixStreamOptions {
   text?: string;
   threadRoot?: string;
   updateIntervalMs?: number;
-}
-
-export interface CreateBeeperStreamOptions {
-  roomId: string;
-  streamType?: string;
-}
-
-export interface RegisterBeeperStreamOptions {
-  descriptor: Record<string, unknown>;
-  eventId: string;
-  roomId: string;
-  subscribers?: BeeperStreamSubscriber[];
-}
-
-export interface PublishBeeperStreamOptions {
-  content?: Record<string, unknown>;
-  eventId: string;
-  roomId: string;
 }
 
 export interface BeeperStreamSubscriber {

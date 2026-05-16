@@ -38,10 +38,6 @@ type MatrixRawMessage struct {
 	Raw     any    `json:"raw"`
 }
 
-type MatrixCreateBeeperStreamResult struct {
-	Descriptor any `json:"descriptor" tstype:"{ [key: string]: unknown }"`
-}
-
 func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, error) {
 	cli, err := c.requireClient()
 	if err != nil {
@@ -72,82 +68,271 @@ func (c *Core) handlePostMessage(ctx context.Context, payload []byte) ([]byte, e
 	return json.Marshal(MatrixRawMessage{EventID: resp.EventID.String(), RoomID: req.RoomID, Raw: resp})
 }
 
-type MatrixCreateBeeperStreamOptions struct {
-	RoomID     string `json:"roomId"`
-	StreamType string `json:"streamType,omitempty"`
-}
-
-func (c *Core) handleCreateBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
-	if c.beeperStream == nil {
-		return nil, errors.New("beeper stream helper is not initialized")
-	}
-	var req MatrixCreateBeeperStreamOptions
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return nil, err
-	}
-	if req.StreamType == "" {
-		req.StreamType = "com.beeper.ai.stream_event"
-	}
-	descriptor, err := c.beeperStream.NewDescriptor(ctx, id.RoomID(req.RoomID), req.StreamType)
-	if err != nil {
-		return nil, err
-	}
-	c.client.Log.Debug().
-		Str("stream_type", descriptor.Type).
-		Stringer("room_id", id.RoomID(req.RoomID)).
-		Stringer("user_id", descriptor.UserID).
-		Stringer("device_id", descriptor.DeviceID).
-		Bool("encrypted", descriptor.Encryption != nil).
-		Msg("Created beeper stream descriptor")
-	return json.Marshal(MatrixCreateBeeperStreamResult{Descriptor: descriptor})
-}
-
-type MatrixBeeperStreamOptions struct {
-	Content map[string]any `json:"content,omitempty"`
-	EventID string         `json:"eventId"`
-	RoomID  string         `json:"roomId"`
-}
-
-type MatrixRegisterBeeperStreamOptions struct {
-	Descriptor  json.RawMessage                `json:"descriptor" tstype:"{ [key: string]: unknown }"`
-	EventID     string                         `json:"eventId"`
-	RoomID      string                         `json:"roomId"`
-	Subscribers []MatrixBeeperStreamSubscriber `json:"subscribers,omitempty"`
-}
-
 type MatrixBeeperStreamSubscriber struct {
 	DeviceID string `json:"deviceId"`
 	UserID   string `json:"userId"`
 }
 
-func (c *Core) handleRegisterBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
+type MatrixStartBeeperStreamMessageOptions struct {
+	Body              string                         `json:"body,omitempty"`
+	Content           OutboundEvent                  `json:"content,omitempty" tstype:"{ [key: string]: unknown }"`
+	RoomID            string                         `json:"roomId"`
+	StreamType        string                         `json:"streamType,omitempty"`
+	Subscribers       []MatrixBeeperStreamSubscriber `json:"subscribers,omitempty"`
+	ThreadRootEventID string                         `json:"threadRootEventId,omitempty"`
+	UserID            string                         `json:"userId,omitempty"`
+}
+
+type MatrixStartBeeperStreamMessageResult struct {
+	Descriptor any    `json:"descriptor" tstype:"{ [key: string]: unknown }"`
+	EventID    string `json:"eventId"`
+	RoomID     string `json:"roomId"`
+}
+
+type MatrixPublishBeeperStreamMessagePartOptions struct {
+	AgentID string        `json:"agentId,omitempty"`
+	EventID string        `json:"eventId"`
+	Part    OutboundEvent `json:"part" tstype:"{ [key: string]: unknown }"`
+	RoomID  string        `json:"roomId"`
+	TurnID  string        `json:"turnId"`
+}
+
+type MatrixFinalizeBeeperStreamMessageOptions struct {
+	Body            string        `json:"body,omitempty"`
+	Content         OutboundEvent `json:"content,omitempty" tstype:"{ [key: string]: unknown }"`
+	EventID         string        `json:"eventId"`
+	RoomID          string        `json:"roomId"`
+	TopLevelContent OutboundEvent `json:"topLevelContent,omitempty" tstype:"{ [key: string]: unknown }"`
+	UserID          string        `json:"userId,omitempty"`
+}
+
+type MatrixFinalizeBeeperStreamMessageResult struct {
+	EventID            string `json:"eventId"`
+	ReplacementEventID string `json:"replacementEventId"`
+	RoomID             string `json:"roomId"`
+	Raw                any    `json:"raw"`
+}
+
+type beeperStreamMessage struct {
+	descriptor *event.BeeperStreamInfo
+	nextSeq    int
+	roomID     id.RoomID
+}
+
+func (c *Core) handleStartBeeperStreamMessage(ctx context.Context, payload []byte) ([]byte, error) {
 	if c.beeperStream == nil {
 		return nil, errors.New("beeper stream helper is not initialized")
 	}
-	var req MatrixRegisterBeeperStreamOptions
+	var req MatrixStartBeeperStreamMessageOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	if req.RoomID == "" || req.EventID == "" || len(req.Descriptor) == 0 {
-		return nil, errors.New("missing beeper stream registration fields")
+	if req.RoomID == "" {
+		return nil, errors.New("missing beeper stream message room ID")
 	}
-	var descriptor event.BeeperStreamInfo
-	if err := json.Unmarshal(req.Descriptor, &descriptor); err != nil {
+	if req.StreamType == "" {
+		req.StreamType = "com.beeper.llm"
+	}
+	descriptor, err := c.beeperStream.NewDescriptor(ctx, id.RoomID(req.RoomID), req.StreamType)
+	if err != nil {
 		return nil, err
 	}
-	if err := c.beeperStream.Register(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID), &descriptor); err != nil {
+	content := copyOutboundEvent(req.Content)
+	if content["body"] == nil {
+		content["body"] = firstNonEmpty(req.Body, "...")
+	}
+	if content["msgtype"] == nil {
+		content["msgtype"] = "m.text"
+	}
+	content["com.beeper.stream"] = descriptor
+	resp, err := c.sendBeeperStreamMessageEvent(ctx, req.RoomID, req.ThreadRootEventID, req.UserID, content)
+	if err != nil {
 		return nil, err
 	}
-	c.addBeeperStreamSubscribers(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID), req.Subscribers)
+	eventID := id.EventID(resp.EventID.String())
+	if err = c.beeperStream.Register(ctx, id.RoomID(req.RoomID), eventID, descriptor); err != nil {
+		return nil, err
+	}
+	c.beeperStreamMessages[eventID] = &beeperStreamMessage{
+		descriptor: descriptor.Clone(),
+		nextSeq:    1,
+		roomID:     id.RoomID(req.RoomID),
+	}
+	c.addBeeperStreamSubscribers(ctx, id.RoomID(req.RoomID), eventID, req.Subscribers)
 	c.client.Log.Debug().
 		Str("stream_type", descriptor.Type).
 		Stringer("room_id", id.RoomID(req.RoomID)).
-		Stringer("event_id", id.EventID(req.EventID)).
+		Stringer("event_id", eventID).
 		Stringer("user_id", descriptor.UserID).
 		Stringer("device_id", descriptor.DeviceID).
+		Bool("encrypted", descriptor.Encryption != nil).
 		Int("direct_subscribers", len(req.Subscribers)).
-		Msg("Registered beeper stream")
+		Msg("Started beeper stream message")
+	return json.Marshal(MatrixStartBeeperStreamMessageResult{
+		Descriptor: descriptor,
+		EventID:    eventID.String(),
+		RoomID:     req.RoomID,
+	})
+}
+
+func (c *Core) sendBeeperStreamMessageEvent(ctx context.Context, roomID, threadRootEventID, userID string, content OutboundEvent) (*mautrix.RespSendEvent, error) {
+	if threadRootEventID != "" && content["m.relates_to"] == nil {
+		content["m.relates_to"] = (&event.RelatesTo{}).SetThread(id.EventID(threadRootEventID), "")
+	}
+	if userID != "" {
+		intent, err := c.requireAppserviceIntent(userID)
+		if err != nil {
+			return nil, err
+		}
+		if err = c.appservice.ensureJoined(ctx, intent, id.RoomID(roomID)); err != nil {
+			return nil, err
+		}
+		return intent.SendMessageEvent(ctx, id.RoomID(roomID), event.EventMessage, content)
+	}
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	return retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		if err := c.prepareOutboundMegolm(ctx, cli, id.RoomID(roomID)); err != nil {
+			return nil, err
+		}
+		return cli.SendMessageEvent(ctx, id.RoomID(roomID), event.EventMessage, content)
+	})
+}
+
+func (c *Core) handlePublishBeeperStreamMessagePart(ctx context.Context, payload []byte) ([]byte, error) {
+	if c.beeperStream == nil {
+		return nil, errors.New("beeper stream helper is not initialized")
+	}
+	var req MatrixPublishBeeperStreamMessagePartOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	stream := c.beeperStreamMessages[id.EventID(req.EventID)]
+	if stream == nil {
+		return nil, fmt.Errorf("beeper stream message %s is not registered", req.EventID)
+	}
+	if req.RoomID != "" && stream.roomID != id.RoomID(req.RoomID) {
+		return nil, fmt.Errorf("beeper stream message %s is registered in %s, not %s", req.EventID, stream.roomID, req.RoomID)
+	}
+	if req.TurnID == "" {
+		return nil, errors.New("missing beeper stream message turn ID")
+	}
+	streamType := stream.descriptor.Type
+	if streamType == "" {
+		streamType = "com.beeper.llm"
+	}
+	seq := stream.nextSeq
+	delta := map[string]any{
+		"m.relates_to": &event.RelatesTo{Type: event.RelReference, EventID: id.EventID(req.EventID)},
+		"part":         req.Part,
+		"seq":          seq,
+		"turn_id":      req.TurnID,
+	}
+	if req.AgentID != "" {
+		delta["agent_id"] = req.AgentID
+	}
+	content := map[string]any{
+		streamType + ".deltas": []any{delta},
+	}
+	if err := c.beeperStream.Publish(ctx, stream.roomID, id.EventID(req.EventID), content); err != nil {
+		return nil, err
+	}
+	stream.nextSeq = seq + 1
 	return c.empty()
+}
+
+func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []byte) ([]byte, error) {
+	var req MatrixFinalizeBeeperStreamMessageOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	if req.RoomID == "" || req.EventID == "" {
+		return nil, errors.New("missing beeper stream finalize fields")
+	}
+	content := copyOutboundEvent(req.Content)
+	if content["body"] == nil {
+		content["body"] = firstNonEmpty(req.Body, "...")
+	}
+	if content["msgtype"] == nil {
+		content["msgtype"] = "m.text"
+	}
+	content["com.beeper.stream"] = nil
+	topLevel := copyOutboundEvent(req.TopLevelContent)
+	topLevel["com.beeper.stream"] = nil
+	replacement, err := c.sendBeeperStreamReplacementEvent(ctx, req.RoomID, req.EventID, req.UserID, content, topLevel)
+	if err != nil {
+		return nil, err
+	}
+	targetEventID := id.EventID(req.EventID)
+	if c.beeperStream != nil {
+		c.beeperStream.Unregister(id.RoomID(req.RoomID), targetEventID)
+		c.beeperStream.Unsubscribe(id.RoomID(req.RoomID), targetEventID)
+	}
+	delete(c.beeperStreamMessages, targetEventID)
+	return json.Marshal(MatrixFinalizeBeeperStreamMessageResult{
+		EventID:            req.EventID,
+		ReplacementEventID: replacement.EventID.String(),
+		RoomID:             req.RoomID,
+		Raw:                replacement,
+	})
+}
+
+func (c *Core) sendBeeperStreamReplacementEvent(ctx context.Context, roomID, eventID, userID string, newContent, topLevel OutboundEvent) (*mautrix.RespSendEvent, error) {
+	content := copyOutboundEvent(topLevel)
+	content["body"] = ""
+	content["msgtype"] = firstString(newContent["msgtype"], "m.text")
+	content["m.new_content"] = newContent
+	content["m.relates_to"] = map[string]any{
+		"event_id": eventID,
+		"rel_type": "m.replace",
+	}
+	if userID != "" {
+		intent, err := c.requireAppserviceIntent(userID)
+		if err != nil {
+			return nil, err
+		}
+		if err = c.appservice.ensureJoined(ctx, intent, id.RoomID(roomID)); err != nil {
+			return nil, err
+		}
+		return intent.SendMessageEvent(ctx, id.RoomID(roomID), event.EventMessage, content)
+	}
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := retryMatrix(ctx, func() (*mautrix.RespSendEvent, error) {
+		if err := c.prepareOutboundMegolm(ctx, cli, id.RoomID(roomID)); err != nil {
+			return nil, err
+		}
+		return cli.SendMessageEvent(ctx, id.RoomID(roomID), event.EventMessage, content)
+	})
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UnixMilli()
+	isMe := true
+	isEdited := true
+	replaces := eventID
+	c.rememberEdit(&MatrixMessageEvent{
+		MatrixRawEvent: MatrixRawEvent{
+			Content:        newContent,
+			EventID:        eventID,
+			IsMe:           &isMe,
+			OriginServerTS: &now,
+			Raw:            resp,
+			RoomID:         roomID,
+			Sender:         c.userID.String(),
+			Type:           event.EventMessage.Type,
+		},
+		Body:     firstString(newContent["body"], ""),
+		IsEdited: &isEdited,
+		Msgtype:  firstString(newContent["msgtype"], "m.text"),
+		Relation: &MatrixRelation{EventID: eventID, Type: string(event.RelReplace)},
+		Replaces: &replaces,
+	})
+	return resp, nil
 }
 
 func (c *Core) addBeeperStreamSubscribers(ctx context.Context, roomID id.RoomID, eventID id.EventID, subscribers []MatrixBeeperStreamSubscriber) {
@@ -180,50 +365,11 @@ func (c *Core) addBeeperStreamSubscribers(ctx context.Context, roomID id.RoomID,
 	})
 }
 
-func (c *Core) handlePublishBeeperStream(ctx context.Context, payload []byte) ([]byte, error) {
-	if c.beeperStream == nil {
-		return nil, errors.New("beeper stream helper is not initialized")
-	}
-	var req MatrixBeeperStreamOptions
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return nil, err
-	}
-	if err := c.beeperStream.Publish(ctx, id.RoomID(req.RoomID), id.EventID(req.EventID), req.Content); err != nil {
-		return nil, err
-	}
-	trace := beeperStreamUpdateTrace(req.Content)
-	c.client.Log.Debug().
-		Int("delta_count", trace.DeltaCount).
-		Interface("first_seq", trace.FirstSeq).
-		Str("first_part_type", trace.FirstPartType).
-		Str("first_target_event", trace.FirstTargetEvent).
-		Str("first_turn_id", trace.FirstTurnID).
-		Int("keys", len(req.Content)).
-		Stringer("room_id", id.RoomID(req.RoomID)).
-		Stringer("event_id", id.EventID(req.EventID)).
-		Msg("Published beeper stream update")
-	return c.empty()
-}
-
-func (c *Core) handleUnsubscribeBeeperStream(payload []byte) ([]byte, error) {
-	if c.beeperStream == nil {
-		return c.empty()
-	}
-	var req MatrixBeeperStreamOptions
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return nil, err
-	}
-	c.beeperStream.Unregister(id.RoomID(req.RoomID), id.EventID(req.EventID))
-	c.beeperStream.Unsubscribe(id.RoomID(req.RoomID), id.EventID(req.EventID))
-	return c.empty()
-}
-
 type beeperStreamUpdateTraceData struct {
-	DeltaCount       int
-	FirstPartType    string
-	FirstSeq         any
-	FirstTargetEvent string
-	FirstTurnID      string
+	DeltaCount    int
+	FirstPartType string
+	FirstSeq      any
+	FirstTurnID   string
 }
 
 func beeperStreamUpdateTrace(content map[string]any) beeperStreamUpdateTraceData {
@@ -258,9 +404,6 @@ func beeperStreamUpdateTrace(content map[string]any) beeperStreamUpdateTraceData
 		if turnID, ok := delta["turn_id"].(string); ok {
 			trace.FirstTurnID = turnID
 		}
-		if targetEvent, ok := delta["target_event"].(string); ok {
-			trace.FirstTargetEvent = targetEvent
-		}
 		if part, ok := delta["part"].(map[string]any); ok {
 			if partType, ok := part["type"].(string); ok {
 				trace.FirstPartType = partType
@@ -277,8 +420,31 @@ func (trace *beeperStreamUpdateTraceData) merge(next beeperStreamUpdateTraceData
 	}
 	trace.FirstSeq = next.FirstSeq
 	trace.FirstPartType = next.FirstPartType
-	trace.FirstTargetEvent = next.FirstTargetEvent
 	trace.FirstTurnID = next.FirstTurnID
+}
+
+func copyOutboundEvent(input OutboundEvent) OutboundEvent {
+	output := make(OutboundEvent, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstString(value any, fallback string) string {
+	if str, ok := value.(string); ok && str != "" {
+		return str
+	}
+	return fallback
 }
 
 type MatrixEditMessageOptions struct {

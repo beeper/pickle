@@ -15,32 +15,33 @@ import (
 )
 
 type Core struct {
-	client              *mautrix.Client
-	appservice          *matrixAppservice
-	crypto              *cryptohelper.CryptoHelper
-	cryptoStore         crypto.Store
-	backupKey           *backup.MegolmBackupKey
-	backupVersion       id.KeyBackupVersion
-	beeperStream        *beeperstream.Helper
-	appserviceProcessor *beeperStreamEventProcessor
-	emit                func(OutboundEvent)
-	host                RuntimeHost
-	nextBatch           string
-	pickleKey           []byte
-	pendingDecryptions  []pendingDecryption
-	skipNextSync        bool
-	emittedTimelineIDs  map[id.EventID]struct{}
-	messageEdits        map[id.EventID]*MatrixMessageEvent
-	reactions           map[id.EventID]reactionSnapshot
-	stores              *storeBundle
-	userID              id.UserID
-	deviceID            id.DeviceID
-	cryptoStatus        string
-	mu                  sync.Mutex
-	syncMu              sync.Mutex
-	syncLoopMu          sync.Mutex
-	syncLoopCancel      context.CancelFunc
-	syncLoopDone        chan struct{}
+	client               *mautrix.Client
+	appservice           *matrixAppservice
+	crypto               *cryptohelper.CryptoHelper
+	cryptoStore          crypto.Store
+	backupKey            *backup.MegolmBackupKey
+	backupVersion        id.KeyBackupVersion
+	beeperStream         *beeperstream.Helper
+	beeperStreamMessages map[id.EventID]*beeperStreamMessage
+	appserviceProcessor  *beeperStreamEventProcessor
+	emit                 func(OutboundEvent)
+	host                 RuntimeHost
+	nextBatch            string
+	pickleKey            []byte
+	pendingDecryptions   []pendingDecryption
+	skipNextSync         bool
+	emittedTimelineIDs   map[id.EventID]struct{}
+	messageEdits         map[id.EventID]*MatrixMessageEvent
+	reactions            map[id.EventID]reactionSnapshot
+	stores               *storeBundle
+	userID               id.UserID
+	deviceID             id.DeviceID
+	cryptoStatus         string
+	mu                   sync.Mutex
+	syncMu               sync.Mutex
+	syncLoopMu           sync.Mutex
+	syncLoopCancel       context.CancelFunc
+	syncLoopDone         chan struct{}
 }
 
 type OutboundEvent map[string]any
@@ -51,11 +52,12 @@ func New(emit func(OutboundEvent), host ...RuntimeHost) *Core {
 		runtimeHost = host[0]
 	}
 	return &Core{
-		emit:               emit,
-		host:               runtimeHost,
-		emittedTimelineIDs: make(map[id.EventID]struct{}),
-		messageEdits:       make(map[id.EventID]*MatrixMessageEvent),
-		reactions:          make(map[id.EventID]reactionSnapshot),
+		emit:                 emit,
+		host:                 runtimeHost,
+		beeperStreamMessages: make(map[id.EventID]*beeperStreamMessage),
+		emittedTimelineIDs:   make(map[id.EventID]struct{}),
+		messageEdits:         make(map[id.EventID]*MatrixMessageEvent),
+		reactions:            make(map[id.EventID]reactionSnapshot),
 	}
 }
 
@@ -130,14 +132,12 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleRemoveReaction(ctx, payload)
 	case opSendEphemeralEvent:
 		return c.handleSendEphemeralEvent(ctx, payload)
-	case opCreateBeeperStream:
-		return c.handleCreateBeeperStream(ctx, payload)
-	case opRegisterBeeperStream:
-		return c.handleRegisterBeeperStream(ctx, payload)
-	case opPublishBeeperStream:
-		return c.handlePublishBeeperStream(ctx, payload)
-	case opUnsubscribeBeeperStream:
-		return c.handleUnsubscribeBeeperStream(payload)
+	case opStartBeeperStreamMessage:
+		return c.handleStartBeeperStreamMessage(ctx, payload)
+	case opPublishBeeperStreamMessagePart:
+		return c.handlePublishBeeperStreamMessagePart(ctx, payload)
+	case opFinalizeBeeperStreamMessage:
+		return c.handleFinalizeBeeperStreamMessage(ctx, payload)
 	case opSetTyping:
 		return c.handleSetTyping(ctx, payload)
 	case opFetchMessage:
