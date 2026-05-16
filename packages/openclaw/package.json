@@ -20,9 +20,17 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./config": {
+      "types": "./dist/config.d.mts",
+      "import": "./dist/config.mjs"
+    },
     "./openclaw-event-map": {
       "types": "./dist/openclaw-event-map.d.mts",
       "import": "./dist/openclaw-event-map.mjs"
+    },
+    "./registration": {
+      "types": "./dist/registration.d.mts",
+      "import": "./dist/registration.mjs"
     },
     "./stream-map": {
       "types": "./dist/stream-map.d.mts",

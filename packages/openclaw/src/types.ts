@@ -33,10 +33,16 @@ export interface OpenClawBridgeConfig {
   allowedUserIds?: string[];
   appserviceId: string;
   dataDir: string;
+  ghostLocalpartPrefix: string;
   gatewayUrl?: string;
   homeserver?: string;
+  hsToken?: string;
+  nonFederatedRooms: boolean;
+  registrationUrl: string;
+  senderLocalpart: string;
   serviceBotLocalpart: string;
   storePath: string;
+  userLocalpartPrefix: string;
 }
 
 export interface OpenClawBridgeRegistryData {
@@ -44,4 +50,19 @@ export interface OpenClawBridgeRegistryData {
   bindings: OpenClawSessionBinding[];
   dedupe: Record<string, number>;
   schemaVersion: 1;
+}
+
+export interface AppserviceRegistration {
+  as_token: string;
+  hs_token: string;
+  id: string;
+  namespaces: {
+    aliases: Array<{ exclusive: boolean; regex: string }>;
+    rooms: Array<{ exclusive: boolean; regex: string }>;
+    users: Array<{ exclusive: boolean; regex: string }>;
+  };
+  receive_ephemeral: boolean;
+  rate_limited: boolean;
+  sender_localpart: string;
+  url: string;
 }
