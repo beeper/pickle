@@ -1,6 +1,7 @@
 export * from "./approval";
 export * from "./config";
 export * from "./openclaw-event-map";
+export * from "./openclaw-runtime";
 export * from "./registry";
 export * from "./registration";
 export * from "./rooms";

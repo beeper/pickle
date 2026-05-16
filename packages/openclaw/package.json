@@ -32,6 +32,10 @@
       "types": "./dist/openclaw-event-map.d.mts",
       "import": "./dist/openclaw-event-map.mjs"
     },
+    "./openclaw-runtime": {
+      "types": "./dist/openclaw-runtime.d.mts",
+      "import": "./dist/openclaw-runtime.mjs"
+    },
     "./registry": {
       "types": "./dist/registry.d.mts",
       "import": "./dist/registry.mjs"
