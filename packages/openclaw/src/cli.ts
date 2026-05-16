@@ -2,6 +2,7 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { BeeperEnvironment } from "@beeper/pickle/beeper/auth";
+import { accountFromOpenClawConfig, startOpenClawBeeperBridge, type CreateOpenClawBeeperBridgeOptions } from "./appservice";
 import { createOpenClawBeeperAppService, loginToBeeperForOpenClaw, setupOpenClawBeeperBridge } from "./beeper-setup";
 import { createDefaultConfig, defaultConfigPath, readConfig, secretToken, writeConfig } from "./config";
 import { createAppserviceRegistration } from "./registration";
@@ -12,7 +13,11 @@ export interface CliIO {
   stdout: Pick<typeof process.stdout, "write">;
 }
 
-export async function runCli(argv = process.argv.slice(2), io: CliIO = process): Promise<number> {
+export interface CliDeps {
+  startBridge?: (options: CreateOpenClawBeeperBridgeOptions) => Promise<unknown>;
+}
+
+export async function runCli(argv = process.argv.slice(2), io: CliIO = process, deps: CliDeps = {}): Promise<number> {
   const [command, ...args] = argv;
   try {
     if (!command || command === "help" || command === "--help" || command === "-h") {
@@ -41,6 +46,18 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process):
     if (command === "status") {
       const config = await loadConfig(parseOptions(args));
       io.stdout.write(`${JSON.stringify(redactConfig(config), null, 2)}\n`);
+      return 0;
+    }
+    if (command === "start") {
+      const options = parseOptions(args);
+      const config = await loadConfig(options);
+      const startOptions: CreateOpenClawBeeperBridgeOptions = {
+        account: accountFromOpenClawConfig(config),
+        config,
+      };
+      if (booleanOption(options, "get-only")) startOptions.getOnly = true;
+      await (deps.startBridge ?? startOpenClawBeeperBridge)(startOptions);
+      io.stdout.write("OpenClaw bridge started\n");
       return 0;
     }
     if (command === "beeper-login") {
@@ -154,6 +171,7 @@ function helpText(): string {
     "Commands:",
     "  init       Write a secure OpenClaw bridge config",
     "  register   Write a Matrix appservice registration file",
+    "  start      Start the OpenClaw Beeper bridge from config",
     "  status     Print the redacted effective config",
     "  beeper-login     Log in to Beeper and write Matrix credentials",
     "  beeper-register  Register the OpenClaw appservice with Beeper",

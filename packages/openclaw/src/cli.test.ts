@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runCli } from "./cli";
 
 describe("pickle-openclaw CLI", () => {
@@ -54,6 +54,47 @@ describe("pickle-openclaw CLI", () => {
     const io = captureIO();
     await expect(runCli(["wat"], io)).resolves.toBe(2);
     expect(io.stderrText).toContain("Unknown command: wat");
+  });
+
+  it("starts the bridge from persisted Beeper account config", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-start-"));
+    const configPath = join(dir, "config.json");
+    const io = captureIO();
+    const startBridge = vi.fn(async () => undefined);
+    await expect(runCli([
+      "init",
+      "--config",
+      configPath,
+      "--data-dir",
+      dir,
+      "--access-token",
+      "mx-token",
+      "--gateway-url",
+      "http://127.0.0.1:29390",
+      "--homeserver",
+      "https://matrix.beeper.com",
+      "--matrix-device-id",
+      "DEVICE",
+      "--matrix-user-id",
+      "@batuhan:beeper.com",
+    ], captureIO())).resolves.toBe(0);
+
+    await expect(runCli(["start", "--config", configPath, "--get-only"], io, { startBridge })).resolves.toBe(0);
+
+    expect(startBridge).toHaveBeenCalledWith(expect.objectContaining({
+      account: {
+        accessToken: "mx-token",
+        deviceId: "DEVICE",
+        homeserver: "https://matrix.beeper.com",
+        userId: "@batuhan:beeper.com",
+      },
+      config: expect.objectContaining({
+        gatewayUrl: "http://127.0.0.1:29390",
+        matrixUserId: "@batuhan:beeper.com",
+      }),
+      getOnly: true,
+    }));
+    expect(io.stdoutText).toContain("OpenClaw bridge started");
   });
 });
 
