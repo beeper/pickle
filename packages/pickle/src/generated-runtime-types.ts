@@ -218,6 +218,11 @@ export interface MatrixStartBeeperStreamMessageResult {
   descriptor: { [key: string]: unknown };
   eventId: string;
   roomId: string;
+  subscribers?: MatrixBeeperStreamSubscriber[];
+}
+export interface MatrixBeeperStreamSubscriber {
+  deviceId: string;
+  userId: string;
 }
 export interface MatrixPublishBeeperStreamMessagePartOptions {
   agentId?: string;
