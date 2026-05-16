@@ -24,6 +24,10 @@
       "types": "./dist/approval.d.mts",
       "import": "./dist/approval.mjs"
     },
+    "./bridge-agent": {
+      "types": "./dist/bridge-agent.d.mts",
+      "import": "./dist/bridge-agent.mjs"
+    },
     "./config": {
       "types": "./dist/config.d.mts",
       "import": "./dist/config.mjs"

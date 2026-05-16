@@ -1,4 +1,5 @@
 export * from "./approval";
+export * from "./bridge-agent";
 export * from "./config";
 export * from "./openclaw-event-map";
 export * from "./openclaw-runtime";
