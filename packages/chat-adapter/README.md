@@ -48,17 +48,19 @@ Use `loginWithMatrixToken()` from `@beeper/pickle/auth` for token / JWT login.
 
 ## Streaming responses
 
-Stream markdown into a Matrix message with progressive edits. Pass any async iterable of AI-SDK-shaped chunks:
+Stream markdown into a Matrix message with progressive edits. Pass any async iterable of AG-UI events:
 
 ```ts
 await matrix.stream(matrix.encodeThreadId({ roomId }), agentStream(message.text));
 
 async function* agentStream(prompt: string) {
-  yield { type: "markdown_text", text: "Thinking…\n\n" };
+  yield { type: "RUN_STARTED", threadId: "thread-1", runId: "run-1" };
+  yield { type: "TEXT_MESSAGE_START", messageId: "message-1", role: "assistant" };
   for (const word of answer.split(" ")) {
-    yield { type: "markdown_text", text: word + " " };
+    yield { type: "TEXT_MESSAGE_CONTENT", messageId: "message-1", delta: word + " " };
   }
-  yield { type: "finish", finishReason: "stop" };
+  yield { type: "TEXT_MESSAGE_END", messageId: "message-1" };
+  yield { type: "RUN_FINISHED", threadId: "thread-1", runId: "run-1", finishReason: "stop" };
 }
 ```
 

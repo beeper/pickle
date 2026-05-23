@@ -20,7 +20,7 @@ beforeEach(() => {
 });
 
 describe("PicklePiAgent streaming", () => {
-  it("streams Pi assistant chunks into one Beeper stream and final edit", async () => {
+  it("streams Pi assistant AG-UI events into one Beeper stream and final edit", async () => {
     const client = createClient();
     const registry = await createRegistry();
     const binding = testBinding();

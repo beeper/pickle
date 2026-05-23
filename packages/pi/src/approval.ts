@@ -21,13 +21,13 @@ export interface ParsedApprovalResponse {
   toolCallId?: string;
 }
 
-export interface ToolApprovalResponseChunk {
+export interface ToolApprovalResponseEvent {
   approvalId?: string;
   approved: boolean;
   approvedAlways?: boolean;
   decision?: ApprovalDecision;
   toolCallId?: string;
-  type: "tool-approval-response";
+  type: "CUSTOM" | "tool-approval-response";
 }
 
 export function parseApprovalReactionKey(key: unknown): ParsedApprovalResponse | undefined {
@@ -52,8 +52,38 @@ export function parseApprovalReactionContent(content: unknown): ParsedApprovalRe
   return parseApprovalReactionKey(recordValue(relates)?.key);
 }
 
-export function parseToolApprovalResponseChunk(chunk: unknown): ParsedApprovalResponse | undefined {
-  const record = recordValue(chunk);
+export function parseToolApprovalResponseEvent(event: unknown): ParsedApprovalResponse | undefined {
+  const record = recordValue(event);
+  if (record?.type === "CUSTOM" && record.name === "approval-responded") {
+    return parseApprovalRespondedCustomValue(record.value);
+  }
+  return parseLegacyToolApprovalResponseChunk(record);
+}
+
+export const parseToolApprovalResponseChunk = parseToolApprovalResponseEvent;
+
+function parseApprovalRespondedCustomValue(value: unknown): ParsedApprovalResponse | undefined {
+  const record = recordValue(value);
+  const approval = recordValue(record?.approval);
+  const approved = approval?.approved;
+  if (!record || !approval || typeof approved !== "boolean") return undefined;
+
+  const explicitDecision = approvalDecisionValue(approval.decision ?? record.decision);
+  const approvedAlways = approval.always === true || record.approvedAlways === true || explicitDecision === "allow_always" || explicitDecision === "allow_room";
+  const decision = explicitDecision ?? (approved ? (approvedAlways ? "allow_always" : "allow_once") : "deny");
+  const response: ParsedApprovalResponse = {
+    approved,
+    approvedAlways,
+    decision: approved ? decision : "deny",
+  };
+  const approvalId = stringValue(approval.id) ?? stringValue(record.approvalId);
+  const toolCallId = stringValue(record.toolCallId);
+  if (approvalId) response.approvalId = approvalId;
+  if (toolCallId) response.toolCallId = toolCallId;
+  return response;
+}
+
+function parseLegacyToolApprovalResponseChunk(record: Record<string, unknown> | undefined): ParsedApprovalResponse | undefined {
   if (record?.type !== "tool-approval-response" || typeof record.approved !== "boolean") {
     return undefined;
   }
@@ -74,7 +104,7 @@ export function parseToolApprovalResponseChunk(chunk: unknown): ParsedApprovalRe
 }
 
 export function parseApprovalResponseContent(content: unknown): ParsedApprovalResponse | undefined {
-  return parseToolApprovalResponseChunk(content) ?? parseApprovalResponseFromDeltas(content);
+  return parseToolApprovalResponseEvent(content) ?? parseApprovalResponseFromDeltas(content);
 }
 
 function parseApprovalResponseFromDeltas(content: unknown): ParsedApprovalResponse | undefined {
@@ -86,7 +116,7 @@ function parseApprovalResponseFromDeltas(content: unknown): ParsedApprovalRespon
     if (!Array.isArray(parts)) continue;
 
     for (const part of parts) {
-      const response = parseToolApprovalResponseChunk(part);
+      const response = parseToolApprovalResponseEvent(part);
       if (response) return response;
     }
   }

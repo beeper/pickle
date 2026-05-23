@@ -241,31 +241,31 @@ class PiStreamRun {
   }
 
   handle(event: unknown): Promise<boolean> {
-    const chunks = mapPiAgentSessionEvent(this.#state, event);
-    if (!chunks.length) return Promise.resolve(false);
+    const events = mapPiAgentSessionEvent(this.#state, event);
+    if (!events.length) return Promise.resolve(false);
     return this.#queue.run(async () => {
-      for (const chunk of chunks) {
+      for (const event of events) {
         if (this.#closed) return true;
-        if (chunk.type === AGUIEventType.RUN_STARTED) {
+        if (event.type === AGUIEventType.RUN_STARTED) {
           await this.publisher.start();
         }
-        if (chunk.type === AGUIEventType.RUN_FINISHED) {
+        if (event.type === AGUIEventType.RUN_FINISHED) {
           await this.publisher.finalize({
-            finishReason: typeof chunk.finishReason === "string" ? chunk.finishReason : "stop",
-            terminalPart: chunk,
+            finishReason: typeof event.finishReason === "string" ? event.finishReason : "stop",
+            terminalPart: event,
           });
           this.#closed = true;
           return true;
         }
-        if (chunk.type === AGUIEventType.RUN_ERROR) {
+        if (event.type === AGUIEventType.RUN_ERROR) {
           await this.publisher.finalize({
-            body: typeof chunk.message === "string" ? chunk.message : "Pi stream failed",
-            terminalPart: chunk,
+            body: typeof event.message === "string" ? event.message : "Pi stream failed",
+            terminalPart: event,
           });
           this.#closed = true;
           return true;
         }
-        await this.publisher.publish(chunk);
+        await this.publisher.publish(event);
       }
       return true;
     });
