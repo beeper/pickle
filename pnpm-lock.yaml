@@ -114,11 +114,18 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  packages/ai-sdk:
+  packages/ag-ui:
+    dependencies:
+      '@ag-ui/core':
+        specifier: 0.0.52
+        version: 0.0.52
+      '@tanstack/ai':
+        specifier: 0.18.0
+        version: 0.18.0(@opentelemetry/api@1.9.0)
+      '@tanstack/ai-client':
+        specifier: 0.10.0
+        version: 0.10.0(@opentelemetry/api@1.9.0)
     devDependencies:
-      '@beeper/pickle-chat-adapter':
-        specifier: workspace:*
-        version: link:../chat-adapter
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.39
@@ -215,6 +222,9 @@ importers:
       '@beeper/pickle':
         specifier: workspace:*
         version: link:../pickle
+      '@beeper/pickle-ag-ui':
+        specifier: workspace:*
+        version: link:../ag-ui
       '@beeper/pickle-bridge':
         specifier: workspace:*
         version: link:../bridge
@@ -364,6 +374,9 @@ importers:
         version: 4.1.5(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.5)(vite@8.0.10(@types/node@22.19.17)(esbuild@0.27.7))
 
 packages:
+
+  '@ag-ui/core@0.0.52':
+    resolution: {integrity: sha512-Xo0bUaNV56EqylzcrAuhUkQX7et7+SZIrqZZtEByGwEq/I1EHny6ZMkWHLkKR7UNi0FJZwJyhKYmKJS3B2SEgA==}
 
   '@babel/generator@8.0.0-rc.3':
     resolution: {integrity: sha512-em37/13/nR320G4jab/nIIHZgc2Wz2y/D39lxnTyxB4/D/omPQncl/lSdlnJY1OhQcRGugTSIF2l/69o31C9dA==}
@@ -1147,6 +1160,28 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
+  '@tanstack/ai-client@0.10.0':
+    resolution: {integrity: sha512-I5Ec0c81JsliGk+opc59cjMr8cQftQ8mc41mcRl7lY/sySFA2yPHZfCAiOwFq5Jq2zC6ZRviRBvZgYgXbXtOSQ==}
+
+  '@tanstack/ai-event-client@0.3.2':
+    resolution: {integrity: sha512-4GhqHFU6W00Uo10dgKZyHKwtTENtpIFmqy6jW2HmZpW6NrOBhwG71dspiwmQ+4NPn4foADfbEBnzdt0W5Ik0Jw==}
+    peerDependencies:
+      '@tanstack/ai': 0.18.0
+
+  '@tanstack/ai@0.18.0':
+    resolution: {integrity: sha512-RIS9dwPBOErob2i62ppie5GnxvzzI+PNZY8yy5bv2mmwPCoJp82qLdDxDC9T+GHQv+63g/xQUH69st+fK1u5lA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.9.0'
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+
+  '@tanstack/devtools-event-client@0.4.3':
+    resolution: {integrity: sha512-OZI6QyULw0FI0wjgmeYzCIfbgPsOEzwJtCpa69XrfLMtNXLGnz3d/dIabk7frg0TmHo+Ah49w5I4KC7Tufwsvw==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
 
@@ -1877,6 +1912,9 @@ packages:
   package-manager-detector@0.2.11:
     resolution: {integrity: sha512-BEnLolu+yuz22S56CU1SUKq3XC3PkwD5wv4ikR4MfGvnRVcmzXR9DwSlW2fEamyTPyXHomBJRzgapeuBvRNzJQ==}
 
+  partial-json@0.1.7:
+    resolution: {integrity: sha512-Njv/59hHaokb/hRUjce3Hdv12wd60MtM9Z5Olmn+nehe0QDAsRtRbJPvJ0Z91TusF0SuZRIvnM+S4l6EIP8leA==}
+
   path-exists@4.0.0:
     resolution: {integrity: sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==}
     engines: {node: '>=8'}
@@ -2301,10 +2339,17 @@ packages:
   youch@4.1.0-beta.10:
     resolution: {integrity: sha512-rLfVLB4FgQneDr0dv1oddCVZmKjcJ6yX6mS4pU82Mq/Dt9a3cLZQ62pDBL4AUO+uVrCvtWz3ZFUL2HFAFJ/BXQ==}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@ag-ui/core@0.0.52':
+    dependencies:
+      zod: 3.25.76
 
   '@babel/generator@8.0.0-rc.3':
     dependencies:
@@ -2936,6 +2981,28 @@ snapshots:
   '@speed-highlight/core@1.2.15': {}
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@tanstack/ai-client@0.10.0(@opentelemetry/api@1.9.0)':
+    dependencies:
+      '@tanstack/ai': 0.18.0(@opentelemetry/api@1.9.0)
+      '@tanstack/ai-event-client': 0.3.2(@tanstack/ai@0.18.0(@opentelemetry/api@1.9.0))
+    transitivePeerDependencies:
+      - '@opentelemetry/api'
+
+  '@tanstack/ai-event-client@0.3.2(@tanstack/ai@0.18.0(@opentelemetry/api@1.9.0))':
+    dependencies:
+      '@tanstack/ai': 0.18.0(@opentelemetry/api@1.9.0)
+      '@tanstack/devtools-event-client': 0.4.3
+
+  '@tanstack/ai@0.18.0(@opentelemetry/api@1.9.0)':
+    dependencies:
+      '@ag-ui/core': 0.0.52
+      '@tanstack/ai-event-client': 0.3.2(@tanstack/ai@0.18.0(@opentelemetry/api@1.9.0))
+      partial-json: 0.1.7
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.0
+
+  '@tanstack/devtools-event-client@0.4.3': {}
 
   '@tybys/wasm-util@0.10.1':
     dependencies:
@@ -3841,6 +3908,8 @@ snapshots:
     dependencies:
       quansync: 0.2.11
 
+  partial-json@0.1.7: {}
+
   path-exists@4.0.0: {}
 
   path-key@3.1.1: {}
@@ -4323,5 +4392,7 @@ snapshots:
       '@speed-highlight/core': 1.2.15
       cookie: 1.1.1
       youch-core: 0.3.3
+
+  zod@3.25.76: {}
 
   zwitch@2.0.4: {}

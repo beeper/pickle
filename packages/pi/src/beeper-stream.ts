@@ -10,6 +10,8 @@ import {
 import { SerialQueue } from "./serial";
 import { AGUIEventType, createTurnId, type AGUIEvent } from "./stream-map";
 
+type FinishReason = "stop" | "length" | "content_filter" | "tool_calls" | null;
+
 export interface BeeperStreamPublisherClient {
   beeper: MatrixBeeper;
 }
@@ -109,7 +111,7 @@ export class BeeperStreamPublisher {
   async finalize(options: BeeperStreamFinalizeOptions = {}): Promise<SentEvent> {
     return this.#queue.run(async () => {
       if (this.#finalized) throw new Error("Beeper stream is already finalized");
-      const finishReason = options.finishReason ?? "stop";
+      const finishReason = normalizeFinishReason(options.finishReason);
       const { eventId: targetEventId } = await this.#start();
       await this.#publishPart(targetEventId, options.terminalPart ?? {
           finishReason,
@@ -341,4 +343,9 @@ function errorText(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return JSON.stringify(error) ?? String(error);
+}
+
+function normalizeFinishReason(reason: string | undefined): FinishReason {
+  if (reason === "length" || reason === "content_filter" || reason === "tool_calls") return reason;
+  return "stop";
 }

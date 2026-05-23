@@ -20,7 +20,7 @@ describe("Pi event to AG-UI stream mapping", () => {
     ]);
     expect(mapPiMessageDelta(state, { kind: "thinking", value: "checking" })).toEqual([
       { messageId: "turn_1", type: "REASONING_START" },
-      { messageId: "turn_1", type: "REASONING_MESSAGE_START" },
+      { messageId: "turn_1", role: "reasoning", type: "REASONING_MESSAGE_START" },
       { delta: "checking", messageId: "turn_1", type: "REASONING_MESSAGE_CONTENT" },
     ]);
     expect(mapPiMessageDelta(state, { kind: "thinking", value: " files" })).toEqual([
@@ -55,7 +55,7 @@ describe("Pi event to AG-UI stream mapping", () => {
         type: "TOOL_CALL_START",
       },
       {
-        args: { cmd: "pwd" },
+        args: "{\"cmd\":\"pwd\"}",
         delta: "{\"cmd\":\"pwd\"}",
         state: "input-streaming",
         toolCallId: "call_1",
@@ -73,6 +73,7 @@ describe("Pi event to AG-UI stream mapping", () => {
     expect(mapPiToolOutput({ output: "ok", toolCallId: "call_1", toolName: "bash" })).toEqual([
       {
         content: "ok",
+        messageId: "call_1",
         role: "tool",
         state: "complete",
         toolCallId: "call_1",

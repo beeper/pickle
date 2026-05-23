@@ -1,23 +1,10 @@
-export type AGUIEvent = Record<string, unknown> & { type: string };
+export { EventType as AGUIEventType } from "@beeper/pickle-ag-ui";
+export type { AGUIEvent } from "@beeper/pickle-ag-ui";
 
-export const AGUIEventType = {
-  CUSTOM: "CUSTOM",
-  REASONING_END: "REASONING_END",
-  REASONING_MESSAGE_CONTENT: "REASONING_MESSAGE_CONTENT",
-  REASONING_MESSAGE_END: "REASONING_MESSAGE_END",
-  REASONING_MESSAGE_START: "REASONING_MESSAGE_START",
-  REASONING_START: "REASONING_START",
-  RUN_ERROR: "RUN_ERROR",
-  RUN_FINISHED: "RUN_FINISHED",
-  RUN_STARTED: "RUN_STARTED",
-  TEXT_MESSAGE_CONTENT: "TEXT_MESSAGE_CONTENT",
-  TEXT_MESSAGE_END: "TEXT_MESSAGE_END",
-  TEXT_MESSAGE_START: "TEXT_MESSAGE_START",
-  TOOL_CALL_ARGS: "TOOL_CALL_ARGS",
-  TOOL_CALL_END: "TOOL_CALL_END",
-  TOOL_CALL_RESULT: "TOOL_CALL_RESULT",
-  TOOL_CALL_START: "TOOL_CALL_START",
-} as const;
+import { EventType as AGUIEventType, type AGUIEvent } from "@beeper/pickle-ag-ui";
+import type { RunFinishedEvent } from "@beeper/pickle-ag-ui";
+
+type FinishReason = NonNullable<RunFinishedEvent["finishReason"]>;
 
 export interface StreamRunState {
   messageStarted: boolean;
@@ -62,7 +49,7 @@ export function startRunEvents(state: StreamRunState): AGUIEvent[] {
   ];
 }
 
-export function finishRunEvents(state: StreamRunState, finishReason = "stop"): AGUIEvent[] {
+export function finishRunEvents(state: StreamRunState, finishReason: FinishReason = "stop"): AGUIEvent[] {
   return [
     ...closeOpenMessageParts(state),
     {
@@ -128,6 +115,7 @@ export function openReasoningPart(state: StreamRunState): AGUIEvent[] {
     },
     {
       messageId: state.turnId,
+      role: "reasoning",
       type: AGUIEventType.REASONING_MESSAGE_START,
     },
   ];
@@ -168,7 +156,7 @@ export function mapPiToolInput(event: {
       ...(event.startedAtMs !== undefined ? { startedAtMs: event.startedAtMs } : {}),
     },
     {
-      args: event.input,
+      args: stringifyToolValue(event.input),
       delta: stringifyToolValue(event.input),
       state: "input-streaming",
       toolCallId: event.toolCallId,
@@ -197,6 +185,7 @@ export function mapPiToolOutput(event: {
   return [
     {
       content: stringifyToolValue(event.error !== undefined ? event.error : event.output),
+      messageId: event.toolCallId,
       role: "tool",
       state,
       toolCallId: event.toolCallId,

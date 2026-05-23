@@ -1,15 +1,15 @@
-# @beeper/pickle-ai-sdk
+# @beeper/pickle-ag-ui
 
 Pipe an AG-UI event stream into a Matrix message via [`@beeper/pickle-chat-adapter`](https://github.com/beeper/pickle/tree/main/packages/chat-adapter).
 
 ```sh
-npm install @beeper/pickle-ai-sdk
+npm install @beeper/pickle-ag-ui
 ```
 
 ## Usage
 
 ```ts
-import { fromAGUIEventStream } from "@beeper/pickle-ai-sdk";
+import { fromAGUIEventStream } from "@beeper/pickle-ag-ui";
 
 async function* runEvents() {
   yield { type: "RUN_STARTED", threadId: "thread-1", runId: "run-1" };

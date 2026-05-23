@@ -1,9 +1,27 @@
 import type { MatrixStream } from "@beeper/pickle";
+export { EventType } from "@ag-ui/core";
+export type {
+  AGUIEvent,
+  CustomEvent,
+  ReasoningEndEvent,
+  ReasoningMessageContentEvent,
+  ReasoningMessageEndEvent,
+  ReasoningMessageStartEvent,
+  ReasoningStartEvent,
+  RunErrorEvent,
+  RunFinishedEvent,
+  RunStartedEvent,
+  TextMessageContentEvent,
+  TextMessageEndEvent,
+  TextMessageStartEvent,
+  ToolCallArgsEvent,
+  ToolCallEndEvent,
+  ToolCallResultEvent,
+  ToolCallStartEvent,
+} from "@tanstack/ai";
+export type { MessagePart, UIMessage } from "@tanstack/ai-client";
 
-export type AGUIEvent = {
-  type: string;
-  [key: string]: unknown;
-};
+import type { AGUIEvent } from "@tanstack/ai";
 
 export type AGUIEventStream =
   | AsyncIterable<AGUIEvent>

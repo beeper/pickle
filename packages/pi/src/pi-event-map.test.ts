@@ -31,7 +31,7 @@ describe("Pi AgentSessionEvent to AG-UI mapping", () => {
       })
     ).toEqual([
       { messageId: "turn_message", type: "REASONING_START" },
-      { messageId: "turn_message", type: "REASONING_MESSAGE_START" },
+      { messageId: "turn_message", role: "reasoning", type: "REASONING_MESSAGE_START" },
     ]);
 
     expect(
@@ -134,6 +134,7 @@ describe("Pi AgentSessionEvent to AG-UI mapping", () => {
     ).toEqual([
       {
         content: "running tests...",
+        messageId: "call_test",
         preliminary: true,
         role: "tool",
         state: "streaming",
@@ -154,6 +155,7 @@ describe("Pi AgentSessionEvent to AG-UI mapping", () => {
     ).toEqual([
       {
         content: "all tests passed",
+        messageId: "call_test",
         role: "tool",
         state: "complete",
         toolCallId: "call_test",
@@ -177,6 +179,7 @@ describe("Pi AgentSessionEvent to AG-UI mapping", () => {
     ).toEqual([
       {
         content: "[{\"text\":\"src/index.ts\",\"type\":\"text\"}]",
+        messageId: "call_grep",
         role: "tool",
         state: "complete",
         toolCallId: "call_grep",
@@ -196,6 +199,7 @@ describe("Pi AgentSessionEvent to AG-UI mapping", () => {
     ).toEqual([
       {
         content: "[{\"text\":\"permission denied\",\"type\":\"text\"}]",
+        messageId: "call_read",
         role: "tool",
         state: "error",
         toolCallId: "call_read",

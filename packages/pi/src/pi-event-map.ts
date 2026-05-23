@@ -10,6 +10,7 @@ import {
   openReasoningPart,
   openTextPart,
   startRunEvents,
+  AGUIEventType,
   type AGUIEvent,
   type StreamRunState,
 } from "./stream-map";
@@ -68,13 +69,13 @@ function mapAssistantMessageEvent(state: StreamRunState, event: unknown): AGUIEv
       toolCallId: toolCall.id,
       toolCallName: toolCall.name,
       toolName: toolCall.name,
-      type: "TOOL_CALL_START",
+      type: AGUIEventType.TOOL_CALL_START,
     }];
   }
   if (type === "toolcall_delta") {
     const toolCall = toolCallFromContent(record.toolCall, record.tool_call, record.call, content, record);
     if (!toolCall || typeof record.delta !== "string") return [];
-    return [{ args: record.delta, delta: record.delta, state: "input-streaming", toolCallId: toolCall.id, type: "TOOL_CALL_ARGS" }];
+    return [{ args: record.delta, delta: record.delta, state: "input-streaming", toolCallId: toolCall.id, type: AGUIEventType.TOOL_CALL_ARGS }];
   }
   if (type === "toolcall_end") {
     const toolCall = toolCallFromContent(record.toolCall, record.tool_call, record.call, content);
@@ -85,7 +86,7 @@ function mapAssistantMessageEvent(state: StreamRunState, event: unknown): AGUIEv
       toolCallId: toolCall.id,
       toolCallName: toolCall.name,
       toolName: toolCall.name,
-      type: "TOOL_CALL_END",
+      type: AGUIEventType.TOOL_CALL_END,
     }];
   }
   if (textDelta && !thinkingDelta) return mapPiMessageDelta(state, { kind: "text", value: textDelta });
