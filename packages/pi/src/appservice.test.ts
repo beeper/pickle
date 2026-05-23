@@ -60,11 +60,11 @@ describe("PicklePiAgent streaming", () => {
 
     expect(client.beeper.streams.startMessage).toHaveBeenCalledTimes(1);
     expect(client.beeper.streams.publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
-      "start",
-      "text-start",
-      "text-delta",
-      "text-end",
-      "finish",
+      "RUN_STARTED",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "RUN_FINISHED",
     ]);
     expect(client.beeper.streams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       eventId: "$target",

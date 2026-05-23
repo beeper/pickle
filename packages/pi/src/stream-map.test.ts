@@ -2,66 +2,91 @@ import { describe, expect, it } from "vitest";
 import {
   closeOpenMessageParts,
   createStreamRunState,
-  finishChunk,
+  finishRunEvents,
   mapPiApprovalRequest,
   mapPiMessageDelta,
   mapPiToolInput,
   mapPiToolOutput,
-  startChunk,
+  startRunEvents,
 } from "./stream-map";
 
-describe("Pi event to Beeper stream mapping", () => {
-  it("maps assistant text and reasoning to Desktop chunks", () => {
+describe("Pi event to AG-UI stream mapping", () => {
+  it("maps assistant text and reasoning to AG-UI events", () => {
     const state = createStreamRunState("turn_1");
 
-    expect(startChunk(state)).toEqual({
-      messageId: "turn_1",
-      messageMetadata: { turn_id: "turn_1" },
-      type: "start",
-    });
+    expect(startRunEvents(state)).toEqual([
+      { runId: "turn_1", threadId: "turn_1", type: "RUN_STARTED" },
+      { messageId: "turn_1", role: "assistant", type: "TEXT_MESSAGE_START" },
+    ]);
     expect(mapPiMessageDelta(state, { kind: "thinking", value: "checking" })).toEqual([
-      { id: "reasoning_turn_1", type: "reasoning-start" },
-      { delta: "checking", id: "reasoning_turn_1", type: "reasoning-delta" },
+      { messageId: "turn_1", type: "REASONING_START" },
+      { messageId: "turn_1", type: "REASONING_MESSAGE_START" },
+      { delta: "checking", messageId: "turn_1", type: "REASONING_MESSAGE_CONTENT" },
     ]);
     expect(mapPiMessageDelta(state, { kind: "thinking", value: " files" })).toEqual([
-      { delta: " files", id: "reasoning_turn_1", type: "reasoning-delta" },
+      { delta: " files", messageId: "turn_1", type: "REASONING_MESSAGE_CONTENT" },
     ]);
     expect(mapPiMessageDelta(state, { kind: "text", value: "done" })).toEqual([
-      { id: "text_turn_1", type: "text-start" },
-      { delta: "done", id: "text_turn_1", type: "text-delta" },
+      { delta: "done", messageId: "turn_1", type: "TEXT_MESSAGE_CONTENT" },
     ]);
     expect(mapPiMessageDelta(state, { kind: "text", value: "." })).toEqual([
-      { delta: ".", id: "text_turn_1", type: "text-delta" },
+      { delta: ".", messageId: "turn_1", type: "TEXT_MESSAGE_CONTENT" },
     ]);
     expect(closeOpenMessageParts(state)).toEqual([
-      { id: "reasoning_turn_1", type: "reasoning-end" },
-      { id: "text_turn_1", type: "text-end" },
+      { messageId: "turn_1", type: "REASONING_MESSAGE_END" },
+      { messageId: "turn_1", type: "REASONING_END" },
     ]);
-    expect(finishChunk(state)).toMatchObject({ finishReason: "stop", type: "finish" });
+    expect(finishRunEvents(state)).toMatchObject([
+      { messageId: "turn_1", type: "TEXT_MESSAGE_END" },
+      { finishReason: "stop", runId: "turn_1", threadId: "turn_1", type: "RUN_FINISHED" },
+    ]);
   });
 
-  it("maps tool lifecycle and approval chunks", () => {
+  it("maps tool lifecycle and approval events", () => {
     const state = createStreamRunState("turn_2");
 
-    expect(mapPiToolInput({ input: { cmd: "pwd" }, toolCallId: "call_1", toolName: "bash" })).toEqual({
-      dynamic: true,
-      input: { cmd: "pwd" },
-      toolCallId: "call_1",
-      toolName: "bash",
-      type: "tool-input-available",
-    });
-    expect(mapPiToolOutput({ output: "ok", toolCallId: "call_1", toolName: "bash" })).toEqual({
-      dynamic: true,
-      output: "ok",
-      preliminary: undefined,
-      toolCallId: "call_1",
-      toolName: "bash",
-      type: "tool-output-available",
-    });
+    expect(mapPiToolInput({ input: { cmd: "pwd" }, toolCallId: "call_1", toolName: "bash" })).toEqual([
+      {
+        parentMessageId: "call_1",
+        state: "awaiting-input",
+        toolCallId: "call_1",
+        toolCallName: "bash",
+        toolName: "bash",
+        type: "TOOL_CALL_START",
+      },
+      {
+        args: { cmd: "pwd" },
+        delta: "{\"cmd\":\"pwd\"}",
+        state: "input-streaming",
+        toolCallId: "call_1",
+        type: "TOOL_CALL_ARGS",
+      },
+      {
+        input: { cmd: "pwd" },
+        state: "input-complete",
+        toolCallId: "call_1",
+        toolCallName: "bash",
+        toolName: "bash",
+        type: "TOOL_CALL_END",
+      },
+    ]);
+    expect(mapPiToolOutput({ output: "ok", toolCallId: "call_1", toolName: "bash" })).toEqual([
+      {
+        content: "ok",
+        role: "tool",
+        state: "complete",
+        toolCallId: "call_1",
+        toolName: "bash",
+        type: "TOOL_CALL_RESULT",
+      },
+    ]);
     expect(mapPiApprovalRequest(state, { toolCallId: "call_1", toolName: "bash" })).toMatchObject({
-      approvalId: "approval_call_1",
-      toolCallId: "call_1",
-      type: "tool-approval-request",
+      name: "approval-requested",
+      type: "CUSTOM",
+      value: {
+        approvalMessageId: "approval_call_1",
+        toolCallId: "call_1",
+      },
     });
   });
 });

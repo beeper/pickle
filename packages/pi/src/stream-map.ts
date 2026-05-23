@@ -1,74 +1,151 @@
-export type BeeperUIMessageChunk = Record<string, unknown> & { type: string };
+export type AGUIEvent = Record<string, unknown> & { type: string };
+
+export const AGUIEventType = {
+  CUSTOM: "CUSTOM",
+  REASONING_END: "REASONING_END",
+  REASONING_MESSAGE_CONTENT: "REASONING_MESSAGE_CONTENT",
+  REASONING_MESSAGE_END: "REASONING_MESSAGE_END",
+  REASONING_MESSAGE_START: "REASONING_MESSAGE_START",
+  REASONING_START: "REASONING_START",
+  RUN_ERROR: "RUN_ERROR",
+  RUN_FINISHED: "RUN_FINISHED",
+  RUN_STARTED: "RUN_STARTED",
+  TEXT_MESSAGE_CONTENT: "TEXT_MESSAGE_CONTENT",
+  TEXT_MESSAGE_END: "TEXT_MESSAGE_END",
+  TEXT_MESSAGE_START: "TEXT_MESSAGE_START",
+  TOOL_CALL_ARGS: "TOOL_CALL_ARGS",
+  TOOL_CALL_END: "TOOL_CALL_END",
+  TOOL_CALL_RESULT: "TOOL_CALL_RESULT",
+  TOOL_CALL_START: "TOOL_CALL_START",
+} as const;
 
 export interface StreamRunState {
-  reasoningPartId?: string;
-  textPartId?: string;
+  messageStarted: boolean;
+  reasoningStarted: boolean;
+  textStarted: boolean;
   toolCallIdToApprovalId: Record<string, string>;
+  toolInputByCallId: Record<string, unknown>;
+  toolNameByCallId: Record<string, string>;
   turnId: string;
 }
 
 export function createStreamRunState(turnId: string): StreamRunState {
-  return { toolCallIdToApprovalId: {}, turnId };
+  return {
+    messageStarted: false,
+    reasoningStarted: false,
+    textStarted: false,
+    toolCallIdToApprovalId: {},
+    toolInputByCallId: {},
+    toolNameByCallId: {},
+    turnId,
+  };
 }
 
 export function createTurnId(): string {
   return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function startChunk(state: StreamRunState): BeeperUIMessageChunk {
-  return {
-    messageId: state.turnId,
-    messageMetadata: { turn_id: state.turnId },
-    type: "start",
-  };
+export function startRunEvents(state: StreamRunState): AGUIEvent[] {
+  if (state.messageStarted) return [];
+  state.messageStarted = true;
+  return [
+    {
+      runId: state.turnId,
+      threadId: state.turnId,
+      type: AGUIEventType.RUN_STARTED,
+    },
+    {
+      messageId: state.turnId,
+      role: "assistant",
+      type: AGUIEventType.TEXT_MESSAGE_START,
+    },
+  ];
 }
 
-export function finishChunk(state: StreamRunState, finishReason = "stop"): BeeperUIMessageChunk {
-  return {
-    finishReason,
-    messageMetadata: { finish_reason: finishReason, turn_id: state.turnId },
-    type: "finish",
-  };
+export function finishRunEvents(state: StreamRunState, finishReason = "stop"): AGUIEvent[] {
+  return [
+    ...closeOpenMessageParts(state),
+    {
+      messageId: state.turnId,
+      type: AGUIEventType.TEXT_MESSAGE_END,
+    },
+    {
+      finishReason,
+      runId: state.turnId,
+      threadId: state.turnId,
+      type: AGUIEventType.RUN_FINISHED,
+    },
+  ];
 }
 
 export function mapPiMessageDelta(
   state: StreamRunState,
   delta: { kind: "text" | "thinking"; value: string }
-): BeeperUIMessageChunk[] {
+): AGUIEvent[] {
   if (delta.kind === "text") {
-    return [...openTextPart(state), { delta: delta.value, id: state.textPartId!, type: "text-delta" }];
+    return [
+      ...openTextPart(state),
+      {
+        delta: delta.value,
+        messageId: state.turnId,
+        type: AGUIEventType.TEXT_MESSAGE_CONTENT,
+      },
+    ];
   }
-  return [...openReasoningPart(state), { delta: delta.value, id: state.reasoningPartId!, type: "reasoning-delta" }];
+  return [
+    ...openReasoningPart(state),
+    {
+      delta: delta.value,
+      messageId: state.turnId,
+      type: AGUIEventType.REASONING_MESSAGE_CONTENT,
+    },
+  ];
 }
 
-export function closeOpenMessageParts(state: StreamRunState): BeeperUIMessageChunk[] {
+export function closeOpenMessageParts(state: StreamRunState): AGUIEvent[] {
   return [...closeReasoningPart(state), ...closeTextPart(state)];
 }
 
-export function openTextPart(state: StreamRunState): BeeperUIMessageChunk[] {
-  if (state.textPartId) return [];
-  state.textPartId = `text_${state.turnId}`;
-  return [{ id: state.textPartId, type: "text-start" }];
+export function openTextPart(state: StreamRunState): AGUIEvent[] {
+  if (state.textStarted) return [];
+  state.textStarted = true;
+  return [];
 }
 
-export function closeTextPart(state: StreamRunState): BeeperUIMessageChunk[] {
-  if (!state.textPartId) return [];
-  const id = state.textPartId;
-  delete state.textPartId;
-  return [{ id, type: "text-end" }];
+export function closeTextPart(state: StreamRunState): AGUIEvent[] {
+  if (!state.textStarted) return [];
+  state.textStarted = false;
+  return [];
 }
 
-export function openReasoningPart(state: StreamRunState): BeeperUIMessageChunk[] {
-  if (state.reasoningPartId) return [];
-  state.reasoningPartId = `reasoning_${state.turnId}`;
-  return [{ id: state.reasoningPartId, type: "reasoning-start" }];
+export function openReasoningPart(state: StreamRunState): AGUIEvent[] {
+  if (state.reasoningStarted) return [];
+  state.reasoningStarted = true;
+  return [
+    {
+      messageId: state.turnId,
+      type: AGUIEventType.REASONING_START,
+    },
+    {
+      messageId: state.turnId,
+      type: AGUIEventType.REASONING_MESSAGE_START,
+    },
+  ];
 }
 
-export function closeReasoningPart(state: StreamRunState): BeeperUIMessageChunk[] {
-  if (!state.reasoningPartId) return [];
-  const id = state.reasoningPartId;
-  delete state.reasoningPartId;
-  return [{ id, type: "reasoning-end" }];
+export function closeReasoningPart(state: StreamRunState): AGUIEvent[] {
+  if (!state.reasoningStarted) return [];
+  state.reasoningStarted = false;
+  return [
+    {
+      messageId: state.turnId,
+      type: AGUIEventType.REASONING_MESSAGE_END,
+    },
+    {
+      messageId: state.turnId,
+      type: AGUIEventType.REASONING_END,
+    },
+  ];
 }
 
 export function mapPiToolInput(event: {
@@ -77,15 +154,35 @@ export function mapPiToolInput(event: {
   startedAtMs?: number;
   toolCallId: string;
   toolName?: string;
-}): BeeperUIMessageChunk {
-  return {
-    dynamic: event.dynamic ?? true,
-    input: event.input,
-    toolCallId: event.toolCallId,
-    toolName: event.toolName,
-    ...(event.startedAtMs !== undefined ? { startedAtMs: event.startedAtMs } : {}),
-    type: "tool-input-available",
-  };
+}): AGUIEvent[] {
+  const toolName = event.toolName || "tool";
+  return [
+    {
+      parentMessageId: event.toolCallId,
+      state: "awaiting-input",
+      toolCallId: event.toolCallId,
+      toolCallName: toolName,
+      toolName,
+      type: AGUIEventType.TOOL_CALL_START,
+      ...(event.dynamic !== undefined ? { dynamic: event.dynamic } : {}),
+      ...(event.startedAtMs !== undefined ? { startedAtMs: event.startedAtMs } : {}),
+    },
+    {
+      args: event.input,
+      delta: stringifyToolValue(event.input),
+      state: "input-streaming",
+      toolCallId: event.toolCallId,
+      type: AGUIEventType.TOOL_CALL_ARGS,
+    },
+    {
+      input: event.input,
+      state: "input-complete",
+      toolCallId: event.toolCallId,
+      toolCallName: toolName,
+      toolName,
+      type: AGUIEventType.TOOL_CALL_END,
+    },
+  ];
 }
 
 export function mapPiToolOutput(event: {
@@ -95,41 +192,41 @@ export function mapPiToolOutput(event: {
   preliminary?: boolean;
   toolCallId: string;
   toolName?: string;
-}): BeeperUIMessageChunk {
-  if (event.error !== undefined) {
-    return {
-      dynamic: true,
-      errorText: errorText(event.error),
+}): AGUIEvent[] {
+  const state = event.error !== undefined ? "error" : event.preliminary ? "streaming" : "complete";
+  return [
+    {
+      content: stringifyToolValue(event.error !== undefined ? event.error : event.output),
+      role: "tool",
+      state,
       toolCallId: event.toolCallId,
-      toolName: event.toolName,
+      type: AGUIEventType.TOOL_CALL_RESULT,
+      ...(event.toolName ? { toolName: event.toolName } : {}),
       ...(event.completedAtMs !== undefined ? { completedAtMs: event.completedAtMs } : {}),
       ...(event.preliminary !== undefined ? { preliminary: event.preliminary } : {}),
-      type: "tool-output-error",
-    };
-  }
-  return {
-    dynamic: true,
-    output: event.output,
-    preliminary: event.preliminary,
-    toolCallId: event.toolCallId,
-    toolName: event.toolName,
-    ...(event.completedAtMs !== undefined ? { completedAtMs: event.completedAtMs } : {}),
-    type: "tool-output-available",
-  };
+    },
+  ];
 }
 
 export function mapPiApprovalRequest(
   state: StreamRunState,
   event: { message?: string; toolCallId: string; toolName: string }
-): BeeperUIMessageChunk {
+): AGUIEvent {
   const approvalId = `approval_${event.toolCallId}`;
   state.toolCallIdToApprovalId[event.toolCallId] = approvalId;
   return {
-    approvalId,
-    message: event.message,
-    toolCallId: event.toolCallId,
-    toolName: event.toolName,
-    type: "tool-approval-request",
+    name: "approval-requested",
+    type: AGUIEventType.CUSTOM,
+    value: {
+      approval: {
+        id: approvalId,
+        needsApproval: true,
+      },
+      approvalMessageId: approvalId,
+      message: event.message,
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+    },
   };
 }
 
@@ -138,18 +235,27 @@ export function mapPiApprovalResponse(event: {
   approved: boolean;
   approvedAlways?: boolean;
   toolCallId: string;
-}): BeeperUIMessageChunk {
+}): AGUIEvent {
   return {
-    approvalId: event.approvalId,
-    approved: event.approved,
-    approvedAlways: event.approvedAlways,
-    toolCallId: event.toolCallId,
-    type: "tool-approval-response",
+    name: "approval-responded",
+    type: AGUIEventType.CUSTOM,
+    value: {
+      approval: {
+        always: event.approvedAlways,
+        approved: event.approved,
+        id: event.approvalId,
+      },
+      toolCallId: event.toolCallId,
+    },
   };
 }
 
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return JSON.stringify(error);
+function stringifyToolValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }

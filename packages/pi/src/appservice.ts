@@ -8,7 +8,7 @@ import { PicklePiRegistry } from "./registry";
 import { createSessionRoom } from "./rooms";
 import { SerialQueue } from "./serial";
 import { attachRoomToSpace, createProjectSpace, projectKeyForCwd } from "./spaces";
-import { createTurnId } from "./stream-map";
+import { AGUIEventType, createTurnId } from "./stream-map";
 import type { PicklePiBinding, PicklePiConfig } from "./types";
 
 export interface PicklePiAgentOptions {
@@ -246,11 +246,10 @@ class PiStreamRun {
     return this.#queue.run(async () => {
       for (const chunk of chunks) {
         if (this.#closed) return true;
-        if (chunk.type === "start") {
+        if (chunk.type === AGUIEventType.RUN_STARTED) {
           await this.publisher.start();
-          continue;
         }
-        if (chunk.type === "finish") {
+        if (chunk.type === AGUIEventType.RUN_FINISHED) {
           await this.publisher.finalize({
             finishReason: typeof chunk.finishReason === "string" ? chunk.finishReason : "stop",
             terminalPart: chunk,
@@ -258,17 +257,9 @@ class PiStreamRun {
           this.#closed = true;
           return true;
         }
-        if (chunk.type === "error") {
+        if (chunk.type === AGUIEventType.RUN_ERROR) {
           await this.publisher.finalize({
-            body: typeof chunk.errorText === "string" ? chunk.errorText : "Pi stream failed",
-            terminalPart: chunk,
-          });
-          this.#closed = true;
-          return true;
-        }
-        if (chunk.type === "abort") {
-          await this.publisher.finalize({
-            body: typeof chunk.reason === "string" ? chunk.reason : "Pi stream aborted",
+            body: typeof chunk.message === "string" ? chunk.message : "Pi stream failed",
             terminalPart: chunk,
           });
           this.#closed = true;
