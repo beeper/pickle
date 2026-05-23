@@ -1,6 +1,6 @@
 # @beeper/pickle-ai-sdk
 
-Pipe an [AI SDK](https://sdk.vercel.ai) UI message stream straight into a Matrix message via [`@beeper/pickle-chat-adapter`](https://github.com/beeper/pickle/tree/main/packages/chat-adapter).
+Pipe an AG-UI event stream into a Matrix message via [`@beeper/pickle-chat-adapter`](https://github.com/beeper/pickle/tree/main/packages/chat-adapter).
 
 ```sh
 npm install @beeper/pickle-ai-sdk
@@ -9,33 +9,33 @@ npm install @beeper/pickle-ai-sdk
 ## Usage
 
 ```ts
-import { streamText } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { fromAIStreamResult } from "@beeper/pickle-ai-sdk";
+import { fromAGUIEventStream } from "@beeper/pickle-ai-sdk";
 
-bot.onNewMention(async (thread, message) => {
-  await thread.subscribe();
+async function* runEvents() {
+  yield { type: "RUN_STARTED", threadId: "thread-1", runId: "run-1" };
+  yield { type: "TEXT_MESSAGE_START", messageId: "message-1", role: "assistant" };
+  yield { type: "TEXT_MESSAGE_CONTENT", messageId: "message-1", delta: "Hello" };
+  yield { type: "TEXT_MESSAGE_END", messageId: "message-1" };
+  yield { type: "RUN_FINISHED", threadId: "thread-1", runId: "run-1", finishReason: "stop" };
+}
 
-  const result = streamText({ model: openai("gpt-4o"), prompt: message.text });
-
-  await matrix.stream(
-    matrix.encodeThreadId({ roomId: message.raw.roomId }),
-    fromAIStreamResult(result),
-  );
-});
+await matrix.stream(
+  matrix.encodeThreadId({ roomId: message.raw.roomId }),
+  fromAGUIEventStream(runEvents()),
+);
 ```
 
-The adapter handles debounced edits — or native streaming on Beeper.
+The adapter handles debounced edits, or native streaming on Beeper.
 
 ## API
 
 ```ts
-fromAIStreamResult(result)        // anything with .toUIMessageStream()
-fromAIUIMessageStream(stream)     // already have a UI message stream?
-isAIUIMessageStreamResult(value)  // type guard
+fromAGUIEventStream(stream)
+fromAGUIStreamResult(result)
+isAGUIEventStreamResult(value)
 ```
 
-All three return a `MatrixStream` you hand to `matrix.stream()`. Split out so the chat adapter doesn't pull the AI SDK in unless you need it.
+All three return a `MatrixStream` you hand to `matrix.stream()`.
 
 ## License
 

@@ -1,38 +1,38 @@
 import type { MatrixStream } from "@beeper/pickle";
 
-export type AIUIMessageChunk = {
+export type AGUIEvent = {
   type: string;
   [key: string]: unknown;
 };
 
-export type AIUIMessageChunkStream =
-  | AsyncIterable<AIUIMessageChunk>
-  | ReadableStream<AIUIMessageChunk>;
+export type AGUIEventStream =
+  | AsyncIterable<AGUIEvent>
+  | ReadableStream<AGUIEvent>;
 
-export interface AIUIMessageStreamResult {
-  toUIMessageStream(): AIUIMessageChunkStream;
+export interface AGUIEventStreamResult {
+  toAGUIEventStream(): AGUIEventStream;
 }
 
-export function fromAIUIMessageStream(stream: AIUIMessageChunkStream): MatrixStream {
+export function fromAGUIEventStream(stream: AGUIEventStream): MatrixStream {
   if (isAsyncIterable(stream)) {
     return stream;
   }
   return readableStreamToAsyncIterable(stream);
 }
 
-export function fromAIStreamResult(result: AIUIMessageStreamResult): MatrixStream {
-  return fromAIUIMessageStream(result.toUIMessageStream());
+export function fromAGUIStreamResult(result: AGUIEventStreamResult): MatrixStream {
+  return fromAGUIEventStream(result.toAGUIEventStream());
 }
 
-export function isAIUIMessageStreamResult(value: unknown): value is AIUIMessageStreamResult {
+export function isAGUIEventStreamResult(value: unknown): value is AGUIEventStreamResult {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
+    typeof (value as { toAGUIEventStream?: unknown }).toAGUIEventStream === "function"
   );
 }
 
-async function* readableStreamToAsyncIterable(stream: ReadableStream<AIUIMessageChunk>): AsyncIterable<AIUIMessageChunk> {
+async function* readableStreamToAsyncIterable(stream: ReadableStream<AGUIEvent>): AsyncIterable<AGUIEvent> {
   const reader = stream.getReader();
   try {
     while (true) {
@@ -47,6 +47,6 @@ async function* readableStreamToAsyncIterable(stream: ReadableStream<AIUIMessage
   }
 }
 
-function isAsyncIterable(value: AIUIMessageChunkStream): value is AsyncIterable<AIUIMessageChunk> {
+function isAsyncIterable(value: AGUIEventStream): value is AsyncIterable<AGUIEvent> {
   return Symbol.asyncIterator in value;
 }

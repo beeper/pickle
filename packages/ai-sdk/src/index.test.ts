@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromAIStreamResult, fromAIUIMessageStream, isAIUIMessageStreamResult } from "./index";
+import { fromAGUIEventStream, fromAGUIStreamResult, isAGUIEventStreamResult } from "./index";
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
@@ -9,47 +9,49 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return values;
 }
 
-describe("AI SDK stream adapters", () => {
-  it("passes async iterable UI message chunks through structurally", async () => {
-    async function* chunks() {
-      yield { delta: "hello", id: "text-1", type: "text-delta" };
+describe("AG-UI stream adapters", () => {
+  it("passes async iterable AG-UI events through structurally", async () => {
+    async function* events() {
+      yield { messageId: "message-1", role: "assistant", type: "TEXT_MESSAGE_START" };
+      yield { delta: "hello", messageId: "message-1", type: "TEXT_MESSAGE_CONTENT" };
     }
 
-    await expect(collect(fromAIUIMessageStream(chunks()))).resolves.toEqual([
-      { delta: "hello", id: "text-1", type: "text-delta" },
+    await expect(collect(fromAGUIEventStream(events()))).resolves.toEqual([
+      { messageId: "message-1", role: "assistant", type: "TEXT_MESSAGE_START" },
+      { delta: "hello", messageId: "message-1", type: "TEXT_MESSAGE_CONTENT" },
     ]);
   });
 
-  it("converts ReadableStream UI message chunks to async iterable Matrix streams", async () => {
+  it("converts ReadableStream AG-UI events to async iterable Matrix streams", async () => {
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue({ id: "reasoning-1", type: "reasoning-start" });
-        controller.enqueue({ delta: "thinking", id: "reasoning-1", type: "reasoning-delta" });
+        controller.enqueue({ runId: "run-1", threadId: "thread-1", type: "RUN_STARTED" });
+        controller.enqueue({ delta: "thinking", messageId: "message-1", type: "REASONING_MESSAGE_CONTENT" });
         controller.close();
       },
     });
 
-    await expect(collect(fromAIUIMessageStream(stream))).resolves.toEqual([
-      { id: "reasoning-1", type: "reasoning-start" },
-      { delta: "thinking", id: "reasoning-1", type: "reasoning-delta" },
+    await expect(collect(fromAGUIEventStream(stream))).resolves.toEqual([
+      { runId: "run-1", threadId: "thread-1", type: "RUN_STARTED" },
+      { delta: "thinking", messageId: "message-1", type: "REASONING_MESSAGE_CONTENT" },
     ]);
   });
 
-  it("accepts streamText-like results with toUIMessageStream", async () => {
+  it("accepts AG-UI stream results with toAGUIEventStream", async () => {
     const result = {
-      toUIMessageStream() {
+      toAGUIEventStream() {
         return new ReadableStream({
           start(controller) {
-            controller.enqueue({ finishReason: "stop", type: "finish" });
+            controller.enqueue({ finishReason: "stop", runId: "run-1", threadId: "thread-1", type: "RUN_FINISHED" });
             controller.close();
           },
         });
       },
     };
 
-    expect(isAIUIMessageStreamResult(result)).toBe(true);
-    await expect(collect(fromAIStreamResult(result))).resolves.toEqual([
-      { finishReason: "stop", type: "finish" },
+    expect(isAGUIEventStreamResult(result)).toBe(true);
+    await expect(collect(fromAGUIStreamResult(result))).resolves.toEqual([
+      { finishReason: "stop", runId: "run-1", threadId: "thread-1", type: "RUN_FINISHED" },
     ]);
   });
 });

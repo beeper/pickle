@@ -1,7 +1,7 @@
 {
   "name": "@beeper/pickle-ai-sdk",
   "version": "0.1.0",
-  "description": "AI SDK stream adapters for Pickle",
+  "description": "AG-UI stream adapters for Pickle",
   "type": "module",
   "homepage": "https://github.com/beeper/pickle#readme",
   "repository": {
@@ -48,7 +48,7 @@
   },
   "keywords": [
     "matrix",
-    "ai-sdk",
+    "ag-ui",
     "streaming",
     "beeper"
   ],

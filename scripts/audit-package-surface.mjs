@@ -26,7 +26,7 @@ for (const entry of packages) {
 
 const aiPackage = JSON.parse(await readFile(join(packagesDir, "ai-sdk/package.json"), "utf8"));
 if (aiPackage.dependencies?.ai || aiPackage.peerDependencies?.ai) {
-  failures.push("@beeper/pickle-ai-sdk must not require the AI SDK at runtime");
+  failures.push("@beeper/pickle-ai-sdk must not require Vercel AI SDK at runtime");
 }
 
 if (failures.length > 0) {
