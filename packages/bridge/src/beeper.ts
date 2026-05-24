@@ -3,6 +3,7 @@ import type { MatrixAppserviceInitOptions, MatrixAppserviceNamespace, MatrixApps
 export interface BeeperClientOptions {
   baseDomain?: string;
   fetch?: typeof fetch;
+  hungryToken?: string;
   token: string;
   username?: string;
 }
@@ -69,6 +70,7 @@ export interface RegisteredAppService {
 export class BeeperBridgeManagerClient {
   #baseDomain: string;
   #fetch: typeof fetch;
+  #hungryToken: string | undefined;
   #token: string;
   #username: string | undefined;
   #whoami: BeeperWhoamiResponse | undefined;
@@ -76,6 +78,7 @@ export class BeeperBridgeManagerClient {
   constructor(options: BeeperClientOptions) {
     this.#baseDomain = options.baseDomain ?? "beeper.com";
     this.#fetch = options.fetch ?? fetch;
+    this.#hungryToken = options.hungryToken;
     this.#token = options.token;
     this.#username = options.username;
   }
@@ -110,7 +113,6 @@ export class BeeperBridgeManagerClient {
     }));
     if (options.postState !== false) {
       const stateOptions: PostBridgeStateOptions = {
-        asToken: registration.asToken,
         bridge: options.bridge,
         isSelfHosted: options.selfHosted ?? true,
         reason: "SELF_HOST_REGISTERED",
@@ -131,7 +133,7 @@ export class BeeperBridgeManagerClient {
       isSelfHosted: options.isSelfHosted ?? true,
       reason: options.reason,
       stateEvent: options.stateEvent,
-    }, undefined, options.asToken);
+    });
   }
 
   async createAppService(options: CreateAppServiceOptions): Promise<RegisteredAppService> {
@@ -167,7 +169,7 @@ export class BeeperBridgeManagerClient {
     const url = kind === "api" ? new URL(path, base) : new URL(`${base}${path}`);
     const init: RequestInit = {
       headers: {
-        "authorization": `Bearer ${token ?? this.#token}`,
+        "authorization": `Bearer ${token ?? (kind === "hungry" ? this.#hungryToken : undefined) ?? this.#token}`,
         ...(body ? { "content-type": "application/json" } : {}),
       },
       method,
@@ -180,7 +182,7 @@ export class BeeperBridgeManagerClient {
         const data = await response.json() as { error?: string };
         detail = data.error ?? detail;
       } catch {}
-      throw new Error(`Beeper bridge manager request failed (${response.status}): ${detail}`);
+      throw new Error(`Beeper bridge manager request failed (${response.status}) ${method} ${kind} ${url.origin}${url.pathname}: ${detail}`);
     }
     const text = await response.text();
     return (text ? JSON.parse(text) : undefined) as T;
@@ -188,7 +190,6 @@ export class BeeperBridgeManagerClient {
 }
 
 export interface PostBridgeStateOptions {
-  asToken: string;
   bridge: string;
   bridgeType?: string;
   info?: Record<string, unknown>;
@@ -206,13 +207,13 @@ export async function fetchBeeperBridges(options: BeeperClientOptions): Promise<
 }
 
 export async function createBeeperAppService(options: BeeperClientOptions & CreateAppServiceOptions): Promise<RegisteredAppService> {
-  const { baseDomain, fetch: fetchImpl, token, username, ...appserviceOptions } = options;
-  return createBeeperBridgeManagerClient(clientOptions({ baseDomain, fetch: fetchImpl, token, username })).createAppService(appserviceOptions);
+  const { baseDomain, fetch: fetchImpl, hungryToken, token, username, ...appserviceOptions } = options;
+  return createBeeperBridgeManagerClient(clientOptions({ baseDomain, fetch: fetchImpl, hungryToken, token, username })).createAppService(appserviceOptions);
 }
 
 export async function createBeeperAppServiceInit(options: BeeperClientOptions & CreateAppServiceOptions): Promise<MatrixAppserviceInitOptions> {
-  const { baseDomain, fetch: fetchImpl, token, username, ...appserviceOptions } = options;
-  return createBeeperBridgeManagerClient(clientOptions({ baseDomain, fetch: fetchImpl, token, username })).createAppServiceInit(appserviceOptions);
+  const { baseDomain, fetch: fetchImpl, hungryToken, token, username, ...appserviceOptions } = options;
+  return createBeeperBridgeManagerClient(clientOptions({ baseDomain, fetch: fetchImpl, hungryToken, token, username })).createAppServiceInit(appserviceOptions);
 }
 
 function bridgeStateEvent(options: RegisterAppServiceOptions): PostBridgeStateOptions["stateEvent"] {
@@ -280,12 +281,14 @@ function stripUndefined<T extends Record<string, unknown>>(input: T): T {
 function clientOptions(options: {
   baseDomain: string | undefined;
   fetch: typeof fetch | undefined;
+  hungryToken: string | undefined;
   token: string;
   username: string | undefined;
 }): BeeperClientOptions {
   const output: BeeperClientOptions = { token: options.token };
   if (options.baseDomain !== undefined) output.baseDomain = options.baseDomain;
   if (options.fetch !== undefined) output.fetch = options.fetch;
+  if (options.hungryToken !== undefined) output.hungryToken = options.hungryToken;
   if (options.username !== undefined) output.username = options.username;
   return output;
 }

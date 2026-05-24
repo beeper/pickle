@@ -27,7 +27,9 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
     ...(options.baseDomain ? { baseDomain: options.baseDomain } : {}),
     ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
     ...(options.getOnly !== undefined ? { getOnly: options.getOnly } : {}),
+    ...(options.bridgeManagerToken ? { hungryToken: options.bridgeManagerToken } : {}),
     ...(options.homeserverDomain ? { homeserverDomain: options.homeserverDomain } : {}),
+    ...(options.bridgeManagerPostState !== undefined ? { postState: options.bridgeManagerPostState } : {}),
   });
   const matrix = {
     ...options.matrix,

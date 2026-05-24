@@ -28,6 +28,7 @@ describe("Beeper bridge manager helpers", () => {
       }
       if (String(url) === "https://matrix.example/_hungryserv/alice/_matrix/asmux/mxauth/appservice/alice/sh-dummy") {
         expect(init?.method).toBe("PUT");
+        expect(init?.headers).toMatchObject({ authorization: "Bearer legacy" });
         expect(JSON.parse(String(init?.body))).toEqual({
           address: "https://bridge.example",
           push: true,
@@ -49,7 +50,7 @@ describe("Beeper bridge manager helpers", () => {
       }
       expect(String(url)).toBe("https://api.example/bridgebox/alice/bridge/sh-dummy/bridge_state");
       expect(init?.method).toBe("POST");
-      expect(init?.headers).toMatchObject({ authorization: "Bearer as" });
+      expect(init?.headers).toMatchObject({ authorization: "Bearer token" });
       expect(JSON.parse(String(init?.body))).toEqual({
         info: {},
         isSelfHosted: true,
@@ -64,6 +65,7 @@ describe("Beeper bridge manager helpers", () => {
       baseDomain: "example",
       bridge: "sh-dummy",
       fetch: fetch as never,
+      hungryToken: "legacy",
       token: "token",
     })).resolves.toEqual({
       homeserver: "https://matrix.example/_hungryserv/alice",
