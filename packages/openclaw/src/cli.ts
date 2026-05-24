@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import type { BeeperEnvironment } from "@beeper/pickle/beeper/auth";
 import { accountFromOpenClawConfig, startOpenClawBeeperBridge, type CreateOpenClawBeeperBridgeOptions } from "./appservice";
 import { createOpenClawBeeperAppService, loginToBeeperForOpenClaw, setupOpenClawBeeperBridge } from "./beeper-setup";
@@ -12,11 +13,15 @@ import type { AppserviceRegistration, OpenClawBridgeConfig } from "./types";
 
 export interface CliIO {
   stderr: Pick<typeof process.stderr, "write">;
+  stdin?: NodeJS.ReadableStream;
   stdout: Pick<typeof process.stdout, "write">;
 }
 
 export interface CliDeps {
+  createAppService?: typeof createOpenClawBeeperAppService;
+  loginToBeeper?: typeof loginToBeeperForOpenClaw;
   runtimeFactory?: (config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
+  setupBridge?: typeof setupOpenClawBeeperBridge;
   startBridge?: (options: CreateOpenClawBeeperBridgeOptions) => Promise<unknown>;
 }
 
@@ -38,8 +43,8 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       const options = parseOptions(args);
       const config = await loadConfig(options);
       const registration = createAppserviceRegistration(config, {
-        asToken: stringOption(options, "as-token") ?? secretToken(),
-        hsToken: stringOption(options, "hs-token") ?? secretToken(),
+        asToken: stringOption(options, "as-token") ?? config.asToken ?? secretToken(),
+        hsToken: stringOption(options, "hs-token") ?? config.hsToken ?? secretToken(),
       });
       const output = stringOption(options, "output") ?? resolve(config.dataDir, "registration.json");
       await writeRegistration(output, registration);
@@ -102,10 +107,11 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       const env = beeperEnvOption(options);
       if (env !== undefined) loginOptions.env = env;
       if (loginCode !== undefined) loginOptions.getLoginCode = () => loginCode;
-      if (booleanOption(options, "create-account")) loginOptions.onlyExistingAccounts = false;
-      const result = await loginToBeeperForOpenClaw(loginOptions);
+      else loginOptions.getLoginCode = () => promptForLoginCode(io);
+      const result = await (deps.loginToBeeper ?? loginToBeeperForOpenClaw)(loginOptions);
       const config = createDefaultConfig({
         ...configOverridesFromOptions(options),
+        ...beeperRuntimeOverridesFromOptions(options),
         ...result.config,
       });
       await writeConfig(config, stringOption(options, "config") ?? defaultConfigPath(config.dataDir));
@@ -128,20 +134,23 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       };
       const baseDomain = stringOption(options, "base-domain") ?? beeperBaseDomainOption(options);
       const bridge = stringOption(options, "bridge");
+      const bridgeManagerToken = stringOption(options, "bridge-manager-token");
       const bridgeType = stringOption(options, "bridge-type");
       const homeserver = stringOption(options, "homeserver") ?? existingConfig.homeserver;
       const homeserverDomain = stringOption(options, "homeserver-domain");
       const username = stringOption(options, "username");
       if (baseDomain !== undefined) registerOptions.baseDomain = baseDomain;
       if (bridge !== undefined) registerOptions.bridge = bridge;
+      if (bridgeManagerToken !== undefined) registerOptions.bridgeManagerToken = bridgeManagerToken;
       if (bridgeType !== undefined) registerOptions.bridgeType = bridgeType;
       if (homeserver !== undefined) registerOptions.homeserver = homeserver;
       if (homeserverDomain !== undefined) registerOptions.homeserverDomain = homeserverDomain;
       if (username !== undefined) registerOptions.username = username;
-      const result = await createOpenClawBeeperAppService(registerOptions);
+      const result = await (deps.createAppService ?? createOpenClawBeeperAppService)(registerOptions);
       const config = createDefaultConfig({
         ...existingConfig,
         ...configOverridesFromOptions(options),
+        ...beeperRuntimeOverridesFromOptions(options),
         ...result.config,
         accessToken,
       });
@@ -162,6 +171,7 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       const address = stringOption(options, "registration-url");
       const baseDomain = stringOption(options, "base-domain") ?? beeperBaseDomainOption(options);
       const bridge = stringOption(options, "bridge");
+      const bridgeManagerToken = stringOption(options, "bridge-manager-token");
       const bridgeType = stringOption(options, "bridge-type");
       const env = beeperEnvOption(options);
       const homeserverDomain = stringOption(options, "homeserver-domain");
@@ -169,15 +179,17 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       if (address !== undefined) setupOptions.address = address;
       if (baseDomain !== undefined) setupOptions.baseDomain = baseDomain;
       if (bridge !== undefined) setupOptions.bridge = bridge;
+      if (bridgeManagerToken !== undefined) setupOptions.bridgeManagerToken = bridgeManagerToken;
       if (bridgeType !== undefined) setupOptions.bridgeType = bridgeType;
       if (env !== undefined) setupOptions.env = env;
       if (loginCode !== undefined) setupOptions.getLoginCode = () => loginCode;
+      else setupOptions.getLoginCode = () => promptForLoginCode(io);
       if (homeserverDomain !== undefined) setupOptions.homeserverDomain = homeserverDomain;
-      if (booleanOption(options, "create-account")) setupOptions.onlyExistingAccounts = false;
       if (username !== undefined) setupOptions.username = username;
-      const result = await setupOpenClawBeeperBridge(setupOptions);
+      const result = await (deps.setupBridge ?? setupOpenClawBeeperBridge)(setupOptions);
       const config = createDefaultConfig({
         ...configOverridesFromOptions(options),
+        ...beeperRuntimeOverridesFromOptions(options),
         ...result.config,
       });
       await writeConfig(config, stringOption(options, "config") ?? defaultConfigPath(config.dataDir));
@@ -217,6 +229,7 @@ function helpText(): string {
     "  --config <path>",
     "  --data-dir <path>",
     "  --homeserver <url>",
+    "  --gateway-access-token <token>",
     "  --gateway-url <url>",
     "  --registration-url <url>",
     "  --matrix-device-id <id>",
@@ -227,7 +240,7 @@ function helpText(): string {
     "  --output <path>",
     "  --email <address>",
     "  --login-code <code>",
-    "  --create-account",
+    "  --bridge-manager-token <token>",
     "  --backfill",
     "  --backfill-limit <count>",
     "  --params-json <json>",
@@ -239,21 +252,40 @@ function helpText(): string {
 function configOverridesFromOptions(options: Map<string, string | boolean>): Partial<OpenClawBridgeConfig> {
   const overrides: Partial<OpenClawBridgeConfig> = {};
   const accessToken = stringOption(options, "access-token");
+  const asToken = stringOption(options, "as-token");
   const appserviceId = stringOption(options, "appservice-id");
   const dataDir = stringOption(options, "data-dir");
+  const gatewayAccessToken = stringOption(options, "gateway-access-token");
   const gatewayUrl = stringOption(options, "gateway-url");
   const homeserver = stringOption(options, "homeserver");
   const matrixDeviceId = stringOption(options, "matrix-device-id");
   const matrixUserId = stringOption(options, "matrix-user-id");
   const registrationUrl = stringOption(options, "registration-url");
   if (accessToken) overrides.accessToken = accessToken;
+  if (asToken) overrides.asToken = asToken;
   if (appserviceId) overrides.appserviceId = appserviceId;
   if (dataDir) overrides.dataDir = dataDir;
+  if (gatewayAccessToken) overrides.gatewayAccessToken = gatewayAccessToken;
   if (gatewayUrl) overrides.gatewayUrl = gatewayUrl;
   if (homeserver) overrides.homeserver = homeserver;
   if (matrixDeviceId) overrides.matrixDeviceId = matrixDeviceId;
   if (matrixUserId) overrides.matrixUserId = matrixUserId;
   if (registrationUrl) overrides.registrationUrl = registrationUrl;
+  return overrides;
+}
+
+function beeperRuntimeOverridesFromOptions(options: Map<string, string | boolean>): Partial<OpenClawBridgeConfig> {
+  const overrides: Partial<OpenClawBridgeConfig> = {};
+  const baseDomain = stringOption(options, "base-domain") ?? beeperBaseDomainOption(options);
+  const bridgeManagerToken = stringOption(options, "bridge-manager-token");
+  const env = beeperEnvOption(options);
+  const homeserverDomain = stringOption(options, "homeserver-domain");
+  if (baseDomain !== undefined) overrides.baseDomain = baseDomain;
+  if (bridgeManagerToken !== undefined) overrides.bridgeManagerToken = bridgeManagerToken;
+  if (env !== undefined) overrides.beeperEnv = env;
+  if (homeserverDomain !== undefined) overrides.homeserverDomain = homeserverDomain;
+  if (options.has("no-post-state")) overrides.bridgeManagerPostState = false;
+  else if (options.has("post-state")) overrides.bridgeManagerPostState = true;
   return overrides;
 }
 
@@ -267,6 +299,9 @@ function redactConfig(config: OpenClawBridgeConfig): OpenClawBridgeConfig {
   return {
     ...config,
     ...(config.accessToken ? { accessToken: "<redacted>" } : {}),
+    ...(config.asToken ? { asToken: "<redacted>" } : {}),
+    ...(config.bridgeManagerToken ? { bridgeManagerToken: "<redacted>" } : {}),
+    ...(config.gatewayAccessToken ? { gatewayAccessToken: "<redacted>" } : {}),
     ...(config.hsToken ? { hsToken: "<redacted>" } : {}),
   };
 }
@@ -357,6 +392,21 @@ function beeperBaseDomainOption(options: Map<string, string | boolean>): string 
 
 function runtimeFromConfig(config: OpenClawBridgeConfig): OpenClawGatewayRuntime {
   return createOpenClawRuntimeFromLogin(userLoginFromOpenClawConfig(config), config);
+}
+
+async function promptForLoginCode(io: CliIO): Promise<string> {
+  const input = io.stdin ?? process.stdin;
+  const rl = createInterface({
+    input,
+    output: io.stderr as NodeJS.WritableStream,
+  });
+  try {
+    const code = (await rl.question("Enter Beeper login code: ")).trim();
+    if (!code) throw new Error("Missing Beeper login code");
+    return code;
+  } finally {
+    rl.close();
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

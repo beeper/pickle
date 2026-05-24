@@ -52,14 +52,53 @@ describe("OpenClawMatrixBridgeAgent", () => {
       idempotencyKey: "$event",
       key: "agent:codex:main",
       message: "hello",
-    }, { expectFinal: true });
+    }, { expectFinal: false });
     expect(registry.getBindingByRoom("!room:example.com")?.lastRunId).toBe("run_1");
     expect(published.flatMap((item) => item.chunks).map((chunk) => (chunk as { type: string }).type)).toEqual([
-      "text-start",
-      "text-delta",
-      "text-end",
-      "finish",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "RUN_FINISHED",
     ]);
+  });
+
+  it("does not poison message dedupe when OpenClaw send fails before persistence", async () => {
+    const registry = await tempRegistry();
+    registry.upsertBinding(testBinding());
+    const runtime = runtimeWith({
+      responses: {
+        "sessions.send": new Error("gateway down"),
+      },
+    });
+    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime, streams: { publish: vi.fn() } });
+
+    await expect(agent.handleMatrixText({
+      eventId: "$retryable",
+      roomId: "!room:example.com",
+      sender: "@alice:example.com",
+      text: "hello",
+    })).rejects.toThrow("gateway down");
+
+    expect(registry.hasDedupe("$retryable")).toBe(false);
+
+    runtime.transport.request.mockImplementation(async (method: string) => {
+      if (method === "sessions.send") return { runId: "run_retry", sessionKey: "agent:codex:main" };
+      return undefined;
+    });
+
+    await agent.handleMatrixText({
+      eventId: "$retryable",
+      roomId: "!room:example.com",
+      sender: "@alice:example.com",
+      text: "hello",
+    });
+
+    expect(registry.hasDedupe("$retryable")).toBe(true);
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
+      idempotencyKey: "$retryable",
+      key: "agent:codex:main",
+      message: "hello",
+    }, { expectFinal: false });
   });
 
   it("creates an OpenClaw session before sending the first message in an agent contact DM", async () => {
@@ -93,7 +132,7 @@ describe("OpenClawMatrixBridgeAgent", () => {
       idempotencyKey: "$event",
       key: "agent:codex:session_1",
       message: "hello",
-    }, { expectFinal: true });
+    }, { expectFinal: false });
     expect(registry.getBindingByRoom("!room:example.com")?.sessionKey).toBe("agent:codex:session_1");
   });
 
@@ -125,13 +164,45 @@ describe("OpenClawMatrixBridgeAgent", () => {
     await agent.streamRun(binding, "run_1");
 
     expect(published.map((chunk) => (chunk as { type: string }).type)).toEqual([
-      "start",
-      "text-start",
-      "text-delta",
-      "tool-input-available",
-      "tool-approval-request",
-      "text-end",
-      "finish",
+      "RUN_STARTED",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TOOL_CALL_START",
+      "TOOL_CALL_ARGS",
+      "TOOL_CALL_END",
+      "CUSTOM",
+      "TEXT_MESSAGE_END",
+      "RUN_FINISHED",
+    ]);
+  });
+
+  it("seeds streaming state with the actual OpenClaw run id", async () => {
+    const registry = await tempRegistry();
+    const binding = testBinding();
+    const published: unknown[] = [];
+    const agent = new OpenClawMatrixBridgeAgent({
+      registry,
+      runtime: runtimeWith({
+        events: [
+          { event: "session.message", payload: { deltaText: "hello", role: "assistant", runId: "run_actual" } },
+          { event: "session.operation", payload: { phase: "completed", runId: "run_actual" } },
+        ],
+        responses: {},
+      }),
+      streams: {
+        publish(_binding, chunks) {
+          published.push(...chunks);
+        },
+      },
+    });
+
+    await agent.streamRun(binding, "run_actual");
+
+    expect(published).toEqual([
+      expect.objectContaining({ messageId: "run_actual", type: "TEXT_MESSAGE_START" }),
+      expect.objectContaining({ messageId: "run_actual", type: "TEXT_MESSAGE_CONTENT" }),
+      expect.objectContaining({ messageId: "run_actual", type: "TEXT_MESSAGE_END" }),
+      expect.objectContaining({ runId: "run_actual", type: "RUN_FINISHED" }),
     ]);
   });
 
@@ -191,7 +262,11 @@ function runtimeWith(options: {
         if (!filter || filter(event)) yield event;
       }
     },
-    request: vi.fn(async (method: string) => options.responses[method]),
+    request: vi.fn(async (method: string) => {
+      const response = options.responses[method];
+      if (response instanceof Error) throw response;
+      return response;
+    }),
   };
   return new OpenClawGatewayRuntime({
     config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),

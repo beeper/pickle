@@ -1,14 +1,16 @@
 import {
   closeOpenMessageParts,
   createStreamRunState,
-  finishChunk,
+  finishRunEvents,
   mapOpenClawApprovalRequest,
   mapOpenClawApprovalResponse,
   mapOpenClawMessageDelta,
   mapOpenClawToolInput,
+  mapOpenClawToolInputDelta,
   mapOpenClawToolOutput,
-  startChunk,
-  type BeeperUIMessageChunk,
+  startRunEvents,
+  AGUIEventType,
+  type AGUIEvent,
   type StreamRunState,
 } from "./stream-map";
 
@@ -24,7 +26,7 @@ export function createOpenClawStreamState(turnId: string): StreamRunState {
 export function mapOpenClawEventToBeeperChunks(
   state: StreamRunState,
   event: unknown
-): BeeperUIMessageChunk[] {
+): AGUIEvent[] {
   const record = recordValue(event);
   const rawType = stringValue(record?.type) ?? stringValue(record?.event);
   const type = normalizeOpenClawEventType(rawType, record);
@@ -36,7 +38,7 @@ export function mapOpenClawEventToBeeperChunks(
     case "run.created":
     case "run.queued":
     case "run.started":
-      return [startChunk(state, metadata)];
+      return startRunEvents(state, metadata);
     case "assistant.delta": {
       const delta = stringValue(data.delta) ?? stringValue(data.deltaText) ?? stringValue(data.text) ?? stringValue(data.content);
       return delta ? mapOpenClawMessageDelta(state, { kind: "text", value: delta }) : [];
@@ -50,35 +52,44 @@ export function mapOpenClawEventToBeeperChunks(
       return delta ? mapOpenClawMessageDelta(state, { kind: "thinking", value: delta }) : [];
     }
     case "tool.call.started":
-      return [mapOpenClawToolInput(toolInput(data))];
+      return mapOpenClawToolInput(toolInput(data));
     case "tool.call.delta": {
       const inputTextDelta = stringValue(data.delta) ?? stringValue(data.inputTextDelta);
       const input = inputTextDelta ? undefined : data.input ?? data.args ?? parseMaybeJSONValue(data.arguments);
-      return [stripUndefined({
-        dynamic: true,
-        input,
-        inputTextDelta,
+      const delta: Parameters<typeof mapOpenClawToolInputDelta>[0] = {
         toolCallId: toolCallId(data),
-        toolName: toolName(data),
-        type: inputTextDelta ? "tool-input-delta" : "tool-input-available",
-      })];
+      };
+      const name = toolName(data);
+      if (input !== undefined) delta.input = input;
+      if (inputTextDelta !== undefined) delta.inputTextDelta = inputTextDelta;
+      if (name !== undefined) delta.toolName = name;
+      return mapOpenClawToolInputDelta(delta);
     }
     case "tool.call.completed":
-      return [mapOpenClawToolOutput(toolOutput(data))];
+      return mapOpenClawToolOutput(toolOutput(data));
     case "tool.call.failed":
-      return [mapOpenClawToolOutput({ ...toolOutput(data), error: data.error ?? data.message ?? data.output })];
+      return mapOpenClawToolOutput({ ...toolOutput(data), error: data.error ?? data.message ?? data.output });
     case "approval.requested":
       return [mapOpenClawApprovalRequest(state, approvalRequest(data))];
     case "approval.resolved":
       return [mapOpenClawApprovalResponse(approvalResponse(data))];
     case "run.completed":
-      return [...closeOpenMessageParts(state), finishChunk(state, "stop", metadata)];
+      return finishRunEvents(state, "stop", metadata);
     case "run.failed":
-      return [...closeOpenMessageParts(state), { errorText: errorText(data.error ?? data.message ?? data), type: "error" }, finishChunk(state, "error", metadata)];
+      return [...closeOpenMessageParts(state), { message: errorText(data.error ?? data.message ?? data), runId: state.turnId, type: AGUIEventType.RUN_ERROR }];
     case "run.cancelled":
-      return [...closeOpenMessageParts(state), { reason: stringValue(data.reason), type: "abort" }, finishChunk(state, "cancelled", metadata)];
+      return [
+        ...closeOpenMessageParts(state),
+        {
+          message: stringValue(data.reason) ?? "OpenClaw run cancelled.",
+          reason: stringValue(data.reason),
+          runId: state.turnId,
+          terminalType: "abort",
+          type: AGUIEventType.RUN_ERROR,
+        } as AGUIEvent,
+      ];
     case "run.timed_out":
-      return [...closeOpenMessageParts(state), { errorText: "OpenClaw run timed out.", type: "error" }, finishChunk(state, "timeout", metadata)];
+      return [...closeOpenMessageParts(state), { message: "OpenClaw run timed out.", runId: state.turnId, type: AGUIEventType.RUN_ERROR }];
     default:
       return [];
   }

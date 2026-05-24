@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { runCli } from "./cli";
 
@@ -18,12 +19,16 @@ describe("pickle-openclaw CLI", () => {
       dir,
       "--homeserver",
       "https://matrix.example",
+      "--gateway-access-token",
+      "gateway-secret",
       "--access-token",
       "secret",
     ], initIO)).resolves.toBe(0);
     expect(initIO.stdoutText).toContain('"accessToken": "<redacted>"');
+    expect(initIO.stdoutText).toContain('"gatewayAccessToken": "<redacted>"');
     expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
       accessToken: "secret",
+      gatewayAccessToken: "gateway-secret",
       homeserver: "https://matrix.example",
     });
     expect((await stat(configPath)).mode & 0o777).toBe(0o600);
@@ -148,6 +153,229 @@ describe("pickle-openclaw CLI", () => {
       status: { ok: true },
     });
   });
+
+  it("runs Beeper setup from CLI and persists runtime bridge-manager settings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-beeper-setup-"));
+    const configPath = join(dir, "config.json");
+    const io = captureIO();
+    const setupBridge = vi.fn(async (options) => {
+      expect(options).toMatchObject({
+        baseDomain: "beeper-staging.com",
+        bridgeManagerToken: "hungry-token",
+        email: "batuhan@example.com",
+        env: "staging",
+        homeserverDomain: "beeper.local",
+        postState: false,
+      });
+      expect(await options.getLoginCode?.()).toBe("123456");
+      return {
+        account: {
+          accessToken: "mx-token",
+          deviceId: "DEV",
+          homeserver: "https://matrix.beeper-staging.com",
+          userId: "@batuhan:beeper-staging.com",
+        },
+        config: {
+          accessToken: "mx-token",
+          appserviceId: "openclaw",
+          homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
+          hsToken: "hs",
+          matrixDeviceId: "DEV",
+          matrixUserId: "@batuhan:beeper-staging.com",
+          registrationUrl: "http://127.0.0.1:29391",
+        },
+        init: {
+          homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
+          registration: { id: "openclaw", hsToken: "hs", url: "http://127.0.0.1:29391" },
+        },
+      } as never;
+    });
+
+    await expect(runCli([
+      "beeper-setup",
+      "--config",
+      configPath,
+      "--data-dir",
+      dir,
+      "--email",
+      "batuhan@example.com",
+      "--login-code",
+      "123456",
+      "--env",
+      "staging",
+      "--bridge-manager-token",
+      "hungry-token",
+      "--homeserver-domain",
+      "beeper.local",
+      "--no-post-state",
+    ], io, { setupBridge })).resolves.toBe(0);
+
+    const written = JSON.parse(await readFile(configPath, "utf8"));
+    expect(written).toMatchObject({
+      accessToken: "mx-token",
+      appserviceId: "openclaw",
+      baseDomain: "beeper-staging.com",
+      beeperEnv: "staging",
+      bridgeManagerPostState: false,
+      bridgeManagerToken: "hungry-token",
+      homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
+      homeserverDomain: "beeper.local",
+      hsToken: "hs",
+      matrixDeviceId: "DEV",
+      matrixUserId: "@batuhan:beeper-staging.com",
+    });
+    expect(io.stdoutText).toContain('"bridgeManagerToken": "<redacted>"');
+    expect(io.stdoutText).not.toContain("hungry-token");
+  });
+
+  it("prompts for Beeper login OTP in CLI setup when --login-code is omitted", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-beeper-setup-prompt-"));
+    const configPath = join(dir, "config.json");
+    const io = captureIO("654321\n");
+    const setupBridge = vi.fn(async (options) => {
+      expect(await options.getLoginCode?.()).toBe("654321");
+      return {
+        account: {
+          accessToken: "mx-token",
+          deviceId: "DEV",
+          homeserver: "https://matrix.beeper.com",
+          userId: "@batuhan:beeper.com",
+        },
+        config: {
+          accessToken: "mx-token",
+          appserviceId: "openclaw",
+          homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
+          hsToken: "hs",
+          matrixDeviceId: "DEV",
+          matrixUserId: "@batuhan:beeper.com",
+          registrationUrl: "http://127.0.0.1:29391",
+        },
+        init: {
+          homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
+          registration: { id: "openclaw", hsToken: "hs", url: "http://127.0.0.1:29391" },
+        },
+      } as never;
+    });
+
+    await expect(runCli([
+      "beeper-setup",
+      "--config",
+      configPath,
+      "--data-dir",
+      dir,
+      "--email",
+      "batuhan@example.com",
+    ], io, { setupBridge })).resolves.toBe(0);
+
+    expect(setupBridge).toHaveBeenCalledOnce();
+    expect(io.stderrText).toContain("Enter Beeper login code:");
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
+      accessToken: "mx-token",
+      matrixDeviceId: "DEV",
+    });
+  });
+
+  it("prompts for Beeper login OTP in CLI login when --login-code is omitted", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-beeper-login-prompt-"));
+    const configPath = join(dir, "config.json");
+    const io = captureIO("111222\n");
+    const loginToBeeper = vi.fn(async (options) => {
+      expect(await options.getLoginCode?.()).toBe("111222");
+      return {
+        account: {
+          accessToken: "mx-token",
+          deviceId: "DEV",
+          homeserver: "https://matrix.beeper.com",
+          userId: "@batuhan:beeper.com",
+        },
+        config: {
+          accessToken: "mx-token",
+          homeserver: "https://matrix.beeper.com",
+          matrixDeviceId: "DEV",
+          matrixUserId: "@batuhan:beeper.com",
+        },
+      };
+    });
+
+    await expect(runCli([
+      "beeper-login",
+      "--config",
+      configPath,
+      "--data-dir",
+      dir,
+      "--email",
+      "batuhan@example.com",
+    ], io, { loginToBeeper })).resolves.toBe(0);
+
+    expect(loginToBeeper).toHaveBeenCalledOnce();
+    expect(io.stderrText).toContain("Enter Beeper login code:");
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
+      accessToken: "mx-token",
+      matrixUserId: "@batuhan:beeper.com",
+    });
+  });
+
+  it("runs Beeper appservice registration from CLI and preserves existing login config", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-beeper-register-"));
+    const configPath = join(dir, "config.json");
+    await expect(runCli([
+      "init",
+      "--config",
+      configPath,
+      "--data-dir",
+      dir,
+      "--access-token",
+      "mx-token",
+      "--homeserver",
+      "https://matrix.beeper.com",
+    ], captureIO())).resolves.toBe(0);
+    const createAppService = vi.fn(async (options) => {
+      expect(options).toMatchObject({
+        accessToken: "mx-token",
+        address: "http://127.0.0.1:29391",
+        bridgeManagerToken: "hungry-token",
+        getOnly: true,
+        homeserver: "https://matrix.beeper.com",
+        postState: false,
+        selfHosted: true,
+      });
+      return {
+        config: {
+          appserviceId: "openclaw",
+          homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
+          hsToken: "hs",
+          registrationUrl: "http://127.0.0.1:29391",
+        },
+        init: {
+          homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
+          registration: { id: "openclaw", hsToken: "hs", url: "http://127.0.0.1:29391" },
+        },
+      } as never;
+    });
+    const io = captureIO();
+
+    await expect(runCli([
+      "beeper-register",
+      "--config",
+      configPath,
+      "--bridge-manager-token",
+      "hungry-token",
+      "--get-only",
+      "--no-post-state",
+    ], io, { createAppService })).resolves.toBe(0);
+
+    const written = JSON.parse(await readFile(configPath, "utf8"));
+    expect(written).toMatchObject({
+      accessToken: "mx-token",
+      appserviceId: "openclaw",
+      bridgeManagerPostState: false,
+      bridgeManagerToken: "hungry-token",
+      homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
+      hsToken: "hs",
+    });
+    expect(io.stdoutText).toContain('"bridgeManagerToken": "<redacted>"');
+    expect(io.stdoutText).not.toContain("hungry-token");
+  });
 });
 
 function fakeRuntime(responses: Record<string, unknown>, snapshot: unknown = {}) {
@@ -158,10 +386,11 @@ function fakeRuntime(responses: Record<string, unknown>, snapshot: unknown = {})
   } as never;
 }
 
-function captureIO() {
+function captureIO(stdinText?: string) {
   const io = {
     stderrText: "",
     stdoutText: "",
+    stdin: stdinText === undefined ? undefined : Readable.from([stdinText]),
     stderr: {
       write(this: { owner: { stderrText: string } }, chunk: string) {
         this.owner.stderrText += chunk;

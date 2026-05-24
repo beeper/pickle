@@ -21,13 +21,46 @@ describe("OpenClaw bridge config", () => {
     });
   });
 
+  it("accepts dashboard-derived bridge behavior settings", () => {
+    expect(createDefaultConfig({
+      backfillLimit: 25,
+      baseDomain: "beeper-staging.com",
+      beeperEnv: "staging",
+      bridgeManagerPostState: false,
+      bridgeManagerToken: "hungry-token",
+      asToken: "as-token",
+      contactVisibility: "agents-and-users",
+      dataDir: "/tmp/openclaw-bridge",
+      gatewayAccessToken: "gateway-token",
+      homeserverDomain: "beeper.local",
+      importSources: ["dashboard", "tui"],
+      approvalBehavior: "native",
+      streamFinalization: "replace",
+    })).toMatchObject({
+      approvalBehavior: "native",
+      backfillLimit: 25,
+      baseDomain: "beeper-staging.com",
+      beeperEnv: "staging",
+      bridgeManagerPostState: false,
+      bridgeManagerToken: "hungry-token",
+      asToken: "as-token",
+      contactVisibility: "agents-and-users",
+      gatewayAccessToken: "gateway-token",
+      homeserverDomain: "beeper.local",
+      importSources: ["dashboard", "tui"],
+      streamFinalization: "replace",
+    });
+  });
+
   it("stores config with owner-only file permissions", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-config-"));
     const path = join(dir, "config.json");
-    const config = createDefaultConfig({ accessToken: "secret", dataDir: dir, homeserver: "https://matrix.example" });
+    const config = createDefaultConfig({ accessToken: "secret", asToken: "as-secret", dataDir: dir, gatewayAccessToken: "gateway-secret", homeserver: "https://matrix.example" });
     await writeConfig(config, path);
     expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
       accessToken: "secret",
+      asToken: "as-secret",
+      gatewayAccessToken: "gateway-secret",
       homeserver: "https://matrix.example",
     });
     expect((await stat(path)).mode & 0o777).toBe(0o600);

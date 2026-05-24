@@ -8,7 +8,11 @@ describe("OpenClaw Beeper appservice runtime", () => {
     const bridge = fakeBridge();
     const bridgeFactory = vi.fn(async (_options: CreateNodeBeeperBridgeOptions) => bridge);
     const config = createDefaultConfig({
+      beeperEnv: "staging",
+      bridgeManagerPostState: false,
+      bridgeManagerToken: "hungry-token",
       dataDir: "/tmp/openclaw",
+      homeserverDomain: "beeper.local",
       registrationUrl: "http://127.0.0.1:29391",
     });
 
@@ -23,13 +27,17 @@ describe("OpenClaw Beeper appservice runtime", () => {
     expect(bridgeFactory).toHaveBeenCalledWith(expect.objectContaining({
       account: account(),
       address: "http://127.0.0.1:29391",
+      baseDomain: "beeper-staging.com",
       bridge: "openclaw",
+      bridgeManagerPostState: false,
+      bridgeManagerToken: "hungry-token",
       bridgeType: "openclaw",
       connector: expect.objectContaining({
         config,
       }),
       dataDir: "/tmp/openclaw-data",
       getOnly: true,
+      homeserverDomain: "beeper.local",
     }));
   });
 
@@ -47,6 +55,7 @@ describe("OpenClaw Beeper appservice runtime", () => {
     expect(accountFromOpenClawConfig(createDefaultConfig({
       accessToken: "mx-token",
       dataDir: "/tmp/openclaw",
+      gatewayAccessToken: "gateway-token",
       homeserver: "https://matrix.beeper.com",
       matrixDeviceId: "DEVICE",
       matrixUserId: "@batuhan:beeper.com",

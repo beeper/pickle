@@ -222,6 +222,9 @@ importers:
       '@beeper/pickle':
         specifier: workspace:*
         version: link:../pickle
+      '@beeper/pickle-ag-ui':
+        specifier: workspace:*
+        version: link:../ag-ui
       '@beeper/pickle-bridge':
         specifier: workspace:*
         version: link:../bridge

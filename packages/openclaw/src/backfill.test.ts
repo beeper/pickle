@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions, isOneToOneSession } from "./backfill";
+import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions, isOneToOneSession, shouldImportSession } from "./backfill";
 import { createDefaultConfig } from "./config";
 import { OpenClawGatewayRuntime, type OpenClawTransport } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
@@ -17,7 +17,7 @@ describe("OpenClaw backfill", () => {
       },
     });
 
-    await expect(discoverOneToOneSessions(runtime)).resolves.toEqual([
+    await expect(discoverOneToOneSessions(runtime, { importSources: ["dashboard", "tui", "channels"] })).resolves.toEqual([
       {
         agentId: "main",
         label: "agent:main:terminal:local",
@@ -53,8 +53,8 @@ describe("OpenClaw backfill", () => {
     const runtime = runtimeWith({
       "chat.history": {
         messages: [
-          { content: "hello", id: "m1", messageSeq: 1, role: "user" },
-          { content: [{ text: "hi" }], id: "m2", messageSeq: 2, role: "assistant" },
+          { content: "hello", createdAt: "2026-05-16T11:59:00.000Z", id: "m1", messageSeq: 1, role: "user" },
+          { content: [{ text: "hi" }], id: "m2", messageSeq: 2, role: "assistant", timestamp: 1_779_000_000 },
         ],
       },
     });
@@ -99,6 +99,7 @@ describe("OpenClaw backfill", () => {
             role: "user",
             sender: "human",
             seq: 1,
+            timestamp: new Date("2026-05-16T11:59:00.000Z"),
           },
           {
             content: {
@@ -110,6 +111,7 @@ describe("OpenClaw backfill", () => {
             role: "assistant",
             sender: "agent",
             seq: 2,
+            timestamp: new Date(1_779_000_000_000),
           },
         ],
         source: "terminal",
@@ -127,6 +129,28 @@ describe("OpenClaw backfill", () => {
     expect(isOneToOneSession({ chatType: "direct", key: "agent:main:direct:user" })).toBe(true);
     expect(isOneToOneSession({ key: "agent:main:whatsapp:user", lastTo: "user" })).toBe(true);
     expect(isOneToOneSession({ chatType: "group", key: "agent:main:group", lastTo: "a,b" })).toBe(false);
+  });
+
+  it("filters backfill sessions by opt-in import source and archived state", async () => {
+    expect(shouldImportSession({ key: "agent:main:terminal:local", origin: { surface: "terminal" } }, ["tui"])).toBe(true);
+    expect(shouldImportSession({ key: "agent:main:desktop:abc", origin: { surface: "mac-app" } }, ["dashboard"])).toBe(true);
+    expect(shouldImportSession({ key: "agent:main:whatsapp:alice", lastProvider: "whatsapp" }, ["channels"])).toBe(true);
+    expect(shouldImportSession({ key: "agent:main:terminal:old", origin: { surface: "terminal" }, updatedAt: null }, ["tui"])).toBe(false);
+    expect(shouldImportSession({ key: "agent:main:terminal:old", origin: { surface: "terminal" }, updatedAt: null }, ["tui", "archived"])).toBe(true);
+    expect(shouldImportSession({ key: "agent:main:desktop:abc", origin: { surface: "mac-app" } }, ["tui"])).toBe(false);
+
+    const runtime = runtimeWith({
+      "sessions.list": {
+        sessions: [
+          { key: "agent:main:terminal:local", origin: { surface: "terminal" } },
+          { key: "agent:main:desktop:abc", origin: { surface: "mac-app" } },
+          { chatType: "dm", key: "agent:main:whatsapp:user-1", lastProvider: "whatsapp", lastTo: "user-1" },
+        ],
+      },
+    });
+    await expect(discoverOneToOneSessions(runtime, { importSources: ["dashboard"] })).resolves.toMatchObject([
+      { sessionKey: "agent:main:desktop:abc", source: "mac-app" },
+    ]);
   });
 
   it("creates portals and imports every discovered one-to-one session", async () => {
@@ -152,6 +176,7 @@ describe("OpenClaw backfill", () => {
 
     await expect(backfillAllOpenClawSessions({
       bridge: bridge as never,
+      importSources: ["channels"],
       limit: 25,
       login,
       registry,
@@ -159,6 +184,7 @@ describe("OpenClaw backfill", () => {
     })).resolves.toMatchObject({
       portals: [{ mxid: "!room:example.com" }],
       sessions: [{ agentId: "codex", sessionKey: "agent:codex:whatsapp:alice" }],
+      skipped: [],
     });
 
     expect(bridge.createPortal).toHaveBeenCalledWith(login, expect.objectContaining({
@@ -181,6 +207,124 @@ describe("OpenClaw backfill", () => {
     }), { limit: 25 });
     expect(registry.getUser("alice")?.ghostUserId).toBe("@openclaw_user_alice:localhost");
     expect(registry.getBindingByRoom("!room:example.com")?.humanGhostUserId).toBe("@openclaw_user_alice:localhost");
+  });
+
+  it("skips already-imported sessions instead of creating duplicate portals", async () => {
+    const runtime = runtimeWith({
+      "sessions.list": {
+        sessions: [
+          { agentId: "codex", chatType: "dm", displayName: "Alice", key: "agent:codex:terminal:alice", origin: { surface: "terminal" } },
+        ],
+      },
+    });
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-backfill-existing-test.json");
+    registry.upsertBinding({
+      agentId: "codex",
+      createdAt: 1,
+      ghostUserId: "@openclaw_agent_codex:localhost",
+      id: "room:existing",
+      kind: "session",
+      label: "Alice",
+      owner: "imported",
+      roomId: "!existing:example.com",
+      sessionKey: "agent:codex:terminal:alice",
+      updatedAt: 1,
+    });
+    const bridge = {
+      backfillPortal: vi.fn(async () => ({ eventIds: [] })),
+      createPortal: vi.fn(async () => ({
+        id: "session:created",
+        mxid: "!room:example.com",
+        portalKey: { id: "session:created", receiver: "login" },
+        receiver: "login",
+      })),
+    };
+    const login = { id: "login", userId: "@owner:example.com" };
+
+    await expect(backfillAllOpenClawSessions({
+      bridge: bridge as never,
+      importSources: ["tui"],
+      login,
+      registry,
+      runtime,
+    })).resolves.toMatchObject({
+      portals: [],
+      sessions: [],
+      skipped: [{ agentId: "codex", sessionKey: "agent:codex:terminal:alice" }],
+    });
+
+    expect(bridge.createPortal).not.toHaveBeenCalled();
+    expect(bridge.backfillPortal).not.toHaveBeenCalled();
+  });
+
+  it("skips sessions when portal creation does not return a Matrix room", async () => {
+    const runtime = runtimeWith({
+      "chat.history": { messages: [{ content: "hello", id: "m1", role: "user" }] },
+      "sessions.list": {
+        sessions: [
+          { agentId: "codex", chatType: "dm", displayName: "Alice", key: "agent:codex:terminal:alice", origin: { surface: "terminal" } },
+        ],
+      },
+    });
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-backfill-no-room-test.json");
+    const bridge = {
+      backfillPortal: vi.fn(async () => ({ eventIds: [] })),
+      createPortal: vi.fn(async () => ({
+        id: "session:created",
+        portalKey: { id: "session:created", receiver: "login" },
+        receiver: "login",
+      })),
+    };
+    const login = { id: "login", userId: "@owner:example.com" };
+
+    await expect(backfillAllOpenClawSessions({
+      bridge: bridge as never,
+      importSources: ["tui"],
+      login,
+      registry,
+      runtime,
+    })).resolves.toMatchObject({
+      portals: [{ id: "session:created" }],
+      sessions: [],
+      skipped: [{ agentId: "codex", sessionKey: "agent:codex:terminal:alice" }],
+    });
+
+    expect(bridge.backfillPortal).not.toHaveBeenCalled();
+    expect(runtime.transport.request).not.toHaveBeenCalledWith("chat.history", expect.anything());
+    expect(registry.getBindingBySessionKey("agent:codex:terminal:alice")).toBeUndefined();
+  });
+
+  it("omits non-federation creation content when federated rooms are enabled", async () => {
+    const runtime = runtimeWith({
+      "chat.history": { messages: [] },
+      "sessions.list": {
+        sessions: [
+          { agentId: "codex", chatType: "dm", displayName: "Alice", key: "agent:codex:terminal:alice", origin: { surface: "terminal" } },
+        ],
+      },
+    });
+    runtime.config.nonFederatedRooms = false;
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-backfill-federated-test.json");
+    const bridge = {
+      backfillPortal: vi.fn(async () => ({ eventIds: [] })),
+      createPortal: vi.fn(async () => ({
+        id: "session:created",
+        mxid: "!room:example.com",
+        portalKey: { id: "session:created", receiver: "login" },
+        receiver: "login",
+      })),
+    };
+    const login = { id: "login", userId: "@owner:example.com" };
+
+    await backfillAllOpenClawSessions({
+      bridge: bridge as never,
+      importSources: ["tui"],
+      login,
+      registry,
+      runtime,
+    });
+
+    expect(bridge.createPortal.mock.calls[0]?.[1]).not.toHaveProperty("creationContent");
   });
 });
 

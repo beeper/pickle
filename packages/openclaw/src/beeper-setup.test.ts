@@ -37,31 +37,6 @@ describe("OpenClaw Beeper setup", () => {
     });
   });
 
-  it("can request Beeper account creation instead of existing-account login", async () => {
-    const seen: unknown[] = [];
-    await loginToBeeperForOpenClaw({
-      email: "new@example.com",
-      getLoginCode: () => "123456",
-      login: async (options) => {
-        seen.push(options);
-        return {
-          accessToken: "mx-token",
-          deviceId: "DEV",
-          homeserver: "https://matrix.beeper.com",
-          userId: "@new:beeper.com",
-        };
-      },
-      onlyExistingAccounts: false,
-    });
-
-    expect(seen).toEqual([
-      expect.objectContaining({
-        email: "new@example.com",
-        onlyExistingAccounts: false,
-      }),
-    ]);
-  });
-
   it("registers the OpenClaw Beeper appservice with self-hosted defaults", async () => {
     const seen: unknown[] = [];
     const result = await createOpenClawBeeperAppService({
@@ -94,10 +69,40 @@ describe("OpenClaw Beeper setup", () => {
     ]);
     expect(result.config).toEqual({
       appserviceId: "openclaw",
+      asToken: "as",
       homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
       hsToken: "hs",
       registrationUrl: "http://127.0.0.1:29391",
     });
+  });
+
+  it("passes a bridge manager token as the Beeper hungry token", async () => {
+    const seen: unknown[] = [];
+    await createOpenClawBeeperAppService({
+      accessToken: "mx-token",
+      bridgeManagerToken: "hungry-token",
+      createAppServiceInit: async (options) => {
+        seen.push(options);
+        return {
+          homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
+          registration: {
+            asToken: "as",
+            hsToken: "hs",
+            id: "openclaw",
+            namespaces: { aliases: [], rooms: [], users: [] },
+            senderLocalpart: "openclawbot",
+            url: "http://127.0.0.1:29391",
+          },
+        };
+      },
+    });
+
+    expect(seen).toEqual([
+      expect.objectContaining({
+        hungryToken: "hungry-token",
+        token: "mx-token",
+      }),
+    ]);
   });
 
   it("combines Beeper login and appservice registration config", async () => {
@@ -134,6 +139,7 @@ describe("OpenClaw Beeper setup", () => {
     expect(result.config).toEqual({
       accessToken: "mx-token",
       appserviceId: "openclaw",
+      asToken: "as",
       homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
       hsToken: "hs",
       matrixDeviceId: "DEV",

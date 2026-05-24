@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { getBeeperChannelSettings, type OpenClawSetupConfig } from "./setup";
 import type { OpenClawBridgeConfig } from "./types";
 
 export const DEFAULT_APPSERVICE_ID = "pickle-openclaw";
@@ -41,17 +42,41 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
       overrides.userLocalpartPrefix ?? process.env.PICKLE_OPENCLAW_USER_LOCALPART_PREFIX ?? DEFAULT_USER_LOCALPART_PREFIX,
   };
   const accessToken = overrides.accessToken ?? process.env.PICKLE_OPENCLAW_ACCESS_TOKEN;
+  const asToken = overrides.asToken ?? process.env.PICKLE_OPENCLAW_AS_TOKEN;
+  const baseDomain = overrides.baseDomain ?? process.env.PICKLE_OPENCLAW_BASE_DOMAIN;
+  const beeperEnv = overrides.beeperEnv ?? envBeeperEnv(process.env.PICKLE_OPENCLAW_BEEPER_ENV);
+  const bridgeManagerToken = overrides.bridgeManagerToken ?? process.env.PICKLE_OPENCLAW_BRIDGE_MANAGER_TOKEN;
+  const gatewayAccessToken = overrides.gatewayAccessToken ?? process.env.PICKLE_OPENCLAW_GATEWAY_ACCESS_TOKEN;
   const gatewayUrl = overrides.gatewayUrl ?? process.env.PICKLE_OPENCLAW_GATEWAY_URL;
   const homeserver = overrides.homeserver ?? process.env.PICKLE_OPENCLAW_HOMESERVER;
+  const homeserverDomain = overrides.homeserverDomain ?? process.env.PICKLE_OPENCLAW_HOMESERVER_DOMAIN;
   const hsToken = overrides.hsToken ?? process.env.PICKLE_OPENCLAW_HS_TOKEN;
   const matrixDeviceId = overrides.matrixDeviceId ?? process.env.PICKLE_OPENCLAW_MATRIX_DEVICE_ID;
   const matrixUserId = overrides.matrixUserId ?? process.env.PICKLE_OPENCLAW_MATRIX_USER_ID;
+  const backfillLimit = overrides.backfillLimit ?? envNumber(process.env.PICKLE_OPENCLAW_BACKFILL_LIMIT);
+  const contactVisibility = overrides.contactVisibility ?? envContactVisibility(process.env.PICKLE_OPENCLAW_CONTACT_VISIBILITY);
+  const importSources = overrides.importSources ?? envImportSources(process.env.PICKLE_OPENCLAW_IMPORT_SOURCES);
+  const streamFinalization = overrides.streamFinalization ?? envStreamFinalization(process.env.PICKLE_OPENCLAW_STREAM_FINALIZATION);
+  const approvalBehavior = overrides.approvalBehavior ?? envApprovalBehavior(process.env.PICKLE_OPENCLAW_APPROVAL_BEHAVIOR);
+  const bridgeManagerPostState = overrides.bridgeManagerPostState ?? envBoolean(process.env.PICKLE_OPENCLAW_BRIDGE_MANAGER_POST_STATE);
   if (accessToken) config.accessToken = accessToken;
+  if (asToken) config.asToken = asToken;
+  if (baseDomain) config.baseDomain = baseDomain;
+  if (beeperEnv) config.beeperEnv = beeperEnv;
+  if (bridgeManagerToken) config.bridgeManagerToken = bridgeManagerToken;
+  if (gatewayAccessToken) config.gatewayAccessToken = gatewayAccessToken;
   if (gatewayUrl) config.gatewayUrl = gatewayUrl;
   if (homeserver) config.homeserver = homeserver;
+  if (homeserverDomain) config.homeserverDomain = homeserverDomain;
   if (hsToken) config.hsToken = hsToken;
   if (matrixDeviceId) config.matrixDeviceId = matrixDeviceId;
   if (matrixUserId) config.matrixUserId = matrixUserId;
+  if (backfillLimit !== undefined) config.backfillLimit = backfillLimit;
+  if (contactVisibility !== undefined) config.contactVisibility = contactVisibility;
+  if (importSources !== undefined) config.importSources = importSources;
+  if (streamFinalization !== undefined) config.streamFinalization = streamFinalization;
+  if (approvalBehavior !== undefined) config.approvalBehavior = approvalBehavior;
+  if (bridgeManagerPostState !== undefined) config.bridgeManagerPostState = bridgeManagerPostState;
   if (overrides.allowedRoomIds) config.allowedRoomIds = overrides.allowedRoomIds;
   if (overrides.allowedUserIds) config.allowedUserIds = overrides.allowedUserIds;
   return config;
@@ -59,6 +84,17 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
 
 export async function readConfig(path = defaultConfigPath()): Promise<OpenClawBridgeConfig> {
   return createDefaultConfig(JSON.parse(await readFile(path, "utf8")) as Partial<OpenClawBridgeConfig>);
+}
+
+export function createConfigFromOpenClawSetup(
+  cfg: OpenClawSetupConfig,
+  overrides: Partial<OpenClawBridgeConfig> = {},
+): OpenClawBridgeConfig {
+  const settings = getBeeperChannelSettings(cfg);
+  return createDefaultConfig({
+    ...settings,
+    ...overrides,
+  });
 }
 
 export async function writeConfig(config: OpenClawBridgeConfig, path = defaultConfigPath(config.dataDir)): Promise<void> {
@@ -75,5 +111,40 @@ function envBoolean(value: string | undefined): boolean | undefined {
   if (value === undefined) return undefined;
   if (["1", "true", "yes", "on"].includes(value.toLowerCase())) return true;
   if (["0", "false", "no", "off"].includes(value.toLowerCase())) return false;
+  return undefined;
+}
+
+function envNumber(value: string | undefined): number | undefined {
+  if (value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function envContactVisibility(value: string | undefined): OpenClawBridgeConfig["contactVisibility"] | undefined {
+  if (value === "agents" || value === "agents-and-users" || value === "none") return value;
+  return undefined;
+}
+
+function envImportSources(value: string | undefined): OpenClawBridgeConfig["importSources"] | undefined {
+  if (!value) return undefined;
+  const sources = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (sources.every((source) => source === "dashboard" || source === "tui" || source === "channels" || source === "archived")) {
+    return sources as OpenClawBridgeConfig["importSources"];
+  }
+  return undefined;
+}
+
+function envStreamFinalization(value: string | undefined): OpenClawBridgeConfig["streamFinalization"] | undefined {
+  if (value === "replace" || value === "append" || value === "native-only") return value;
+  return undefined;
+}
+
+function envApprovalBehavior(value: string | undefined): OpenClawBridgeConfig["approvalBehavior"] | undefined {
+  if (value === "native" || value === "reactions" || value === "slash" || value === "disabled") return value;
+  return undefined;
+}
+
+function envBeeperEnv(value: string | undefined): OpenClawBridgeConfig["beeperEnv"] | undefined {
+  if (value === "production" || value === "staging" || value === "dev" || value === "local") return value;
   return undefined;
 }

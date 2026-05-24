@@ -1,7 +1,7 @@
 import type { MatrixAccount } from "@beeper/pickle";
 import { createBeeperBridge, type CreateNodeBeeperBridgeOptions, type PickleBridge } from "@beeper/pickle-bridge";
 import { backfillAllOpenClawSessions } from "./backfill";
-import { DEFAULT_BEEPER_BRIDGE, DEFAULT_BEEPER_BRIDGE_TYPE } from "./beeper-setup";
+import { beeperBaseDomain, DEFAULT_BEEPER_BRIDGE, DEFAULT_BEEPER_BRIDGE_TYPE } from "./beeper-setup";
 import { createOpenClawConnector, createOpenClawRuntimeFromLogin, userLoginFromOpenClawConfig, type OpenClawConnectorOptions } from "./connector";
 import { OpenClawBridgeRegistry } from "./registry";
 import type { OpenClawBridgeConfig } from "./types";
@@ -30,6 +30,14 @@ export async function createOpenClawBeeperBridge(options: CreateOpenClawBeeperBr
     connector,
   };
   if (config?.registrationUrl !== undefined) bridgeOptions.address = config.registrationUrl;
+  if (config?.baseDomain !== undefined) bridgeOptions.baseDomain = config.baseDomain;
+  else {
+    const baseDomain = beeperBaseDomain(config?.beeperEnv);
+    if (baseDomain !== undefined) bridgeOptions.baseDomain = baseDomain;
+  }
+  if (config?.bridgeManagerToken !== undefined) bridgeOptions.bridgeManagerToken = config.bridgeManagerToken;
+  if (config?.bridgeManagerPostState !== undefined) bridgeOptions.bridgeManagerPostState = config.bridgeManagerPostState;
+  if (config?.homeserverDomain !== undefined) bridgeOptions.homeserverDomain = config.homeserverDomain;
   if (options.dataDir !== undefined) bridgeOptions.dataDir = options.dataDir;
   if (options.getOnly !== undefined) bridgeOptions.getOnly = options.getOnly;
   if (options.matrix !== undefined) bridgeOptions.matrix = options.matrix;

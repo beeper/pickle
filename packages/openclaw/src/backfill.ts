@@ -6,7 +6,7 @@ import type {
 } from "./openclaw-runtime";
 import { agentContactFromOpenClawAgent, agentGhostUserId, bindingIdForRoom, userContactFromOpenClawSession } from "./rooms";
 import type { OpenClawBridgeRegistry } from "./registry";
-import type { OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
+import type { OpenClawBridgeConfig, OpenClawImportSource, OpenClawSessionBinding, OpenClawUserContact } from "./types";
 
 export interface OpenClawBackfillSession {
   agentId: string;
@@ -23,6 +23,7 @@ export interface OpenClawBackfillMessage {
   role: "assistant" | "system" | "tool" | "user" | string;
   sender: "agent" | "human" | "system";
   seq: number;
+  timestamp?: Date;
 }
 
 export interface OpenClawBackfillImport {
@@ -34,6 +35,7 @@ export interface OpenClawBackfillImport {
 
 export interface BackfillAllOpenClawSessionsOptions {
   bridge: PickleBridge;
+  importSources?: OpenClawImportSource[];
   limit?: number;
   login: UserLogin;
   registry: OpenClawBridgeRegistry;
@@ -43,12 +45,17 @@ export interface BackfillAllOpenClawSessionsOptions {
 export interface BackfillAllOpenClawSessionsResult {
   portals: Portal[];
   sessions: OpenClawBackfillSession[];
+  skipped: OpenClawBackfillSession[];
 }
 
-export async function discoverOneToOneSessions(runtime: OpenClawGatewayRuntime): Promise<OpenClawBackfillSession[]> {
+export async function discoverOneToOneSessions(
+  runtime: OpenClawGatewayRuntime,
+  options: { importSources?: OpenClawImportSource[] } = {},
+): Promise<OpenClawBackfillSession[]> {
   const sessions = await runtime.listSessions({ includeArchived: true });
   return sessions.flatMap((session) => {
     if (!isOneToOneSession(session)) return [];
+    if (!shouldImportSession(session, options.importSources)) return [];
     const agentId = resolveAgentId(session);
     const result: OpenClawBackfillSession = {
       agentId,
@@ -94,9 +101,18 @@ export async function buildBackfillImport(
 }
 
 export async function backfillAllOpenClawSessions(options: BackfillAllOpenClawSessionsOptions): Promise<BackfillAllOpenClawSessionsResult> {
-  const sessions = await discoverOneToOneSessions(options.runtime);
+  const discoverOptions: { importSources?: OpenClawImportSource[] } = {};
+  const importSources = options.importSources ?? options.runtime.config.importSources;
+  if (importSources !== undefined) discoverOptions.importSources = importSources;
+  const sessions = await discoverOneToOneSessions(options.runtime, discoverOptions);
   const portals: Portal[] = [];
+  const importedSessions: OpenClawBackfillSession[] = [];
+  const skipped: OpenClawBackfillSession[] = [];
   for (const session of sessions) {
+    if (options.registry.getBindingBySessionKey(session.sessionKey)) {
+      skipped.push(session);
+      continue;
+    }
     const agent = options.registry.getAgent(session.agentId) ?? agentContactFromOpenClawAgent(options.runtime.config, {
       id: session.agentId,
     });
@@ -117,22 +133,26 @@ export async function backfillAllOpenClawSessions(options: BackfillAllOpenClawSe
       roomType: "dm",
       sender: session.agentId,
     };
-    if (options.runtime.config.nonFederatedRooms) portalOptions.creationContent = { "m.federate": false };
+    const creationContent = openClawBackfillRoomCreationContent(options.runtime.config);
+    if (creationContent) portalOptions.creationContent = creationContent;
     const portal = await options.bridge.createPortal(options.login, portalOptions);
     portals.push(portal);
-    if (portal.mxid) {
-      const importOptions: { limit?: number; roomId: string } = { roomId: portal.mxid };
-      if (options.limit !== undefined) importOptions.limit = options.limit;
-      const imported = await buildBackfillImport(options.runtime, options.runtime.config, session, {
-        ...importOptions,
-      });
-      options.registry.upsertBinding(imported.binding);
+    if (!portal.mxid) {
+      skipped.push(session);
+      continue;
     }
+    const importOptions: { limit?: number; roomId: string } = { roomId: portal.mxid };
+    if (options.limit !== undefined) importOptions.limit = options.limit;
+    const imported = await buildBackfillImport(options.runtime, options.runtime.config, session, {
+      ...importOptions,
+    });
+    options.registry.upsertBinding(imported.binding);
     await options.bridge.backfillPortal(options.login, portal, {
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
     });
+    importedSessions.push(session);
   }
-  return { portals, sessions };
+  return { portals, sessions: importedSessions, skipped };
 }
 
 export function portalIdForBackfillSession(session: Pick<OpenClawBackfillSession, "sessionKey">): string {
@@ -147,10 +167,24 @@ export function isOneToOneSession(session: OpenClawListedSession): boolean {
   return originType === "terminal" || originType === "mac-app";
 }
 
+export function shouldImportSession(
+  session: OpenClawListedSession,
+  importSources: readonly OpenClawImportSource[] | undefined,
+): boolean {
+  if (!importSources || importSources.length === 0) return false;
+  const normalized = new Set(importSources);
+  if (session.updatedAt === null && !normalized.has("archived")) return false;
+  const source = sessionSource(session);
+  if (source === "terminal") return normalized.has("tui");
+  if (source === "mac-app") return normalized.has("dashboard");
+  if (source === "channel") return normalized.has("channels");
+  return normalized.has("channels");
+}
+
 function normalizeHistoryMessage(message: OpenClawChatHistoryMessage, index: number): OpenClawBackfillMessage {
   const role = typeof message.role === "string" ? message.role : "assistant";
   const text = contentText(message.content);
-  return {
+  const normalized: OpenClawBackfillMessage = {
     content: {
       body: text || JSON.stringify(message.content ?? message),
       msgtype: role === "assistant" ? "m.text" : "m.notice",
@@ -164,6 +198,9 @@ function normalizeHistoryMessage(message: OpenClawChatHistoryMessage, index: num
     sender: role === "assistant" || role === "tool" ? "agent" : role === "system" ? "system" : "human",
     seq: typeof message.messageSeq === "number" ? message.messageSeq : index,
   };
+  const timestamp = historyTimestamp(message);
+  if (timestamp !== undefined) normalized.timestamp = timestamp;
+  return normalized;
 }
 
 function resolveAgentId(session: OpenClawListedSession): string {
@@ -190,6 +227,28 @@ function contentText(content: unknown): string {
   }).join("");
 }
 
+function historyTimestamp(message: OpenClawChatHistoryMessage): Date | undefined {
+  const raw =
+    message.timestamp ??
+    message.createdAt ??
+    message.created_at ??
+    message.time ??
+    message.date;
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    const milliseconds = raw < 10_000_000_000 ? raw * 1000 : raw;
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) return historyTimestamp({ timestamp: numeric });
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+  return undefined;
+}
+
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
@@ -204,4 +263,8 @@ function stripUndefined<T extends Record<string, unknown>>(value: T): T {
     if (value[key] === undefined) delete value[key];
   }
   return value;
+}
+
+function openClawBackfillRoomCreationContent(config: OpenClawBridgeConfig): Record<string, unknown> | undefined {
+  return config.nonFederatedRooms ? { "m.federate": false } : undefined;
 }

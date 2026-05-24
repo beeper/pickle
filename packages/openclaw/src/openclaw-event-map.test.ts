@@ -12,32 +12,44 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       type: "run.started",
     })).toEqual([
       {
-        messageId: "turn_oc",
-        messageMetadata: {
+        metadata: {
           agent_id: "codex",
           run_id: "run_1",
           session_key: "agent:codex:main",
           turn_id: "turn_oc",
         },
-        type: "start",
+        runId: "turn_oc",
+        threadId: "turn_oc",
+        type: "RUN_STARTED",
+      },
+      {
+        messageId: "turn_oc",
+        role: "assistant",
+        type: "TEXT_MESSAGE_START",
       },
     ]);
 
     expect(mapOpenClawEventToBeeperChunks(state, { data: { delta: "Hello" }, type: "assistant.delta" })).toEqual([
-      { id: "text_turn_oc", type: "text-start" },
-      { delta: "Hello", id: "text_turn_oc", type: "text-delta" },
+      { delta: "Hello", messageId: "turn_oc", type: "TEXT_MESSAGE_CONTENT" },
     ]);
     expect(mapOpenClawEventToBeeperChunks(state, { data: { delta: " thinking" }, type: "thinking.delta" })).toEqual([
-      { id: "reasoning_turn_oc", type: "reasoning-start" },
-      { delta: " thinking", id: "reasoning_turn_oc", type: "reasoning-delta" },
+      { messageId: "turn_oc", type: "REASONING_START" },
+      { messageId: "turn_oc", role: "reasoning", type: "REASONING_MESSAGE_START" },
+      { delta: " thinking", messageId: "turn_oc", type: "REASONING_MESSAGE_CONTENT" },
     ]);
     expect(mapOpenClawEventToBeeperChunks(state, { runId: "run_1", type: "run.completed" })).toEqual([
-      { id: "reasoning_turn_oc", type: "reasoning-end" },
-      { id: "text_turn_oc", type: "text-end" },
+      { messageId: "turn_oc", type: "REASONING_MESSAGE_END" },
+      { messageId: "turn_oc", type: "REASONING_END" },
+      {
+        messageId: "turn_oc",
+        type: "TEXT_MESSAGE_END",
+      },
       {
         finishReason: "stop",
-        messageMetadata: { finish_reason: "stop", run_id: "run_1", turn_id: "turn_oc" },
-        type: "finish",
+        metadata: { finish_reason: "stop", run_id: "run_1", turn_id: "turn_oc" },
+        runId: "turn_oc",
+        threadId: "turn_oc",
+        type: "RUN_FINISHED",
       },
     ]);
   });
@@ -50,11 +62,27 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       type: "tool.call.started",
     })).toEqual([
       {
-        dynamic: true,
-        input: { cmd: "pnpm test" },
+        parentMessageId: "call_1",
+        state: "awaiting-input",
         toolCallId: "call_1",
+        toolCallName: "shell",
         toolName: "shell",
-        type: "tool-input-available",
+        type: "TOOL_CALL_START",
+      },
+      {
+        args: "{\"cmd\":\"pnpm test\"}",
+        delta: "{\"cmd\":\"pnpm test\"}",
+        state: "input-streaming",
+        toolCallId: "call_1",
+        type: "TOOL_CALL_ARGS",
+      },
+      {
+        input: { cmd: "pnpm test" },
+        state: "input-complete",
+        toolCallId: "call_1",
+        toolCallName: "shell",
+        toolName: "shell",
+        type: "TOOL_CALL_END",
       },
     ]);
 
@@ -63,11 +91,11 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       type: "tool.call.delta",
     })).toEqual([
       {
-        dynamic: true,
-        inputTextDelta: "{\"cmd\"",
+        args: "{\"cmd\"",
+        delta: "{\"cmd\"",
+        state: "input-streaming",
         toolCallId: "call_2",
-        toolName: "edit",
-        type: "tool-input-delta",
+        type: "TOOL_CALL_ARGS",
       },
     ]);
 
@@ -76,12 +104,14 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       type: "tool.call.completed",
     })).toEqual([
       {
-        dynamic: true,
-        output: "ok",
+        content: "ok",
+        messageId: "call_1",
         preliminary: true,
+        role: "tool",
+        state: "streaming",
         toolCallId: "call_1",
         toolName: "shell",
-        type: "tool-output-available",
+        type: "TOOL_CALL_RESULT",
       },
     ]);
 
@@ -90,11 +120,13 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       type: "tool.call.failed",
     })).toEqual([
       {
-        dynamic: true,
-        errorText: "{\"message\":\"denied\"}",
+        content: "{\"message\":\"denied\"}",
+        messageId: "call_3",
+        role: "tool",
+        state: "error",
         toolCallId: "call_3",
         toolName: "write",
-        type: "tool-output-error",
+        type: "TOOL_CALL_RESULT",
       },
     ]);
   });
@@ -112,11 +144,18 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       type: "approval.requested",
     })).toEqual([
       {
-        approvalId: "approval_1",
-        message: "Allow shell?",
-        toolCallId: "call_1",
-        toolName: "shell",
-        type: "tool-approval-request",
+        name: "approval-requested",
+        type: "CUSTOM",
+        value: {
+          approval: {
+            id: "approval_1",
+            needsApproval: true,
+          },
+          approvalMessageId: "approval_1",
+          message: "Allow shell?",
+          toolCallId: "call_1",
+          toolName: "shell",
+        },
       },
     ]);
     expect(state.toolCallIdToApprovalId.call_1).toBe("approval_1");
@@ -130,12 +169,33 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       type: "approval.resolved",
     })).toEqual([
       {
-        approvalId: "approval_1",
-        approved: true,
-        approvedAlways: false,
-        toolCallId: "call_1",
-        type: "tool-approval-response",
+        name: "approval-responded",
+        type: "CUSTOM",
+        value: {
+          approval: {
+            always: false,
+            approved: true,
+            id: "approval_1",
+          },
+          toolCallId: "call_1",
+        },
       },
+    ]);
+  });
+
+  it("starts text messages when upstream sends deltas before run.started", () => {
+    const state = createOpenClawStreamState("turn_delta_only");
+
+    expect(mapOpenClawEventToBeeperChunks(state, { data: { delta: "Hello" }, type: "assistant.delta" })).toEqual([
+      {
+        messageId: "turn_delta_only",
+        role: "assistant",
+        type: "TEXT_MESSAGE_START",
+      },
+      { delta: "Hello", messageId: "turn_delta_only", type: "TEXT_MESSAGE_CONTENT" },
+    ]);
+    expect(mapOpenClawEventToBeeperChunks(state, { data: { delta: " again" }, type: "assistant.delta" })).toEqual([
+      { delta: " again", messageId: "turn_delta_only", type: "TEXT_MESSAGE_CONTENT" },
     ]);
   });
 
@@ -147,32 +207,53 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       payload: { phase: "started", runId: "run_1", sessionKey: "session_1" },
     })).toEqual([
       {
-        messageId: "turn_gateway",
-        messageMetadata: {
+        metadata: {
           run_id: "run_1",
           session_key: "session_1",
           turn_id: "turn_gateway",
         },
-        type: "start",
+        runId: "turn_gateway",
+        threadId: "turn_gateway",
+        type: "RUN_STARTED",
+      },
+      {
+        messageId: "turn_gateway",
+        role: "assistant",
+        type: "TEXT_MESSAGE_START",
       },
     ]);
     expect(mapOpenClawEventToBeeperChunks(state, {
       event: "session.message",
       payload: { deltaText: "Hello", role: "assistant", runId: "run_1" },
     })).toEqual([
-      { id: "text_turn_gateway", type: "text-start" },
-      { delta: "Hello", id: "text_turn_gateway", type: "text-delta" },
+      { delta: "Hello", messageId: "turn_gateway", type: "TEXT_MESSAGE_CONTENT" },
     ]);
     expect(mapOpenClawEventToBeeperChunks(state, {
       event: "session.tool",
       payload: { args: { cmd: "pwd" }, phase: "started", tool: "exec", toolCallId: "tool_1" },
     })).toEqual([
       {
-        dynamic: true,
-        input: { cmd: "pwd" },
+        parentMessageId: "tool_1",
+        state: "awaiting-input",
         toolCallId: "tool_1",
+        toolCallName: "exec",
         toolName: "exec",
-        type: "tool-input-available",
+        type: "TOOL_CALL_START",
+      },
+      {
+        args: "{\"cmd\":\"pwd\"}",
+        delta: "{\"cmd\":\"pwd\"}",
+        state: "input-streaming",
+        toolCallId: "tool_1",
+        type: "TOOL_CALL_ARGS",
+      },
+      {
+        input: { cmd: "pwd" },
+        state: "input-complete",
+        toolCallId: "tool_1",
+        toolCallName: "exec",
+        toolName: "exec",
+        type: "TOOL_CALL_END",
       },
     ]);
     expect(mapOpenClawEventToBeeperChunks(state, {
@@ -180,11 +261,35 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       payload: { id: "approval_1", reason: "Run command?", tool: "exec", toolCallId: "tool_1" },
     })).toEqual([
       {
-        approvalId: "approval_1",
-        message: "Run command?",
-        toolCallId: "tool_1",
-        toolName: "exec",
-        type: "tool-approval-request",
+        name: "approval-requested",
+        type: "CUSTOM",
+        value: {
+          approval: {
+            id: "approval_1",
+            needsApproval: true,
+          },
+          approvalMessageId: "approval_1",
+          message: "Run command?",
+          toolCallId: "tool_1",
+          toolName: "exec",
+        },
+      },
+    ]);
+  });
+
+  it("marks cancelled OpenClaw runs as abort terminal stream events", () => {
+    const state = createOpenClawStreamState("turn_cancel");
+
+    expect(mapOpenClawEventToBeeperChunks(state, {
+      event: "session.operation",
+      payload: { phase: "cancelled", reason: "user stopped it", runId: "run_cancel" },
+    })).toEqual([
+      {
+        message: "user stopped it",
+        reason: "user stopped it",
+        runId: "turn_cancel",
+        terminalType: "abort",
+        type: "RUN_ERROR",
       },
     ]);
   });

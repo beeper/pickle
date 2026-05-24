@@ -848,6 +848,16 @@ export class RuntimeBridge implements PickleBridge {
       listLogins: () => Array.from(this.#userLogins.values()),
       loginFlows: () => this.connector.getLoginFlows(),
       loadLogin: (login) => this.loadUserLogin(login).then(() => undefined),
+      listContacts: async (login, query, limit) => {
+        const client = await this.loadUserLogin(login);
+        if (!hasMethod(client, "listContacts")) {
+          throw new Error(`Login ${login.id} does not support contact listing`);
+        }
+        return (client as import("./types").ContactListingNetworkAPI).listContacts(this.#requestContext(), {
+          ...(limit !== undefined ? { limit } : {}),
+          ...(query !== undefined ? { query } : {}),
+        });
+      },
       requestContext: () => this.#requestContext(),
       resolveIdentifier: (login, identifier, createDM) => this.resolveIdentifier(login, { createDM, identifier }),
     }, { logins: this.#provisioningLogins }, request);

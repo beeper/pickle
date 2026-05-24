@@ -47,4 +47,22 @@ describe("OpenClaw appservice registration", () => {
       preset: "private_chat",
     });
   });
+
+  it("keeps appservice tokens independent from the Beeper Matrix access token", () => {
+    const config = createDefaultConfig({
+      accessToken: "mx-token",
+      asToken: "as-token",
+      dataDir: "/tmp/openclaw",
+      hsToken: "hs-token",
+    });
+    expect(createAppserviceRegistration(config).as_token).toBe("as-token");
+    expect(createAppserviceRegistration(config).hs_token).toBe("hs-token");
+
+    const generated = createAppserviceRegistration(createDefaultConfig({
+      accessToken: "mx-token",
+      dataDir: "/tmp/openclaw",
+    }));
+    expect(generated.as_token).not.toBe("mx-token");
+    expect(generated.as_token).toMatch(/^[a-f0-9]{64}$/u);
+  });
 });

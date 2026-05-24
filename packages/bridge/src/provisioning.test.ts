@@ -32,7 +32,7 @@ describe("handleProvisioningHTTPProxy", () => {
     await expect(handleProvisioningHTTPProxy(runtime, { logins: new Map() }, {
       method: "POST",
       path: "/_matrix/provision/v3/create_dm/intern",
-      query: "login_id=cloud-login-id",
+      query: "login_id=intern",
     })).resolves.toMatchObject({
       body: {
         dm_room_mxid: "!sidechat:example",
@@ -44,6 +44,57 @@ describe("handleProvisioningHTTPProxy", () => {
     });
 
     expect(runtime.resolveIdentifier).toHaveBeenCalledWith({ id: "intern" }, "intern", true);
+  });
+
+  it("lists contacts through provisioning when the bridge supports contact lists", async () => {
+    const runtime = provisioningRuntime();
+
+    await expect(handleProvisioningHTTPProxy(runtime, { logins: new Map() }, {
+      method: "GET",
+      path: "/_matrix/provision/v3/contacts",
+      query: "q=codex&limit=10",
+    })).resolves.toMatchObject({
+      body: {
+        contacts: [{
+          id: "intern",
+          mxid: "@intern:example",
+          name: "Intern",
+        }],
+      },
+      status: 200,
+    });
+
+    expect(runtime.listContacts).toHaveBeenCalledWith({ id: "intern" }, "codex", 10);
+  });
+
+  it("does not fall back to another login when an explicit provisioning login_id is missing", async () => {
+    const runtime = provisioningRuntime();
+
+    await expect(handleProvisioningHTTPProxy(runtime, { logins: new Map() }, {
+      method: "POST",
+      path: "/_matrix/provision/v3/create_dm/intern",
+      query: "login_id=missing",
+    })).resolves.toMatchObject({
+      body: {
+        errcode: "M_NOT_FOUND",
+        error: "Login not found",
+      },
+      status: 404,
+    });
+    await expect(handleProvisioningHTTPProxy(runtime, { logins: new Map() }, {
+      method: "GET",
+      path: "/_matrix/provision/v3/contacts",
+      query: "login_id=missing",
+    })).resolves.toMatchObject({
+      body: {
+        errcode: "M_NOT_FOUND",
+        error: "Login not found",
+      },
+      status: 404,
+    });
+
+    expect(runtime.resolveIdentifier).not.toHaveBeenCalled();
+    expect(runtime.listContacts).not.toHaveBeenCalled();
   });
 });
 
@@ -58,6 +109,12 @@ function provisioningRuntime(): ProvisioningRuntime {
     }),
     createLogin: vi.fn(),
     listLogins: () => [login],
+    listContacts: vi.fn(async () => ({
+      contacts: [{
+        ghost: { displayName: "Intern", id: "intern", mxid: "@intern:example" },
+        userId: "@intern:example",
+      }],
+    })),
     loginFlows: () => [],
     loadLogin: vi.fn(),
     requestContext: vi.fn(),

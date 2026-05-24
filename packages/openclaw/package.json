@@ -43,6 +43,10 @@
       "types": "./dist/beeper-setup.d.mts",
       "import": "./dist/beeper-setup.mjs"
     },
+    "./beeper-stream": {
+      "types": "./dist/beeper-stream.d.mts",
+      "import": "./dist/beeper-stream.mjs"
+    },
     "./cli": {
       "types": "./dist/cli.d.mts",
       "import": "./dist/cli.mjs"
@@ -58,6 +62,14 @@
     "./openclaw-event-map": {
       "types": "./dist/openclaw-event-map.d.mts",
       "import": "./dist/openclaw-event-map.mjs"
+    },
+    "./openclaw-extension": {
+      "types": "./dist/openclaw-extension.d.mts",
+      "import": "./dist/openclaw-extension.mjs"
+    },
+    "./plugin-entry": {
+      "types": "./dist/plugin-entry.d.mts",
+      "import": "./dist/plugin-entry.mjs"
     },
     "./openclaw-runtime": {
       "types": "./dist/openclaw-runtime.d.mts",
@@ -79,6 +91,14 @@
       "types": "./dist/rooms.d.mts",
       "import": "./dist/rooms.mjs"
     },
+    "./setup": {
+      "types": "./dist/setup.d.mts",
+      "import": "./dist/setup.mjs"
+    },
+    "./setup-entry": {
+      "types": "./dist/setup-entry.d.mts",
+      "import": "./dist/setup-entry.mjs"
+    },
     "./stream-map": {
       "types": "./dist/stream-map.d.mts",
       "import": "./dist/stream-map.mjs"
@@ -90,9 +110,56 @@
   },
   "files": [
     "dist",
+    "openclaw.plugin.json",
     "README.md",
     "LICENSE"
   ],
+  "openclaw": {
+    "extensions": [
+      "./src/plugin-entry.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/plugin-entry.mjs"
+    ],
+    "setupEntry": "./src/setup-entry.ts",
+    "runtimeSetupEntry": "./dist/setup-entry.mjs",
+    "channel": {
+      "id": "beeper",
+      "label": "Beeper",
+      "selectionLabel": "Beeper bridge",
+      "detailLabel": "Beeper Matrix bridge",
+      "docsPath": "/channels/beeper",
+      "docsLabel": "beeper",
+      "blurb": "bridges OpenClaw sessions and agents into Beeper with Matrix-native streaming, replies, reactions, and approvals.",
+      "systemImage": "message",
+      "cliAddOptions": [
+        {
+          "flags": "--email <email>",
+          "description": "Beeper account email for login"
+        },
+        {
+          "flags": "--bridge-manager-token <token>",
+          "description": "Beeper bridge-manager token for self-hosted appservice registration"
+        }
+      ]
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@beeper/pickle-openclaw@0.1.0",
+      "npmSpec": "@beeper/pickle-openclaw@0.1.0",
+      "defaultChoice": "clawhub",
+      "minHostVersion": ">=2026.5.24"
+    },
+    "compat": {
+      "pluginApi": ">=2026.5.24"
+    },
+    "build": {
+      "openclawVersion": "2026.5.24"
+    },
+    "release": {
+      "publishToClawHub": true,
+      "publishToNpm": true
+    }
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -104,6 +171,7 @@
   },
   "dependencies": {
     "@beeper/pickle": "workspace:*",
+    "@beeper/pickle-ag-ui": "workspace:*",
     "@beeper/pickle-bridge": "workspace:*",
     "@beeper/pickle-state-file": "workspace:*"
   },
@@ -113,6 +181,14 @@
     "tsdown": "^0.21.10",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.5.24"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
   },
   "keywords": [
     "beeper",

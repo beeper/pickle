@@ -160,6 +160,10 @@ export interface IdentifierResolvingNetworkAPI extends NetworkAPI {
   resolveIdentifier(ctx: BridgeRequestContext, identifier: ResolveIdentifierParams): Promise<ResolveIdentifierResponse>;
 }
 
+export interface ContactListingNetworkAPI extends NetworkAPI {
+  listContacts(ctx: BridgeRequestContext, params: ListContactsParams): Promise<ListContactsResponse>;
+}
+
 export interface MessageRequestHandlingNetworkAPI extends NetworkAPI {
   handleMessageRequest(ctx: BridgeRequestContext, request: MessageRequest): Promise<MessageRequest>;
 }
@@ -885,6 +889,16 @@ export interface ResolveIdentifierResponse {
   metadata?: unknown;
   portal?: Portal;
   userId?: UserID;
+}
+
+export interface ListContactsParams {
+  limit?: number;
+  query?: string;
+}
+
+export interface ListContactsResponse {
+  contacts: ResolveIdentifierResponse[];
+  nextBatch?: string;
 }
 
 export interface UserProfile {

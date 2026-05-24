@@ -55,7 +55,7 @@ describe("OpenClawGatewayRuntime", () => {
       key: "agent:codex:main",
       message: "hello",
       timeoutMs: 1000,
-    }, { expectFinal: true, timeoutMs: 1000 });
+    }, { expectFinal: false, timeoutMs: 1000 });
   });
 
   it("exposes generic OpenClaw gateway feature RPC wrappers", async () => {
@@ -131,13 +131,13 @@ describe("OpenClawGatewayRuntime", () => {
       url: "ws://127.0.0.1:29390/openclaw",
     });
 
-    await expect(transport.request("sessions.send", { key: "session", message: "hi" }, { expectFinal: true })).resolves.toEqual({
+    await expect(transport.request("sessions.send", { key: "session", message: "hi" }, { expectFinal: false })).resolves.toEqual({
       runId: "run_1",
     });
     expect(requests).toEqual([
       {
         body: {
-          expectFinal: true,
+          expectFinal: false,
           method: "sessions.send",
           params: { key: "session", message: "hi" },
         },
@@ -227,6 +227,36 @@ describe("OpenClawGatewayRuntime", () => {
     socket?.receive({ event: "session.message", payload: { runId: "run_1" }, seq: 3, type: "event" });
     events.push((await next).value);
     expect(events).toEqual([{ event: "session.message", payload: { runId: "run_1" }, seq: 3 }]);
+    transport.close();
+  });
+
+  it("accepts gateway WebSocket events with top-level run metadata", async () => {
+    FakeWebSocket.instances = [];
+    const transport = createOpenClawWebSocketTransport({
+      WebSocket: FakeWebSocket as unknown as typeof WebSocket,
+      url: "ws://gateway",
+    });
+
+    const iterator = transport.events((event) => {
+      const payload = event.payload as { runId?: string };
+      return payload.runId === "run_top";
+    });
+    const next = iterator[Symbol.asyncIterator]().next();
+    await waitFor(() => (FakeWebSocket.instances[0]?.sent.length ?? 0) === 1);
+    const socket = FakeWebSocket.instances[0]!;
+    socket?.receive({ id: JSON.parse(socket.sent[0] ?? "{}").id, ok: true, payload: { ok: true }, type: "res" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    socket?.receive({ event: "session.message", runId: "run_skip", type: "event" });
+    socket?.receive({ deltaText: "hi", event: "session.message", runId: "run_top", seq: 4, type: "event" });
+
+    await expect(next).resolves.toEqual({
+      done: false,
+      value: {
+        event: "session.message",
+        payload: { deltaText: "hi", event: "session.message", runId: "run_top", seq: 4, type: "event" },
+        seq: 4,
+      },
+    });
     transport.close();
   });
 });

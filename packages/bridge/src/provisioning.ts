@@ -8,6 +8,7 @@ import type {
   LoginStep,
   LoginUserInput,
   LoginCookieInput,
+  ListContactsResponse,
   NetworkGeneralCapabilities,
   ResolveIdentifierResponse,
   UserLogin,
@@ -19,6 +20,7 @@ export interface ProvisioningRuntime {
   listLogins(): UserLogin[];
   loginFlows(): unknown[];
   loadLogin(login: UserLogin): Promise<void>;
+  listContacts?(login: UserLogin, query?: string, limit?: number): Promise<ListContactsResponse>;
   requestContext(): BridgeRequestContext;
   resolveIdentifier(login: UserLogin, identifier: string, createDM: boolean): Promise<ResolveIdentifierResponse>;
 }
@@ -39,6 +41,17 @@ export async function handleProvisioningHTTPProxy(runtime: ProvisioningRuntime, 
   }
   if (method === "GET" && path === "/_matrix/provision/v3/logins") {
     return jsonHTTPResponse(200, { login_ids: runtime.listLogins().map((login) => login.id) });
+  }
+
+  if (method === "GET" && path === "/_matrix/provision/v3/contacts") {
+    if (!runtime.listContacts) return jsonHTTPResponse(404, matrixError("M_UNSUPPORTED", "Contact listing is not supported"));
+    const login = provisioningLogin(runtime, request);
+    if (!login) return jsonHTTPResponse(404, matrixError("M_NOT_FOUND", "Login not found"));
+    return jsonHTTPResponse(200, contactsListResponse(await runtime.listContacts(
+      login,
+      queryParam(request.query, "q"),
+      intQueryParam(request.query, "limit"),
+    )));
   }
 
   const createDM = match(path, /^\/_matrix\/provision\/v3\/create_dm\/([^/]+)$/);
@@ -85,7 +98,7 @@ function provisioningLogin(runtime: ProvisioningRuntime, request: HTTPProxyReque
   const loginId = queryParam(request.query, "login_id");
   if (loginId) {
     const matching = logins.find((login) => login.id === loginId);
-    if (matching) return matching;
+    return matching ?? null;
   }
   return logins[0] ?? null;
 }
@@ -140,6 +153,13 @@ function resolvedIdentifierResponse(resolved: ResolveIdentifierResponse): Record
     id: resolved.ghost?.id ?? resolved.userId,
     mxid: resolved.userId ?? resolved.ghost?.mxid,
     name: resolved.ghost?.displayName,
+  });
+}
+
+function contactsListResponse(response: ListContactsResponse): Record<string, unknown> {
+  return stripUndefined({
+    contacts: response.contacts.map((contact) => resolvedIdentifierResponse(contact)),
+    next_batch: response.nextBatch,
   });
 }
 
@@ -209,6 +229,13 @@ function match(path: string, regex: RegExp): string[] | null {
 function queryParam(rawQuery: string | undefined, key: string): string | undefined {
   if (!rawQuery) return undefined;
   return new URLSearchParams(rawQuery.startsWith("?") ? rawQuery.slice(1) : rawQuery).get(key) ?? undefined;
+}
+
+function intQueryParam(rawQuery: string | undefined, key: string): number | undefined {
+  const value = queryParam(rawQuery, key);
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function hasMethod<T extends string>(value: object, method: T): value is object & Record<T, (...args: unknown[]) => unknown> {

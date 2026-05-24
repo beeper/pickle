@@ -22,7 +22,6 @@ export interface BeeperLoginForOpenClawOptions {
   initialDeviceDisplayName?: string;
   login?: (options: BeeperAuthOptions) => Promise<BeeperSetupAccount>;
   metadata?: Record<string, unknown>;
-  onlyExistingAccounts?: boolean;
 }
 
 export interface BeeperLoginForOpenClawResult {
@@ -35,6 +34,7 @@ export interface CreateOpenClawBeeperAppServiceOptions {
   address?: string;
   baseDomain?: string;
   bridge?: string;
+  bridgeManagerToken?: string;
   bridgeType?: string;
   createAppServiceInit?: (options: CreateOpenClawBeeperAppServiceRequest) => Promise<MatrixAppserviceInitOptions>;
   fetch?: typeof fetch;
@@ -50,12 +50,13 @@ export interface CreateOpenClawBeeperAppServiceOptions {
 export type CreateOpenClawBeeperAppServiceRequest = CreateAppServiceOptions & {
   baseDomain?: string;
   fetch?: typeof fetch;
+  hungryToken?: string;
   token: string;
   username?: string;
 };
 
 export interface CreateOpenClawBeeperAppServiceResult {
-  config: Pick<OpenClawBridgeConfig, "appserviceId" | "homeserver" | "hsToken" | "registrationUrl">;
+  config: Pick<OpenClawBridgeConfig, "appserviceId" | "asToken" | "homeserver" | "hsToken" | "registrationUrl">;
   init: MatrixAppserviceInitOptions;
 }
 
@@ -63,6 +64,7 @@ export interface SetupOpenClawBeeperBridgeOptions extends BeeperLoginForOpenClaw
   address?: string;
   baseDomain?: string;
   bridge?: string;
+  bridgeManagerToken?: string;
   bridgeType?: string;
   createAppServiceInit?: CreateOpenClawBeeperAppServiceOptions["createAppServiceInit"];
   getOnly?: boolean;
@@ -75,7 +77,7 @@ export interface SetupOpenClawBeeperBridgeOptions extends BeeperLoginForOpenClaw
 
 export interface SetupOpenClawBeeperBridgeResult {
   account: BeeperSetupAccount;
-  config: Pick<OpenClawBridgeConfig, "accessToken" | "appserviceId" | "homeserver" | "hsToken" | "matrixDeviceId" | "matrixUserId" | "registrationUrl">;
+  config: Pick<OpenClawBridgeConfig, "accessToken" | "appserviceId" | "asToken" | "homeserver" | "hsToken" | "matrixDeviceId" | "matrixUserId" | "registrationUrl">;
   init: MatrixAppserviceInitOptions;
 }
 
@@ -89,7 +91,6 @@ export async function loginToBeeperForOpenClaw(options: BeeperLoginForOpenClawOp
   if (options.env !== undefined) request.env = options.env;
   if (options.fetch !== undefined) request.fetch = options.fetch;
   if (options.getLoginCode !== undefined) request.getLoginCode = options.getLoginCode;
-  if (options.onlyExistingAccounts !== undefined) request.onlyExistingAccounts = options.onlyExistingAccounts;
   const account = await login(request);
   return {
     account,
@@ -114,6 +115,7 @@ export async function createOpenClawBeeperAppService(
     token: options.accessToken,
   };
   if (options.baseDomain !== undefined) request.baseDomain = options.baseDomain;
+  if (options.bridgeManagerToken !== undefined) request.hungryToken = options.bridgeManagerToken;
   if (options.fetch !== undefined) request.fetch = options.fetch;
   if (options.getOnly !== undefined) request.getOnly = options.getOnly;
   if (options.homeserver !== undefined) request.homeserver = options.homeserver;
@@ -125,6 +127,7 @@ export async function createOpenClawBeeperAppService(
   return {
     config: {
       appserviceId: init.registration.id,
+      asToken: init.registration.asToken,
       homeserver: init.homeserver,
       hsToken: init.registration.hsToken,
       registrationUrl: options.address ?? init.registration.url ?? DEFAULT_REGISTRATION_URL,
@@ -145,6 +148,7 @@ export async function setupOpenClawBeeperBridge(
   if (options.address !== undefined) appserviceOptions.address = options.address;
   if (baseDomain !== undefined) appserviceOptions.baseDomain = baseDomain;
   if (options.bridge !== undefined) appserviceOptions.bridge = options.bridge;
+  if (options.bridgeManagerToken !== undefined) appserviceOptions.bridgeManagerToken = options.bridgeManagerToken;
   if (options.bridgeType !== undefined) appserviceOptions.bridgeType = options.bridgeType;
   if (options.createAppServiceInit !== undefined) appserviceOptions.createAppServiceInit = options.createAppServiceInit;
   if (options.fetch !== undefined) appserviceOptions.fetch = options.fetch;

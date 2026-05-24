@@ -14,7 +14,7 @@ export function createAppserviceRegistration(
   const userPrefix = escapeRegex(config.userLocalpartPrefix);
   const sender = escapeRegex(config.senderLocalpart);
   return {
-    as_token: options.asToken ?? config.accessToken ?? secretToken(),
+    as_token: options.asToken ?? config.asToken ?? secretToken(),
     hs_token: options.hsToken ?? config.hsToken ?? secretToken(),
     id: config.appserviceId,
     namespaces: {

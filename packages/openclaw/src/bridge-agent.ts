@@ -4,18 +4,21 @@ import {
   type ParsedApprovalResponse,
 } from "./approval";
 import { createOpenClawStreamState, mapOpenClawEventToBeeperChunks } from "./openclaw-event-map";
-import type { OpenClawGatewayRuntime, OpenClawGatewayEvent } from "./openclaw-runtime";
+import type { OpenClawGatewayRuntime, OpenClawGatewayEvent, OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
 import type { OpenClawBridgeRegistry } from "./registry";
-import { createTurnId, type BeeperUIMessageChunk } from "./stream-map";
+import type { AGUIEvent } from "./stream-map";
 import type { OpenClawSessionBinding } from "./types";
 
 export interface OpenClawBridgeStreamPublisher {
-  publish(binding: OpenClawSessionBinding, chunks: BeeperUIMessageChunk[]): Promise<void> | void;
+  publish(binding: OpenClawSessionBinding, events: AGUIEvent[]): Promise<void> | void;
 }
 
 export interface MatrixTextTurn {
+  attachments?: unknown[];
   eventId: string;
+  matrix?: OpenClawMatrixMessageMetadata;
   roomId: string;
+  replyToEventId?: string;
   sender: string;
   text: string;
 }
@@ -44,16 +47,19 @@ export class OpenClawMatrixBridgeAgent {
 
   async handleMatrixText(turn: MatrixTextTurn): Promise<void> {
     if (this.registry.hasDedupe(turn.eventId)) return;
-    this.registry.markDedupe(turn.eventId);
     const binding = this.registry.getBindingByRoom(turn.roomId);
     if (!binding) {
+      this.registry.markDedupe(turn.eventId);
       await this.registry.save();
       return;
     }
     const sessionKey = await this.ensureSession(binding);
     const run = await this.runtime.sendMessage({
+      ...(turn.attachments && turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
       idempotencyKey: turn.eventId,
+      ...(turn.matrix ? { matrix: turn.matrix } : {}),
       message: turn.text,
+      ...(turn.replyToEventId ? { replyTo: { eventId: turn.replyToEventId, roomId: turn.roomId } } : {}),
       sessionKey,
     });
     this.registry.updateBinding(binding.id, (current) => ({
@@ -64,6 +70,7 @@ export class OpenClawMatrixBridgeAgent {
       updatedAt: Date.now(),
     }));
     await this.streamRun({ ...binding, sessionKey: run.sessionKey }, run.runId);
+    this.registry.markDedupe(turn.eventId);
     await this.registry.save();
   }
 
@@ -76,7 +83,7 @@ export class OpenClawMatrixBridgeAgent {
   }
 
   async streamRun(binding: OpenClawSessionBinding, runId: string): Promise<void> {
-    const state = createOpenClawStreamState(createTurnId());
+    const state = createOpenClawStreamState(runId);
     for await (const gatewayEvent of this.runtime.eventsForRun(runId)) {
       const chunks = mapOpenClawEventToBeeperChunks(state, openClawEventFromGateway(gatewayEvent));
       if (chunks.length > 0) await this.streams.publish(binding, chunks);

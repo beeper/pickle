@@ -50,10 +50,34 @@ export interface OpenClawSessionCreateOptions {
 export interface OpenClawSessionSendOptions {
   attachments?: unknown[];
   idempotencyKey?: string;
+  matrix?: OpenClawMatrixMessageMetadata;
   message: string;
+  replyTo?: OpenClawReplyReference;
   sessionKey: string;
   thinking?: string;
   timeoutMs?: number;
+}
+
+export interface OpenClawMatrixMessageMetadata {
+  formattedBody?: string;
+  mentions?: {
+    room?: boolean;
+    userIds?: string[];
+  };
+  relation?: {
+    key?: string;
+    kind?: "reply" | "thread" | "edit" | "reaction" | "redaction";
+    replyToEventId?: string;
+    targetEventId?: string;
+    threadRootEventId?: string;
+  };
+  sender?: string;
+  threadRootEventId?: string;
+}
+
+export interface OpenClawReplyReference {
+  eventId: string;
+  roomId?: string;
 }
 
 export interface OpenClawGatewayFeatureSnapshot {
@@ -275,13 +299,15 @@ export class OpenClawGatewayRuntime {
   }
 
   async sendMessage(options: OpenClawSessionSendOptions): Promise<OpenClawRunRef> {
-    const requestOptions: GatewayRequestOptions = { expectFinal: true };
+    const requestOptions: GatewayRequestOptions = { expectFinal: false };
     if (options.timeoutMs !== undefined) requestOptions.timeoutMs = options.timeoutMs;
     const raw = await this.transport.request("sessions.send", {
       key: options.sessionKey,
       message: options.message,
       ...(options.attachments ? { attachments: options.attachments } : {}),
       ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+      ...(options.matrix ? { matrix: options.matrix } : {}),
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
       ...(options.thinking ? { thinking: options.thinking } : {}),
       ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
     }, requestOptions);
@@ -292,7 +318,7 @@ export class OpenClawGatewayRuntime {
   }
 
   async steerSession(options: OpenClawSessionSendOptions): Promise<OpenClawRunRef> {
-    const requestOptions: GatewayRequestOptions = { expectFinal: true };
+    const requestOptions: GatewayRequestOptions = { expectFinal: false };
     if (options.timeoutMs !== undefined) requestOptions.timeoutMs = options.timeoutMs;
     const raw = await this.transport.request("sessions.steer", {
       key: options.sessionKey,
@@ -551,7 +577,7 @@ export class OpenClawWebSocketTransport implements OpenClawTransport {
     if (frame.type === "event") {
       const event = stripUndefined({
         event: stringValue(frame.event),
-        payload: frame.payload,
+        payload: frame.payload ?? frame,
         seq: typeof frame.seq === "number" ? frame.seq : undefined,
         stateVersion: frame.stateVersion,
       });
