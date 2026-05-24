@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BeeperStreamPublisher } from "./beeper-stream";
 
 describe("Beeper stream publisher", () => {
-  it("starts one native stream message and publishes UI parts through native transport", async () => {
+  it("starts one native stream message and publishes AG-UI events through native transport", async () => {
     const { client, publishPart, startMessage } = createClient();
     const subscribers = [{ deviceId: "DESKTOP", userId: "@alice:example.com" }];
     const publisher = new BeeperStreamPublisher({
@@ -20,8 +20,8 @@ describe("Beeper stream publisher", () => {
       eventId: "$target",
       turnId: "turn_1",
     });
-    await publisher.publish({ id: "text_turn_1", type: "text-start" });
-    await publisher.publish({ delta: "hello", id: "text_turn_1", type: "text-delta" });
+    await publisher.publish({ messageId: "turn_1", role: "assistant", type: "TEXT_MESSAGE_START" });
+    await publisher.publish({ delta: "hello", messageId: "turn_1", type: "TEXT_MESSAGE_CONTENT" });
 
     expect(startMessage).toHaveBeenCalledTimes(1);
     expect(startMessage).toHaveBeenCalledWith({
@@ -41,13 +41,8 @@ describe("Beeper stream publisher", () => {
       userId: "@bot:example.com",
     });
     expect(publishPart.mock.calls.map(([options]) => options.part)).toEqual([
-      {
-        messageId: "turn_1",
-        messageMetadata: { model: "test", turn_id: "turn_1" },
-        type: "start",
-      },
-      { id: "text_turn_1", type: "text-start" },
-      { delta: "hello", id: "text_turn_1", type: "text-delta" },
+      { messageId: "turn_1", role: "assistant", type: "TEXT_MESSAGE_START" },
+      { delta: "hello", messageId: "turn_1", type: "TEXT_MESSAGE_CONTENT" },
     ]);
     for (const [options] of publishPart.mock.calls) {
       expect(options).toMatchObject({
@@ -63,32 +58,30 @@ describe("Beeper stream publisher", () => {
     const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_concurrent" });
 
     await Promise.all([
-      publisher.publish({ id: "text_turn_concurrent", type: "text-start" }),
-      publisher.publish({ delta: "a", id: "text_turn_concurrent", type: "text-delta" }),
-      publisher.publish({ delta: "b", id: "text_turn_concurrent", type: "text-delta" }),
+      publisher.publish({ messageId: "turn_concurrent", role: "assistant", type: "TEXT_MESSAGE_START" }),
+      publisher.publish({ delta: "a", messageId: "turn_concurrent", type: "TEXT_MESSAGE_CONTENT" }),
+      publisher.publish({ delta: "b", messageId: "turn_concurrent", type: "TEXT_MESSAGE_CONTENT" }),
     ]);
 
     expect(startMessage).toHaveBeenCalledTimes(1);
     expect(publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
-      "start",
-      "text-start",
-      "text-delta",
-      "text-delta",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_CONTENT",
     ]);
   });
 
   it("continues the publish queue after a failed publish", async () => {
     const { client, publishPart } = createClient();
-    publishPart.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("network down"));
+    publishPart.mockRejectedValueOnce(new Error("network down"));
     const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_retry" });
 
-    await expect(publisher.publish({ id: "text_turn_retry", type: "text-start" })).rejects.toThrow("network down");
-    await publisher.publish({ delta: "ok", id: "text_turn_retry", type: "text-delta" });
+    await expect(publisher.publish({ messageId: "turn_retry", role: "assistant", type: "TEXT_MESSAGE_START" })).rejects.toThrow("network down");
+    await publisher.publish({ delta: "ok", messageId: "turn_retry", type: "TEXT_MESSAGE_CONTENT" });
 
     expect(publishPart.mock.calls.map(([options]) => options.part)).toEqual([
-      { messageId: "turn_retry", messageMetadata: { turn_id: "turn_retry" }, type: "start" },
-      { id: "text_turn_retry", type: "text-start" },
-      { delta: "ok", id: "text_turn_retry", type: "text-delta" },
+      { messageId: "turn_retry", role: "assistant", type: "TEXT_MESSAGE_START" },
+      { delta: "ok", messageId: "turn_retry", type: "TEXT_MESSAGE_CONTENT" },
     ]);
   });
 
@@ -96,8 +89,8 @@ describe("Beeper stream publisher", () => {
     const { client, finalizeMessage, publishPart } = createClient();
     const publisher = new BeeperStreamPublisher({ client, roomId: "!room:example.com", turnId: "turn_3" });
 
-    await publisher.publish({ id: "text_turn_3", type: "text-start" });
-    await publisher.publish({ delta: "done", id: "text_turn_3", type: "text-delta" });
+    await publisher.publish({ messageId: "turn_3", role: "assistant", type: "TEXT_MESSAGE_START" });
+    await publisher.publish({ delta: "done", messageId: "turn_3", type: "TEXT_MESSAGE_CONTENT" });
     const result = await publisher.finalize({
       body: "done",
       message: {
@@ -110,8 +103,9 @@ describe("Beeper stream publisher", () => {
 
     expect(publishPart.mock.calls.at(-1)![0].part).toEqual({
       finishReason: "stop",
-      messageMetadata: { finish_reason: "stop", turn_id: "turn_3" },
-      type: "finish",
+      runId: "turn_3",
+      threadId: "turn_3",
+      type: "RUN_FINISHED",
     });
     expect(finalizeMessage).toHaveBeenCalledWith({
       body: "done",
@@ -153,8 +147,9 @@ describe("Beeper stream publisher", () => {
     await errorPublisher.error(new Error("tool failed"));
 
     expect(errored.publishPart.mock.calls.at(-1)![0].part).toEqual({
-      errorText: "tool failed",
-      type: "error",
+      message: "tool failed",
+      runId: "turn_error",
+      type: "RUN_ERROR",
     });
     expect(errored.finalizeMessage).not.toHaveBeenCalled();
 
@@ -168,8 +163,9 @@ describe("Beeper stream publisher", () => {
     await abortPublisher.abort("user cancelled");
 
     expect(aborted.publishPart.mock.calls.at(-1)![0].part).toEqual({
-      reason: "user cancelled",
-      type: "abort",
+      message: "user cancelled",
+      runId: "turn_abort",
+      type: "RUN_ERROR",
     });
     expect(aborted.finalizeMessage).not.toHaveBeenCalled();
   });
@@ -217,13 +213,13 @@ describe("Beeper stream publisher", () => {
 
     await publisher.finalize({
       body: "cancelled",
-      terminalPart: { reason: "user cancelled", type: "abort" },
+      terminalPart: { message: "user cancelled", runId: "turn_abort_final", type: "RUN_ERROR" },
     });
 
     const ai = finalizeMessage.mock.calls[0]![0].content["com.beeper.ai"] as Record<string, any>;
     expect(ai.metadata.beeper_terminal_state).toEqual({
-      reason: "user cancelled",
-      type: "abort",
+      errorText: "user cancelled",
+      type: "error",
     });
   });
 });

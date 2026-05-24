@@ -1,5 +1,5 @@
 packages:
-  - "packages/ai-sdk"
+  - "packages/ag-ui"
   - "packages/bridge"
   - "packages/chat-adapter"
   - "packages/cloudflare"

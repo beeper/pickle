@@ -171,11 +171,11 @@ Pickle stream API references:
 - `/Users/batuhan/Projects/labs/pickle/packages/pickle/src/streams/beeper.ts:444` publishes `*.deltas`
 - `/Users/batuhan/Projects/labs/pickle/packages/pickle/src/streams/edits.ts:5` generic Matrix edit fallback
 
-Pickle AI SDK references:
+Pickle AG-UI references:
 
-- `/Users/batuhan/Projects/labs/pickle/packages/ai-sdk/README.md`
-- `/Users/batuhan/Projects/labs/pickle/packages/ai-sdk/src/index.ts`
-- `/Users/batuhan/Projects/labs/pickle/packages/ai-sdk/src/index.test.ts`
+- `/Users/batuhan/Projects/labs/pickle/packages/ag-ui/README.md`
+- `/Users/batuhan/Projects/labs/pickle/packages/ag-ui/src/index.ts`
+- `/Users/batuhan/Projects/labs/pickle/packages/ag-ui/src/index.test.ts`
 
 Pickle chat adapter references:
 
@@ -685,7 +685,7 @@ Required tests:
 Reference test files:
 
 - `/Users/batuhan/Projects/labs/pickle/packages/pickle/src/client.test.ts`
-- `/Users/batuhan/Projects/labs/pickle/packages/ai-sdk/src/index.test.ts`
+- `/Users/batuhan/Projects/labs/pickle/packages/ag-ui/src/index.test.ts`
 - `/Users/batuhan/Projects/labs/upstream/pi/llblab__pi-telegram/tests/runtime.test.ts`
 - `/Users/batuhan/Projects/labs/upstream/pi/llblab__pi-telegram/tests/queue.test.ts`
 - `/Users/batuhan/projects/texts/beeper-workspace/beeper/beeper/desktop/src/common/ai-common.test.ts`

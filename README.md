@@ -8,7 +8,7 @@ A TypeScript Matrix SDK that runs anywhere. Built on `mautrix-go` + `goolm` comp
 | --- | --- |
 | [`@beeper/pickle`](packages/pickle) | Matrix SDK: login, sync, rooms, messages, reactions, threads, media, E2EE. |
 | [`@beeper/pickle-chat-adapter`](packages/chat-adapter) | Build Matrix bots using the [Chat SDK](https://www.npmjs.com/package/chat). |
-| [`@beeper/pickle-ai-sdk`](packages/ai-sdk) | Pipe AI SDK streams into Matrix messages. |
+| [`@beeper/pickle-ag-ui`](packages/ag-ui) | Pipe AG-UI streams into Matrix messages. |
 | [`@beeper/pickle-state-file`](packages/state-file) · [`-sqlite`](packages/state-sqlite) · [`-indexeddb`](packages/state-indexeddb) · [`-memory`](packages/state-memory) · [`-simple`](packages/state-simple) | State adapters for Node, browsers, and custom backends. |
 
 ## Install

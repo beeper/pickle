@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
+	agui "github.com/beeper/ai-bridge/pkg/ag-ui"
 	"maunium.net/go/mautrix"
 	mautrixbeeperstream "maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
@@ -224,23 +226,41 @@ func (c *Core) handlePublishBeeperStreamMessagePart(ctx context.Context, payload
 		streamType = "com.beeper.llm"
 	}
 	seq := stream.nextSeq
-	delta := map[string]any{
-		"m.relates_to": &event.RelatesTo{Type: event.RelReference, EventID: id.EventID(req.EventID)},
-		"part":         req.Part,
-		"seq":          seq,
-		"turn_id":      req.TurnID,
-	}
-	if req.AgentID != "" {
-		delta["agent_id"] = req.AgentID
-	}
-	content := map[string]any{
-		streamType + ".deltas": []any{delta},
+	content, err := c.beeperStreamCarrierContent(streamType, req, seq)
+	if err != nil {
+		return nil, err
 	}
 	if err := c.beeperStream.Publish(ctx, stream.roomID, id.EventID(req.EventID), content); err != nil {
 		return nil, err
 	}
 	stream.nextSeq = seq + 1
 	return c.empty()
+}
+
+func (c *Core) beeperStreamCarrierContent(streamType string, req MatrixPublishBeeperStreamMessagePartOptions, seq int) (map[string]any, error) {
+	run := aistream.Run{
+		ThreadID:  firstString(req.Part["threadId"], req.TurnID),
+		RunID:     firstString(req.Part["runId"], req.TurnID),
+		MessageID: firstString(req.Part["messageId"], req.TurnID),
+		AgentID:   firstNonEmpty(req.AgentID, "ai"),
+		Model:     firstString(req.Part["model"], aistream.DefaultModel),
+	}
+	part := agui.Event(copyOutboundEvent(req.Part))
+	if part["timestamp"] == nil {
+		part["timestamp"] = time.Now().UnixMilli()
+	}
+	envelope, err := aistream.BuildEnvelope(run, seq, part, req.EventID)
+	if err != nil {
+		return nil, err
+	}
+	content := aistream.CarrierContent([]aistream.Envelope{envelope})
+	if streamType != aistream.BeeperAIStreamKey {
+		if deltas, ok := content[aistream.BeeperAIStreamDeltas]; ok {
+			delete(content, aistream.BeeperAIStreamDeltas)
+			content[streamType+".deltas"] = deltas
+		}
+	}
+	return content, nil
 }
 
 func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []byte) ([]byte, error) {

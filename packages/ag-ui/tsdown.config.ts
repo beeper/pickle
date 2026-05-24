@@ -13,7 +13,7 @@ export default defineConfig({
     dts: ".d.ts",
   }),
   deps: {
-    neverBundle: ["@beeper/pickle-chat-adapter", "ai"],
+    neverBundle: ["@beeper/pickle-chat-adapter"],
   },
   target: false,
 });

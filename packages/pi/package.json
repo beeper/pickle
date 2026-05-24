@@ -76,6 +76,7 @@
   },
   "dependencies": {
     "@beeper/pickle": "workspace:*",
+    "@beeper/pickle-ag-ui": "workspace:*",
     "@beeper/pickle-bridge": "workspace:*",
     "@beeper/pickle-state-file": "workspace:*"
   },

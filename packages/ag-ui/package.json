@@ -1,13 +1,13 @@
 {
-  "name": "@beeper/pickle-ai-sdk",
+  "name": "@beeper/pickle-ag-ui",
   "version": "0.1.0",
-  "description": "AI SDK stream adapters for Pickle",
+  "description": "AG-UI stream adapters for Pickle",
   "type": "module",
   "homepage": "https://github.com/beeper/pickle#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/beeper/pickle.git",
-    "directory": "packages/ai-sdk"
+    "directory": "packages/ag-ui"
   },
   "bugs": {
     "url": "https://github.com/beeper/pickle/issues"
@@ -36,11 +36,7 @@
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
-  "peerDependencies": {
-    "@beeper/pickle-chat-adapter": "^0.1.0"
-  },
   "devDependencies": {
-    "@beeper/pickle-chat-adapter": "workspace:*",
     "@types/node": "^20.0.0",
     "tsdown": "^0.21.10",
     "typescript": "^5.7.2",
@@ -48,12 +44,17 @@
   },
   "keywords": [
     "matrix",
-    "ai-sdk",
+    "ag-ui",
     "streaming",
     "beeper"
   ],
   "engines": {
     "node": ">=20"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@ag-ui/core": "0.0.52",
+    "@tanstack/ai": "0.18.0",
+    "@tanstack/ai-client": "0.10.0"
+  }
 }

@@ -567,6 +567,8 @@ export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "ap
   address?: string;
   baseDomain?: string;
   bridge: string;
+  bridgeManagerToken?: string;
+  bridgeManagerPostState?: boolean;
   bridgeType?: string;
   getOnly?: boolean;
   homeserverDomain?: string;

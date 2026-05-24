@@ -3,14 +3,15 @@ import {
   closeReasoningPart,
   closeTextPart,
   createStreamRunState,
-  finishChunk,
+  finishRunEvents,
   mapPiMessageDelta,
   mapPiToolInput,
   mapPiToolOutput,
   openReasoningPart,
   openTextPart,
-  startChunk,
-  type BeeperUIMessageChunk,
+  startRunEvents,
+  AGUIEventType,
+  type AGUIEvent,
   type StreamRunState,
 } from "./stream-map";
 
@@ -18,15 +19,15 @@ export function createPiStreamState(turnId: string): StreamRunState {
   return createStreamRunState(turnId);
 }
 
-export function mapPiAgentSessionEvent(state: StreamRunState, event: unknown): BeeperUIMessageChunk[] {
+export function mapPiAgentSessionEvent(state: StreamRunState, event: unknown): AGUIEvent[] {
   const record = recordValue(event);
   const type = stringValue(record?.type);
   if (!record) return [];
   if (!type) return [];
-  if (type === "message_start" && messageRole(record?.message) === "assistant") return [startChunk(state)];
+  if (type === "message_start" && messageRole(record?.message) === "assistant") return startRunEvents(state);
   if (type === "message_update") return mapAssistantMessageEvent(state, record.assistantMessageEvent);
   if (type === "message_end" && messageRole(record.message) === "assistant") {
-    return [...closeOpenMessageParts(state), finishChunk(state)];
+    return finishRunEvents(state);
   }
   if (type === "message_end" && messageRole(record.message) === "toolResult") return mapToolResultMessage(record.message);
   if (type === "tool_call") return mapToolCall(record);
@@ -37,7 +38,7 @@ export function mapPiAgentSessionEvent(state: StreamRunState, event: unknown): B
   return [];
 }
 
-function mapAssistantMessageEvent(state: StreamRunState, event: unknown): BeeperUIMessageChunk[] {
+function mapAssistantMessageEvent(state: StreamRunState, event: unknown): AGUIEvent[] {
   const record = recordValue(event);
   if (!record) return [];
   const type = stringValue(record?.type) ?? stringValue(record?.kind);
@@ -62,74 +63,88 @@ function mapAssistantMessageEvent(state: StreamRunState, event: unknown): Beeper
   if (type === "toolcall_start") {
     const toolCall = toolCallFromContent(record.toolCall, record.tool_call, record.call, content);
     if (!toolCall) return [];
-    return [{ toolCallId: toolCall.id, toolName: toolCall.name, type: "tool-input-start" }];
+    return [{
+      parentMessageId: state.turnId,
+      state: "awaiting-input",
+      toolCallId: toolCall.id,
+      toolCallName: toolCall.name,
+      toolName: toolCall.name,
+      type: AGUIEventType.TOOL_CALL_START,
+    }];
   }
   if (type === "toolcall_delta") {
     const toolCall = toolCallFromContent(record.toolCall, record.tool_call, record.call, content, record);
     if (!toolCall || typeof record.delta !== "string") return [];
-    return [{ inputTextDelta: record.delta, toolCallId: toolCall.id, type: "tool-input-delta" }];
+    return [{ args: record.delta, delta: record.delta, state: "input-streaming", toolCallId: toolCall.id, type: AGUIEventType.TOOL_CALL_ARGS }];
   }
   if (type === "toolcall_end") {
     const toolCall = toolCallFromContent(record.toolCall, record.tool_call, record.call, content);
     if (!toolCall) return [];
-    return [{ input: toolCall.arguments, toolCallId: toolCall.id, toolName: toolCall.name, type: "tool-input-available" }];
+    return [{
+      input: toolCall.arguments,
+      state: "input-complete",
+      toolCallId: toolCall.id,
+      toolCallName: toolCall.name,
+      toolName: toolCall.name,
+      type: AGUIEventType.TOOL_CALL_END,
+    }];
   }
   if (textDelta && !thinkingDelta) return mapPiMessageDelta(state, { kind: "text", value: textDelta });
   if (thinkingDelta) return mapPiMessageDelta(state, { kind: "thinking", value: thinkingDelta });
   return [];
 }
 
-function mapToolCall(event: Record<string, unknown>): BeeperUIMessageChunk[] {
+function mapToolCall(event: Record<string, unknown>): AGUIEvent[] {
   const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   const toolName = stringValue(event.toolName) ?? stringValue(event.name);
   if (!toolCallId) return [];
-  return [mapPiToolInput({ input: event.input ?? event.args ?? parseMaybeJSONValue(event.arguments), toolCallId, ...(toolName ? { toolName } : {}) })];
+  return mapPiToolInput({ input: event.input ?? event.args ?? parseMaybeJSONValue(event.arguments), toolCallId, ...(toolName ? { toolName } : {}) });
 }
 
-function mapToolExecutionStart(event: Record<string, unknown>): BeeperUIMessageChunk[] {
+function mapToolExecutionStart(event: Record<string, unknown>): AGUIEvent[] {
   const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   const toolName = stringValue(event.toolName) ?? stringValue(event.name);
   if (!toolCallId) return [];
-  return [mapPiToolInput({ input: event.input ?? event.args ?? parseMaybeJSONValue(event.arguments), toolCallId, ...(toolName ? { toolName } : {}) })];
+  return mapPiToolInput({ input: event.input ?? event.args ?? parseMaybeJSONValue(event.arguments), toolCallId, ...(toolName ? { toolName } : {}) });
 }
 
-function mapToolExecutionUpdate(event: Record<string, unknown>): BeeperUIMessageChunk[] {
+function mapToolExecutionUpdate(event: Record<string, unknown>): AGUIEvent[] {
   const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   const toolName = stringValue(event.toolName) ?? stringValue(event.name);
   if (!toolCallId) return [];
-  return [mapPiToolOutput({ output: normalizeToolOutput(event.partialResult), preliminary: true, toolCallId, ...(toolName ? { toolName } : {}) })];
+  return mapPiToolOutput({ output: normalizeToolOutput(event.partialResult), preliminary: true, toolCallId, ...(toolName ? { toolName } : {}) });
 }
 
-function mapToolExecutionEnd(event: Record<string, unknown>): BeeperUIMessageChunk[] {
+function mapToolExecutionEnd(event: Record<string, unknown>): AGUIEvent[] {
   const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   const toolName = stringValue(event.toolName) ?? stringValue(event.name);
   if (!toolCallId) return [];
   if (event.isError === true) {
-    return [mapPiToolOutput({ error: event.result, toolCallId, ...(toolName ? { toolName } : {}) })];
+    return mapPiToolOutput({ error: event.result, toolCallId, ...(toolName ? { toolName } : {}) });
   }
-  return [mapPiToolOutput({ output: normalizeToolOutput(event.result), toolCallId, ...(toolName ? { toolName } : {}) })];
+  return mapPiToolOutput({ output: normalizeToolOutput(event.result), toolCallId, ...(toolName ? { toolName } : {}) });
 }
 
-function mapToolResult(event: Record<string, unknown>): BeeperUIMessageChunk[] {
+function mapToolResult(event: Record<string, unknown>): AGUIEvent[] {
   const toolCallId = stringValue(event.toolCallId) ?? stringValue(event.callId) ?? stringValue(event.id);
   const toolName = stringValue(event.toolName) ?? stringValue(event.name);
   if (!toolCallId) return [];
   const result = event.content ?? event.result ?? event.output ?? event;
   if (event.isError === true) {
-    return [mapPiToolOutput({ error: result, toolCallId, ...(toolName ? { toolName } : {}) })];
+    return mapPiToolOutput({ error: result, toolCallId, ...(toolName ? { toolName } : {}) });
   }
-  return [mapPiToolOutput({ output: normalizeToolOutput(result), toolCallId, ...(toolName ? { toolName } : {}) })];
+  return mapPiToolOutput({ output: normalizeToolOutput(result), toolCallId, ...(toolName ? { toolName } : {}) });
 }
 
-function mapToolResultMessage(message: unknown): BeeperUIMessageChunk[] {
+function mapToolResultMessage(message: unknown): AGUIEvent[] {
   const record = recordValue(message);
   const toolCallId = stringValue(record?.toolCallId) ?? stringValue(record?.callId) ?? stringValue(record?.id);
   const toolName = stringValue(record?.toolName) ?? stringValue(record?.name);
   if (!toolCallId) return [];
   if (record?.isError === true) {
-    return [mapPiToolOutput({ error: record.content, toolCallId, ...(toolName ? { toolName } : {}) })];
+    return mapPiToolOutput({ error: record.content, toolCallId, ...(toolName ? { toolName } : {}) });
   }
-  return [mapPiToolOutput({ output: normalizeToolOutput(record?.content), toolCallId, ...(toolName ? { toolName } : {}) })];
+  return mapPiToolOutput({ output: normalizeToolOutput(record?.content), toolCallId, ...(toolName ? { toolName } : {}) });
 }
 
 function toolCallFromContent(...values: unknown[]): { id: string; name: string; arguments: unknown } | null {

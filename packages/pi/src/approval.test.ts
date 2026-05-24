@@ -8,6 +8,7 @@ import {
   parseApprovalReactionContent,
   parseApprovalReactionKey,
   parseApprovalResponseContent,
+  parseToolApprovalResponseEvent,
   parseToolApprovalResponseChunk,
 } from "./approval";
 
@@ -53,7 +54,44 @@ describe("Beeper approval response parsing", () => {
     ).toMatchObject({ approved: true, approvedAlways: true, decision: "allow_always" });
   });
 
-  it("parses direct tool approval response chunks", () => {
+  it("parses direct AG-UI approval response events", () => {
+    expect(
+      parseToolApprovalResponseEvent({
+        name: "approval-responded",
+        type: "CUSTOM",
+        value: {
+          approval: {
+            approved: true,
+            id: "approval_call_1",
+          },
+          toolCallId: "call_1",
+        },
+      })
+    ).toEqual({
+      approvalId: "approval_call_1",
+      approved: true,
+      approvedAlways: false,
+      decision: "allow_once",
+      toolCallId: "call_1",
+    });
+
+    expect(
+      parseToolApprovalResponseEvent({
+        name: "approval-responded",
+        type: "CUSTOM",
+        value: {
+          approval: {
+            always: true,
+            approved: true,
+            id: "approval_call_2",
+          },
+          toolCallId: "call_2",
+        },
+      })
+    ).toMatchObject({ approved: true, approvedAlways: true, decision: "allow_always" });
+  });
+
+  it("keeps parsing legacy tool approval response chunks", () => {
     expect(
       parseToolApprovalResponseChunk({
         approvalId: "approval_call_1",
@@ -91,19 +129,23 @@ describe("Beeper approval response parsing", () => {
     ).toMatchObject({ approved: false, approvedAlways: true, decision: "deny" });
   });
 
-  it("parses stream-like approval response content", () => {
+  it("parses stream-like AG-UI approval response content", () => {
     expect(
       parseApprovalResponseContent({
         "com.beeper.llm.deltas": [
           {
             parts: [
-              { id: "text_1", type: "text-start" },
               {
-                approvalId: "approval_call_3",
-                approved: true,
-                approvedAlways: true,
-                toolCallId: "call_3",
-                type: "tool-approval-response",
+                name: "approval-responded",
+                type: "CUSTOM",
+                value: {
+                  approval: {
+                    always: true,
+                    approved: true,
+                    id: "approval_call_3",
+                  },
+                  toolCallId: "call_3",
+                },
               },
             ],
             seq: 1,

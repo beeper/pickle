@@ -18,7 +18,7 @@
       "@beeper/pickle/beeper/auth": ["packages/pickle/src/beeper/auth.ts"],
       "@beeper/pickle/streams": ["packages/pickle/src/streams/index.ts"],
       "@beeper/pickle/streams/beeper-message": ["packages/pickle/src/streams/beeper-message.ts"],
-      "@beeper/pickle-ai-sdk": ["packages/ai-sdk/src/index.ts"],
+      "@beeper/pickle-ag-ui": ["packages/ag-ui/src/index.ts"],
       "@beeper/pickle-bridge": ["packages/bridge/src/index.ts"],
       "@beeper/pickle-bridge/types": ["packages/bridge/src/types.ts"],
       "@beeper/pickle-chat-adapter": ["packages/chat-adapter/src/index.ts"],

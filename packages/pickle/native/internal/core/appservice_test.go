@@ -256,7 +256,7 @@ func TestRegisterBeeperStreamInjectsDirectSubscribers(t *testing.T) {
 
 	publishReq, err := json.Marshal(MatrixPublishBeeperStreamMessagePartOptions{
 		EventID: "$stream",
-		Part:    OutboundEvent{"type": "text-delta", "delta": "hi"},
+		Part:    OutboundEvent{"type": "TEXT_MESSAGE_CONTENT", "messageId": "turn-test", "delta": "hi"},
 		RoomID:  "!room:example",
 		TurnID:  "turn-test",
 	})
