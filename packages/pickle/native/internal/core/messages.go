@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/beeper/pickle/packages/pickle/native/internal/agui"
-	"github.com/beeper/pickle/packages/pickle/native/internal/aistream"
+	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
+	agui "github.com/beeper/ai-bridge/pkg/ag-ui"
 	"maunium.net/go/mautrix"
 	mautrixbeeperstream "maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
