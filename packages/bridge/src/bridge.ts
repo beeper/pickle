@@ -852,6 +852,10 @@ export class RuntimeBridge implements PickleBridge {
       listLogins: () => Array.from(this.#userLogins.values()),
       loginFlows: () => this.connector.getLoginFlows(),
       loadLogin: (login) => this.loadUserLogin(login).then(() => undefined),
+      backfill: (login, roomId, params) => this.queueBackfill(login, {
+        ...params,
+        portal: this.#portalForRoom(roomId),
+      }),
       listContacts: async (login, query, limit) => {
         const client = await this.loadUserLogin(login);
         if (!hasMethod(client, "listContacts")) {

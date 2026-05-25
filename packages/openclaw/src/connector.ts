@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import {
   createRemoteMessage,
   type BackfillingNetworkAPI,
@@ -17,7 +16,6 @@ import {
   LoginCreateContext,
   LoginFlow,
   LoginProcess,
-  LoginStep,
   LoadUserLoginContext,
   MatrixEdit,
   MatrixMessage,
@@ -41,18 +39,18 @@ import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessi
 import { parseApprovalResponseContent } from "./approval";
 import { OpenClawBeeperStreamPublisher } from "./beeper-stream";
 import { agentPortalSessionKey, OpenClawMatrixBridgeAgent, type OpenClawBridgeStreamPublisher } from "./bridge-agent";
-import { createDefaultConfig, DEFAULT_GATEWAY_URL } from "./config";
-import { createOpenClawHttpTransport, createOpenClawWebSocketTransport, OpenClawGatewayRuntime, type OpenClawMatrixMessageMetadata, type OpenClawTransport } from "./openclaw-runtime";
+import { createDefaultConfig } from "./config";
+import { createOpenClawHostTransport, OpenClawGatewayRuntime, type OpenClawHostRuntime, type OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
-import { agentContactFromOpenClawAgent, serviceBotUserId } from "./rooms";
+import { agentContactFromOpenClawAgent, agentGhostUserId, serviceBotUserId } from "./rooms";
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
 
 export interface OpenClawConnectorOptions {
   config?: OpenClawBridgeConfig;
   registry?: OpenClawBridgeRegistry;
-  runtimeFactory?: (login: UserLogin, config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
+  runtime?: OpenClawGatewayRuntime | OpenClawHostRuntime;
+  runtimeFactory?: (config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
   streams?: OpenClawBridgeStreamPublisher;
-  transportFactory?: (login: UserLogin, config: OpenClawBridgeConfig) => OpenClawTransport;
 }
 
 export function createOpenClawConnector(options: OpenClawConnectorOptions = {}): OpenClawBridgeConnector {
@@ -62,19 +60,26 @@ export function createOpenClawConnector(options: OpenClawConnectorOptions = {}):
 export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeConfig> {
   readonly config: OpenClawBridgeConfig;
   readonly registry: OpenClawBridgeRegistry;
-  #runtimeFactory: (login: UserLogin, config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
+  readonly runtime: OpenClawGatewayRuntime | undefined;
+  #runtimeFactory: (config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
   #streams: OpenClawBridgeStreamPublisher | undefined;
 
   constructor(options: OpenClawConnectorOptions = {}) {
     this.config = options.config ?? createDefaultConfig();
     this.registry = options.registry ?? new OpenClawBridgeRegistry();
     this.#streams = options.streams;
+    const runtime = options.runtime instanceof OpenClawGatewayRuntime
+      ? options.runtime
+      : options.runtime
+        ? new OpenClawGatewayRuntime({ config: this.config, transport: createOpenClawHostTransport(options.runtime) })
+        : undefined;
+    this.runtime = runtime;
     this.#runtimeFactory =
       options.runtimeFactory ??
-      ((login, config) => new OpenClawGatewayRuntime({
-        config,
-        transport: options.transportFactory?.(login, config) ?? transportFromLogin(login, config),
-      }));
+      ((config) => {
+        if (runtime) return runtime;
+        throw new Error("OpenClaw direct plugin runtime is required");
+      });
   }
 
   getName() {
@@ -117,13 +122,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
   }
 
   getLoginFlows(): LoginFlow[] {
-    return [
-      {
-        description: "Connect to an existing OpenClaw gateway by URL.",
-        id: "openclaw.gateway",
-        name: "OpenClaw Gateway",
-      },
-    ];
+    return [];
   }
 
   async init(ctx: BridgeContext): Promise<void> {
@@ -137,13 +136,18 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
     this.#streams ??= new OpenClawBeeperStreamPublisher(streamOptions);
   }
 
-  async start(_ctx: BridgeContext): Promise<void> {
+  async start(ctx: BridgeContext): Promise<void> {
     await this.registry.save();
+    const login = userLoginFromOpenClawConfig(this.config);
+    try {
+      await ctx.bridge.loadUserLogin(login);
+    } catch (error: unknown) {
+      ctx.log("warn", "openclaw_default_login_load_failed", { error, loginId: login.id });
+    }
   }
 
-  createLogin(_ctx: LoginCreateContext, user: BridgeUser, flowId: string): LoginProcess {
-    if (flowId !== "openclaw.gateway") throw new Error(`Unsupported OpenClaw login flow: ${flowId}`);
-    return new OpenClawGatewayLoginProcess(user.id, this.config);
+  createLogin(_ctx: LoginCreateContext, _user: BridgeUser, flowId: string): LoginProcess {
+    throw new Error(`Unsupported OpenClaw login flow in direct plugin mode: ${flowId}`);
   }
 
   loadUserLogin(_ctx: LoadUserLoginContext, login: UserLogin): NetworkAPI {
@@ -151,61 +155,9 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       config: this.config,
       login,
       registry: this.registry,
-      runtime: this.#runtimeFactory(login, this.config),
+      runtime: this.#runtimeFactory(this.config),
       streams: this.#streams ?? { publish: () => undefined },
     });
-  }
-}
-
-export class OpenClawGatewayLoginProcess implements LoginProcess {
-  readonly #defaultConfig: OpenClawBridgeConfig;
-  readonly #userId: string;
-
-  constructor(userId: string, defaultConfig: OpenClawBridgeConfig) {
-    this.#userId = userId;
-    this.#defaultConfig = defaultConfig;
-  }
-
-  cancel(): void {}
-
-  async start(): Promise<LoginStep> {
-    return {
-      instructions: "Enter your OpenClaw gateway URL.",
-      stepId: "openclaw.gateway.credentials",
-      type: "user_input",
-      userInput: {
-        fields: [
-          {
-            defaultValue: this.#defaultConfig.gatewayUrl ?? DEFAULT_GATEWAY_URL,
-            description: "OpenClaw gateway URL.",
-            id: "gateway_url",
-            name: "Gateway URL",
-            type: "url",
-          },
-        ],
-      },
-    };
-  }
-
-  async submitUserInput(_ctxOrInput?: BridgeRequestContext | Record<string, string>, maybeInput?: Record<string, string>): Promise<LoginStep> {
-    const input = maybeInput ?? (_ctxOrInput as Record<string, string> | undefined) ?? {};
-    const gatewayUrl = input.gateway_url || this.#defaultConfig.gatewayUrl || DEFAULT_GATEWAY_URL;
-    return {
-      complete: {
-        userLogin: {
-          id: `openclaw:${encodeLoginId(gatewayUrl)}`,
-          metadata: {
-            gatewayUrl,
-          },
-          remoteName: "OpenClaw",
-          userId: this.#userId,
-        },
-        userLoginId: `openclaw:${encodeLoginId(gatewayUrl)}`,
-      },
-      instructions: "OpenClaw gateway configured.",
-      stepId: "openclaw.gateway.complete",
-      type: "complete",
-    };
   }
 }
 
@@ -276,7 +228,6 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         metadata: portal.metadata,
         name: contact.displayName,
         roomType: "dm",
-        sender: contact.agentId,
       };
       const creationContent = openClawPortalCreationContent(this.#runtime.config);
       if (creationContent) portalOptions.creationContent = creationContent;
@@ -320,8 +271,11 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
   }
 
   async handleMatrixMessage(ctx: BridgeRequestContext, msg: MatrixMessage): Promise<MatrixMessageResponse> {
-    if (!this.isAllowedMatrixIngress(msg.portal.mxid, msg.sender.userId)) return { pending: false };
-    const binding = bindingFromPortal(msg.portal);
+    if (!this.isAllowedMatrixIngress(msg.portal.mxid, msg.sender.userId)) {
+      this.logRejectedMatrixIngress(ctx, "message", msg.portal.mxid, msg.sender.userId);
+      return { pending: false };
+    }
+    const binding = bindingFromPortal(msg.portal, this.#runtime.config);
     if (binding && !this.#registry.getBindingByRoom(msg.portal.mxid ?? "")) this.#registry.upsertBinding(binding);
     const currentBinding = msg.portal.mxid ? this.#registry.getBindingByRoom(msg.portal.mxid) ?? binding : binding;
     const approval = parseApprovalResponseContent(msg.content);
@@ -341,7 +295,14 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         return { pending: false };
       }
       if (parsed.command) {
-        return await this.handleSlashCommand(ctx, parsed.command, binding, msg);
+        return await this.handleSlashCommand(ctx, parsed.command, currentBinding, msg);
+      }
+      if (!currentBinding) {
+        ctx.log?.("warn", "openclaw_matrix_message_unbound_room", {
+          portalId: msg.portal.id,
+          portalKey: msg.portal.portalKey,
+          roomId: msg.portal.mxid,
+        });
       }
       await this.#agent.handleMatrixText({
         ...(parsed.attachments.length > 0 ? { attachments: parsed.attachments } : {}),
@@ -463,7 +424,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
   }
 
   async fetchMessages(_ctx: BridgeRequestContext, params: FetchMessagesParams): Promise<FetchMessagesResponse> {
-    const binding = bindingFromPortal(params.portal);
+    const binding = bindingFromPortal(params.portal, this.#runtime.config);
     if (!this.isAllowedRoom(binding?.roomId ?? params.portal.mxid)) return { hasMore: false, messages: [] };
     if (!binding) return { hasMore: false, messages: [] };
     const importOptions: { limit?: number; roomId: string } = { roomId: binding.roomId };
@@ -496,8 +457,8 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
           id: message.id,
           portalKey: params.portal.portalKey,
           sender: {
-            isFromMe: false,
-            sender: message.sender === "agent" ? binding.agentId : binding.humanGhostUserId ?? `${this.#login.id}:human`,
+            isFromMe: message.sender === "agent",
+            sender: backfillSenderUserId(this.#runtime.config, binding, message.sender),
           },
           timestamp: message.timestamp ?? new Date(0),
         }),
@@ -554,7 +515,6 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
           },
           name: request.label,
           roomType: "dm",
-          sender: request.agentId,
         };
         const creationContent = openClawPortalCreationContent(this.#runtime.config);
         if (creationContent) portalOptions.creationContent = creationContent;
@@ -637,14 +597,24 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
   }
 
   isBridgeOwnedSender(sender: string): boolean {
-    return sender === this.#config.matrixUserId
-      || sender === serviceBotUserId(this.#config)
+    return sender === serviceBotUserId(this.#config)
       || this.#registry.data.agents.some((contact) => contact.ghostUserId === sender)
       || this.#registry.data.users.some((contact) => contact.ghostUserId === sender);
   }
 
+  logRejectedMatrixIngress(ctx: BridgeRequestContext, kind: string, roomId: string | undefined, sender: string | undefined): void {
+    ctx.log?.("warn", "openclaw_matrix_ingress_rejected", {
+      allowedRoomCount: this.#config.allowedRoomIds?.length ?? 0,
+      allowedUserCount: this.#config.allowedUserIds?.length ?? 0,
+      bridgeOwned: sender ? this.isBridgeOwnedSender(sender) : false,
+      kind,
+      roomId,
+      sender,
+    });
+  }
+
   private upsertPortalBinding(portal: Portal): void {
-    const binding = bindingFromPortal(portal);
+    const binding = bindingFromPortal(portal, this.#runtime.config);
     if (binding && !this.#registry.getBindingByRoom(portal.mxid ?? "")) this.#registry.upsertBinding(binding);
   }
 
@@ -691,7 +661,7 @@ function commandNotice(ctx: BridgeRequestContext, login: UserLogin, msg: MatrixM
 function bridgeStatusText(config: OpenClawBridgeConfig, boundRooms: number): string {
   return [
     "OpenClaw Beeper bridge",
-    `Gateway: ${config.gatewayUrl ?? "not configured"}`,
+    "Runtime: OpenClaw plugin",
     `Import sources: ${(config.importSources ?? []).join(", ") || "none"}`,
     `Approvals: ${describeApprovalBehavior(config.approvalBehavior)}`,
     `Stream finalization: ${config.streamFinalization ?? "replace"}`,
@@ -706,7 +676,7 @@ function bridgeSettingsText(config: OpenClawBridgeConfig, boundRooms: number): s
     `Beeper environment: ${config.beeperEnv ?? "production"}`,
     `Homeserver: ${config.homeserver ?? "not configured"}`,
     `Registration URL: ${config.registrationUrl ?? "not configured"}`,
-    `Gateway: ${config.gatewayUrl ?? "not configured"}`,
+    "Runtime: OpenClaw plugin",
     `Bridge manager token: ${config.bridgeManagerToken ? "configured" : "not configured"}`,
     `Post bridge state: ${config.bridgeManagerPostState === undefined ? "default" : config.bridgeManagerPostState ? "enabled" : "disabled"}`,
     `Import sources: ${(config.importSources ?? []).join(", ") || "none"}`,
@@ -875,13 +845,14 @@ function userContactResponse(contact: OpenClawUserContact): ResolveIdentifierRes
   };
 }
 
-function bindingFromPortal(portal: Portal): OpenClawSessionBinding | undefined {
+function bindingFromPortal(portal: Portal, config: OpenClawBridgeConfig): OpenClawSessionBinding | undefined {
   const metadata = recordValue(portal.metadata)?.openclaw;
   const openclaw = recordValue(metadata);
   const roomId = portal.mxid;
-  const agentId = stringValue(openclaw?.agentId) ?? portal.id.replace(/^agent:/, "");
-  const sessionKey = stringValue(openclaw?.sessionKey) ?? portal.id;
-  const ghostUserId = stringValue(openclaw?.ghostUserId);
+  const portalId = openClawPortalId(portal);
+  const sessionKey = stringValue(openclaw?.sessionKey) ?? sessionKeyFromPortalId(portalId);
+  const agentId = stringValue(openclaw?.agentId) ?? agentIdFromSessionKey(sessionKey) ?? agentIdFromPortalId(portalId);
+  const ghostUserId = stringValue(openclaw?.ghostUserId) ?? (agentId ? agentGhostUserId(config, agentId) : undefined);
   if (!roomId || !agentId || !sessionKey || !ghostUserId) return undefined;
   const now = Date.now();
   return {
@@ -890,49 +861,78 @@ function bindingFromPortal(portal: Portal): OpenClawSessionBinding | undefined {
     ghostUserId,
     id: Buffer.from(roomId).toString("base64url"),
     kind: "session",
-    owner: "bridge",
+    owner: portalId.startsWith("session:") ? "imported" : "bridge",
     roomId,
     sessionKey,
     updatedAt: now,
   };
 }
 
-function transportFromLogin(login: UserLogin, config: OpenClawBridgeConfig): OpenClawTransport {
-  const metadata = recordValue(login.metadata);
-  const gatewayUrl = stringValue(metadata?.gatewayUrl) ?? config.gatewayUrl;
-  if (!gatewayUrl) throw new Error("OpenClaw gateway URL is not configured");
-  const options: Parameters<typeof createOpenClawHttpTransport>[0] = { url: gatewayUrl };
-  if (gatewayUrl.startsWith("ws://") || gatewayUrl.startsWith("wss://")) {
-    return createOpenClawWebSocketTransport({
-      ...options,
-      deviceIdentityPath: resolve(config.dataDir, "gateway-device.json"),
-    });
+function openClawPortalId(portal: Portal): string {
+  return openClawPortalIdFromString(portal.id)
+    ?? openClawPortalIdFromString(portal.portalKey.id)
+    ?? openClawPortalIdFromRoomId(portal.mxid)
+    ?? portal.id;
+}
+
+function openClawPortalIdFromString(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.startsWith("session:") || value.startsWith("agent:") ? value : undefined;
+}
+
+function openClawPortalIdFromRoomId(roomId: string | undefined): string | undefined {
+  if (!roomId?.startsWith("!")) return undefined;
+  const serverSeparator = roomId.lastIndexOf(":");
+  if (serverSeparator <= 1) return undefined;
+  const localpart = roomId.slice(1, serverSeparator);
+  const receiverSeparator = localpart.lastIndexOf(".");
+  const portalId = receiverSeparator >= 0 ? localpart.slice(0, receiverSeparator) : localpart;
+  return openClawPortalIdFromString(portalId);
+}
+
+function sessionKeyFromPortalId(portalId: string): string | undefined {
+  if (portalId.startsWith("session:")) {
+    try {
+      return Buffer.from(portalId.slice("session:".length), "base64url").toString("utf8") || undefined;
+    } catch {
+      return undefined;
+    }
   }
-  return createOpenClawHttpTransport(options);
+  if (portalId.startsWith("agent:")) return portalId;
+  return undefined;
+}
+
+function agentIdFromPortalId(portalId: string): string | undefined {
+  return portalId.startsWith("agent:") ? portalId.slice("agent:".length) || undefined : undefined;
+}
+
+function agentIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  if (!sessionKey?.startsWith("agent:")) return undefined;
+  const [, agentId] = sessionKey.split(":");
+  return agentId || undefined;
+}
+
+function backfillSenderUserId(
+  config: OpenClawBridgeConfig,
+  binding: OpenClawSessionBinding,
+  sender: "agent" | "human" | "system"
+): string {
+  if (sender === "agent") return binding.ghostUserId;
+  if (sender === "human") return binding.humanGhostUserId ?? serviceBotUserId(config);
+  return serviceBotUserId(config);
 }
 
 export function userLoginFromOpenClawConfig(config: OpenClawBridgeConfig): UserLogin {
-  const gatewayUrl = config.gatewayUrl;
-  if (!gatewayUrl) throw new Error("OpenClaw gateway URL is not configured");
   return {
-    id: `openclaw:${encodeLoginId(gatewayUrl)}`,
-    metadata: {
-      gatewayUrl,
-    },
+    id: "openclaw:plugin",
+    metadata: {},
     remoteName: "OpenClaw",
     userId: config.matrixUserId ?? config.serviceBotLocalpart,
   };
 }
 
-export function createOpenClawRuntimeFromLogin(login: UserLogin, config: OpenClawBridgeConfig): OpenClawGatewayRuntime {
-  return new OpenClawGatewayRuntime({
-    config,
-    transport: transportFromLogin(login, config),
-  });
-}
-
-function encodeLoginId(value: string): string {
-  return Buffer.from(value).toString("base64url").slice(0, 32);
+export function createOpenClawRuntimeFromHost(runtime: OpenClawHostRuntime, config: OpenClawBridgeConfig): OpenClawGatewayRuntime {
+  return new OpenClawGatewayRuntime({ config, transport: createOpenClawHostTransport(runtime) });
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

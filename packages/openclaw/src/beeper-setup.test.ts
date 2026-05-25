@@ -6,11 +6,21 @@ import {
 } from "./beeper-setup";
 
 describe("OpenClaw Beeper setup", () => {
+  it("derives a valid self-hosted bridge id from long OpenClaw device ids", async () => {
+    const { openClawBeeperBridgeId } = await import("./beeper-setup");
+    const bridgeId = openClawBeeperBridgeId("322ff27928aa3d3592836316f21c16fb9e801719d0adb25c3ef3aa40858a8982");
+
+    expect(bridgeId).toBe("sh-openclaw-322ff27928aa3d359283");
+    expect(bridgeId).toHaveLength(32);
+    expect(bridgeId).toMatch(/^[a-z0-9-]+$/);
+  });
+
   it("logs in with OpenClaw device metadata and returns config credentials", async () => {
     const seen: unknown[] = [];
     const result = await loginToBeeperForOpenClaw({
       email: "batuhan@example.com",
       getLoginCode: () => "123456",
+      openClawDeviceId: "OPENCLAW-DEVICE",
       login: async (options) => {
         seen.push(options);
         return {
@@ -26,7 +36,11 @@ describe("OpenClaw Beeper setup", () => {
       expect.objectContaining({
         email: "batuhan@example.com",
         initialDeviceDisplayName: "Pickle OpenClaw",
-        metadata: { bridge: "openclaw" },
+        metadata: {
+          bridge: "sh-openclaw-openclaw-device",
+          bridgeType: "openclaw",
+          openClawDeviceId: "OPENCLAW-DEVICE",
+        },
       }),
     ]);
     expect(result.config).toEqual({
@@ -41,6 +55,7 @@ describe("OpenClaw Beeper setup", () => {
     const seen: unknown[] = [];
     const result = await createOpenClawBeeperAppService({
       accessToken: "mx-token",
+      matrixDeviceId: "DEV",
       createAppServiceInit: async (options) => {
         seen.push(options);
         return {
@@ -49,7 +64,7 @@ describe("OpenClaw Beeper setup", () => {
           registration: {
             asToken: "as",
             hsToken: "hs",
-            id: "openclaw",
+            id: "appservice-uuid",
             namespaces: { aliases: [], rooms: [], users: [] },
             senderLocalpart: "openclawbot",
             url: "http://127.0.0.1:29391",
@@ -61,18 +76,24 @@ describe("OpenClaw Beeper setup", () => {
     expect(seen).toEqual([
       expect.objectContaining({
         address: "http://127.0.0.1:29391",
-        bridge: "openclaw",
+        bridge: "sh-openclaw-dev",
         bridgeType: "openclaw",
         selfHosted: true,
         token: "mx-token",
       }),
     ]);
     expect(result.config).toEqual({
-      appserviceId: "openclaw",
+      appserviceId: "appservice-uuid",
       asToken: "as",
+      bridgeId: "sh-openclaw-dev",
+      ghostLocalpartPrefix: "sh-openclaw-dev_agent_",
       homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
+      homeserverDomain: "beeper.local",
       hsToken: "hs",
       registrationUrl: "http://127.0.0.1:29391",
+      senderLocalpart: "openclawbot",
+      serviceBotLocalpart: "openclawbot",
+      userLocalpartPrefix: "sh-openclaw-dev_user_",
     });
   });
 
@@ -81,6 +102,7 @@ describe("OpenClaw Beeper setup", () => {
     await createOpenClawBeeperAppService({
       accessToken: "mx-token",
       bridgeManagerToken: "hungry-token",
+      matrixDeviceId: "DEV",
       createAppServiceInit: async (options) => {
         seen.push(options);
         return {
@@ -88,7 +110,7 @@ describe("OpenClaw Beeper setup", () => {
           registration: {
             asToken: "as",
             hsToken: "hs",
-            id: "openclaw",
+            id: "appservice-uuid",
             namespaces: { aliases: [], rooms: [], users: [] },
             senderLocalpart: "openclawbot",
             url: "http://127.0.0.1:29391",
@@ -110,6 +132,7 @@ describe("OpenClaw Beeper setup", () => {
       email: "batuhan@example.com",
       env: "staging",
       getLoginCode: () => "123456",
+      openClawDeviceId: "OPENCLAW-DEVICE",
       login: async () => ({
         accessToken: "mx-token",
         deviceId: "DEV",
@@ -119,15 +142,16 @@ describe("OpenClaw Beeper setup", () => {
       createAppServiceInit: async (options) => {
         expect(options).toMatchObject({
           baseDomain: "beeper-staging.com",
-          homeserver: "https://matrix.beeper-staging.com",
+          bridge: "sh-openclaw-openclaw-device",
           token: "mx-token",
         });
+        expect(options.homeserver).toBeUndefined();
         return {
           homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
           registration: {
             asToken: "as",
             hsToken: "hs",
-            id: "openclaw",
+            id: "appservice-uuid",
             namespaces: { aliases: [], rooms: [], users: [] },
             senderLocalpart: "openclawbot",
             url: "http://127.0.0.1:29391",
@@ -138,13 +162,18 @@ describe("OpenClaw Beeper setup", () => {
 
     expect(result.config).toEqual({
       accessToken: "mx-token",
-      appserviceId: "openclaw",
+      appserviceId: "appservice-uuid",
       asToken: "as",
+      bridgeId: "sh-openclaw-openclaw-device",
+      ghostLocalpartPrefix: "sh-openclaw-openclaw-device_agent_",
       homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
       hsToken: "hs",
       matrixDeviceId: "DEV",
       matrixUserId: "@batuhan:beeper-staging.com",
       registrationUrl: "http://127.0.0.1:29391",
+      senderLocalpart: "openclawbot",
+      serviceBotLocalpart: "openclawbot",
+      userLocalpartPrefix: "sh-openclaw-openclaw-device_user_",
     });
   });
 });

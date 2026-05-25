@@ -10,6 +10,7 @@ export function createAppserviceRegistration(
   config: OpenClawBridgeConfig,
   options: CreateRegistrationOptions = {}
 ): AppserviceRegistration {
+  const domain = escapeRegex(config.homeserverDomain ?? matrixDomainFromHomeserver(config.homeserver));
   const ghostPrefix = escapeRegex(config.ghostLocalpartPrefix);
   const userPrefix = escapeRegex(config.userLocalpartPrefix);
   const sender = escapeRegex(config.senderLocalpart);
@@ -21,9 +22,9 @@ export function createAppserviceRegistration(
       aliases: [{ exclusive: true, regex: `^#${escapeRegex(config.appserviceId)}_.+:.*$` }],
       rooms: [],
       users: [
-        { exclusive: true, regex: `^@${sender}:.*$` },
-        { exclusive: true, regex: `^@${ghostPrefix}.+:.*$` },
-        { exclusive: true, regex: `^@${userPrefix}.+:.*$` },
+        { exclusive: true, regex: `^@${ghostPrefix}.+:${domain}$` },
+        { exclusive: true, regex: `^@${userPrefix}.+:${domain}$` },
+        { exclusive: true, regex: `^@${sender}:${domain}$` },
       ],
     },
     receive_ephemeral: true,
@@ -31,6 +32,15 @@ export function createAppserviceRegistration(
     sender_localpart: config.senderLocalpart,
     url: config.registrationUrl,
   };
+}
+
+function matrixDomainFromHomeserver(homeserver: string | undefined): string {
+  if (!homeserver) return "localhost";
+  try {
+    return new URL(homeserver).hostname;
+  } catch {
+    return homeserver.replace(/^https?:\/\//, "").split("/")[0] || "localhost";
+  }
 }
 
 export function openClawAgentGhostLocalpart(config: OpenClawBridgeConfig, agentId: string): string {

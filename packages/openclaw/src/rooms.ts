@@ -15,22 +15,26 @@ export function matrixDomainFromHomeserver(homeserver: string | undefined): stri
   }
 }
 
-export function agentGhostUserId(config: OpenClawBridgeConfig, agentId: string, domain = matrixDomainFromHomeserver(config.homeserver)): string {
+function matrixDomainFromConfig(config: OpenClawBridgeConfig): string {
+  return config.homeserverDomain ?? matrixDomainFromHomeserver(config.homeserver);
+}
+
+export function agentGhostUserId(config: OpenClawBridgeConfig, agentId: string, domain = matrixDomainFromConfig(config)): string {
   return `@${openClawAgentGhostLocalpart(config, agentId)}:${domain}`;
 }
 
-export function userGhostUserId(config: OpenClawBridgeConfig, userId: string, domain = matrixDomainFromHomeserver(config.homeserver)): string {
+export function userGhostUserId(config: OpenClawBridgeConfig, userId: string, domain = matrixDomainFromConfig(config)): string {
   return `@${config.userLocalpartPrefix}${encodeLocalpartSegment(userId)}:${domain}`;
 }
 
-export function serviceBotUserId(config: OpenClawBridgeConfig, domain = matrixDomainFromHomeserver(config.homeserver)): string {
+export function serviceBotUserId(config: OpenClawBridgeConfig, domain = matrixDomainFromConfig(config)): string {
   return `@${config.serviceBotLocalpart}:${domain}`;
 }
 
 export function agentContactFromOpenClawAgent(
   config: OpenClawBridgeConfig,
   agent: Record<string, unknown>,
-  domain = matrixDomainFromHomeserver(config.homeserver)
+  domain = matrixDomainFromConfig(config)
 ): OpenClawAgentContact {
   const agentId = stringValue(agent.id) ?? stringValue(agent.agentId) ?? stringValue(agent.name) ?? "default";
   const displayName = stringValue(agent.displayName) ?? stringValue(agent.name) ?? agentId;
@@ -56,7 +60,7 @@ export function userContactFromOpenClawSession(
     origin?: Record<string, unknown>;
     provider?: string;
   },
-  domain = matrixDomainFromHomeserver(config.homeserver)
+  domain = matrixDomainFromConfig(config)
 ): OpenClawUserContact | undefined {
   const userId = session.lastTo ?? session.lastAccountId ?? stringValue(session.origin?.userId) ?? stringValue(session.origin?.accountId);
   if (!userId) return undefined;

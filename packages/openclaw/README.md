@@ -1,6 +1,6 @@
 # @beeper/pickle-openclaw
 
-Pickle bridge package for exposing OpenClaw Gateway sessions in Beeper/Matrix.
+Pickle bridge package for exposing OpenClaw sessions in Beeper/Matrix as an OpenClaw-native channel plugin.
 
 ## OpenClaw Plugin Install
 
@@ -18,8 +18,7 @@ OpenClaw loads the runtime entry from `dist/plugin-entry.mjs` and the lightweigh
 - Beeper appservice registration for the OpenClaw bridge.
 - OpenClaw channel metadata, setup entrypoint, runtime entrypoint, and ClawHub install metadata.
 - Pickle bridgev2-style connector for OpenClaw agents, sessions, approvals, and backfill.
-- OpenClaw WebSocket Gateway transport using protocol v4 `req`/`res`/`event` frames.
-- Compatibility HTTP/SSE transport for gateway-like test or proxy deployments.
+- Direct in-process OpenClaw plugin runtime access.
 - Agent ghosts for OpenClaw agents and user ghosts for imported one-to-one sessions.
 - Beeper contact-list/search and create-DM provisioning for OpenClaw agents.
 - Matrix parsing for text, formatted bodies, replies, edits, reactions, redactions, attachments, and thread/relation metadata.
@@ -31,76 +30,23 @@ OpenClaw loads the runtime entry from `dist/plugin-entry.mjs` and the lightweigh
 
 ## CLI
 
-Write a local config:
+Log in to an existing Beeper account and register the OpenClaw appservice:
 
 ```sh
-pickle-openclaw init \
+pickle-openclaw login \
   --config ~/.openclaw/pickle-bridge/config.json \
-  --gateway-url ws://127.0.0.1:18789
+  --email you@example.com
 ```
 
-Log in to an existing Beeper account:
+The login command requests the email login first, then prompts for the Beeper code. It does not support account registration; users need an existing Beeper account.
+
+Print the saved Beeper bridge identity:
 
 ```sh
-pickle-openclaw beeper-login \
-  --config ~/.openclaw/pickle-bridge/config.json \
-  --email you@example.com \
-  --login-code 123456
+pickle-openclaw whoami --config ~/.openclaw/pickle-bridge/config.json
 ```
 
-Register the OpenClaw appservice with Beeper:
-
-```sh
-pickle-openclaw beeper-register \
-  --config ~/.openclaw/pickle-bridge/config.json \
-  --bridge-manager-token "$BEEPER_BRIDGE_MANAGER_TOKEN"
-```
-
-Do login and appservice registration in one step:
-
-```sh
-pickle-openclaw beeper-setup \
-  --config ~/.openclaw/pickle-bridge/config.json \
-  --email you@example.com \
-  --login-code 123456 \
-  --gateway-url ws://127.0.0.1:18789
-```
-
-Start the bridge:
-
-```sh
-pickle-openclaw start --config ~/.openclaw/pickle-bridge/config.json
-```
-
-Start the bridge and import discovered one-to-one OpenClaw sessions from terminal, mac app, and channel surfaces:
-
-```sh
-pickle-openclaw start \
-  --config ~/.openclaw/pickle-bridge/config.json \
-  --backfill \
-  --backfill-limit 500
-```
-
-Run a non-daemon smoke check before handing the bridge to OpenClaw:
-
-```sh
-pickle-openclaw smoke --config ~/.openclaw/pickle-bridge/config.json
-```
-
-The smoke command validates the saved Beeper account shape, probes the Gateway feature surface, lists agents and recent sessions, and creates the Beeper bridge in `getOnly` mode. Use `--gateway-only` to skip Beeper setup checks or `--start` when you explicitly want the command to start and then stop the bridge object.
-
-Installed OpenClaw plugins run inside OpenClaw directly. The CLI gateway URL option is only for smoke/debug commands that explicitly probe a local gateway surface.
-
-Probe or call the Gateway surface directly:
-
-```sh
-pickle-openclaw features --config ~/.openclaw/pickle-bridge/config.json
-
-pickle-openclaw rpc \
-  --config ~/.openclaw/pickle-bridge/config.json \
-  config.schema.lookup \
-  --params-json '{"path":["agents"]}'
-```
+The bridge runtime itself is started by OpenClaw when the installed channel plugin is enabled.
 
 ## Programmatic Runtime
 
@@ -114,7 +60,6 @@ import {
 
 const config = createDefaultConfig({
   accessToken: process.env.BEEPER_ACCESS_TOKEN,
-  gatewayUrl: "ws://127.0.0.1:18789",
   homeserver: "https://matrix.beeper.com",
   matrixDeviceId: process.env.BEEPER_DEVICE_ID,
   matrixUserId: process.env.BEEPER_USER_ID,
@@ -128,7 +73,7 @@ const bridge = await createOpenClawBeeperBridge({
 await bridge.start();
 ```
 
-The runtime exposes `OpenClawGatewayRuntime.call(method, params)` and the CLI exposes `pickle-openclaw rpc <method> --params-json <json>` for the full Gateway RPC surface. Common bridge paths also have wrappers for agents, sessions, models, tools, tasks, artifacts, approvals, and feature snapshots.
+The runtime uses the in-process OpenClaw plugin context and exposes wrappers for agents, sessions, models, tools, tasks, artifacts, approvals, and feature snapshots.
 
 ## Protocol Coverage
 

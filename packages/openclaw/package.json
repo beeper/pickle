@@ -164,19 +164,17 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/copy-runtime-assets.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "node ../../scripts/guard-pnpm-publish.mjs",
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
+  "devDependencies": {
     "@beeper/pickle": "workspace:^",
     "@beeper/pickle-ag-ui": "workspace:^",
     "@beeper/pickle-bridge": "workspace:^",
-    "@beeper/pickle-state-file": "workspace:^"
-  },
-  "devDependencies": {
+    "@beeper/pickle-state-file": "workspace:^",
     "@types/node": "^20.0.0",
     "@vitest/coverage-v8": "^4.0.18",
     "tsdown": "^0.21.10",

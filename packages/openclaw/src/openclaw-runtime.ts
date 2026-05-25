@@ -1,6 +1,6 @@
-import { generateKeyPairSync, createHash, createPrivateKey, createPublicKey, sign } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { OpenClawAgentContact, OpenClawBridgeConfig } from "./types";
 import { agentContactFromOpenClawAgent } from "./rooms";
 import type { OpenClawApprovalResolvePayload } from "./approval";
@@ -23,41 +23,49 @@ export interface OpenClawTransport {
   request<T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions): Promise<T>;
 }
 
-export interface OpenClawHttpTransportOptions {
-  eventsPath?: string;
-  fetch?: typeof fetch;
-  requestPath?: string;
-  url: string;
+export interface OpenClawHostRuntime {
+  agent?: {
+    ensureAgentWorkspace?: (config: unknown, agentId?: string) => Promise<string> | string;
+    resolveAgentDir?: (config: unknown, agentId?: string) => string;
+    resolveAgentTimeoutMs?: (options: Record<string, unknown>) => number;
+    resolveAgentWorkspaceDir?: (config: unknown, agentId?: string) => string;
+    runEmbeddedAgent?: (params: Record<string, unknown>) => Promise<unknown>;
+    runEmbeddedPiAgent?: (params: Record<string, unknown>) => Promise<unknown>;
+    session?: {
+      getSessionEntry?: (options: Record<string, unknown>) => Record<string, unknown> | undefined;
+      listSessionEntries?: (options?: Record<string, unknown>) => Array<{ entry: Record<string, unknown>; sessionKey: string }>;
+      resolveSessionFilePath?: (sessionId: string, entry?: Record<string, unknown>, options?: Record<string, unknown>) => string;
+      upsertSessionEntry?: (options: Record<string, unknown>) => Promise<void> | void;
+    };
+  };
+  call?: <T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions) => Promise<T>;
+  config?: {
+    current?: () => unknown;
+  };
+  events?: OpenClawHostEvents;
+  request?: <T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions) => Promise<T>;
+  subscribe?: (filter?: (event: OpenClawGatewayEvent) => boolean) => AsyncIterable<OpenClawGatewayEvent>;
 }
 
-export interface OpenClawWebSocketTransportOptions {
-  clientId?: string;
-  deviceIdentityPath?: string;
-  deviceToken?: string;
-  clientVersion?: string;
-  replayLimit?: number;
-  requestTimeoutMs?: number;
-  url: string;
-  WebSocket?: typeof WebSocket;
-}
+export type OpenClawHostEvents =
+  | ((filter?: (event: OpenClawGatewayEvent) => boolean) => AsyncIterable<OpenClawGatewayEvent>)
+  | {
+      onAgentEvent?: (listener: (event: OpenClawAgentRuntimeEvent) => void) => () => void;
+      onSessionTranscriptUpdate?: (listener: (update: OpenClawSessionTranscriptUpdate) => void) => () => void;
+    };
 
-const DEFAULT_GATEWAY_CLIENT_ID = "gateway-client";
-const DEFAULT_GATEWAY_CLIENT_MODE = "backend";
-const DEFAULT_GATEWAY_ROLE = "operator";
-const DEFAULT_GATEWAY_SCOPES = ["operator.read", "operator.write", "operator.approvals"];
-const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
-
-type GatewayDeviceIdentity = {
-  deviceId: string;
-  privateKeyPem: string;
-  publicKeyPem: string;
+export type OpenClawAgentRuntimeEvent = {
+  data?: Record<string, unknown>;
+  sessionKey?: string;
+  stream?: string;
 };
 
-type StoredGatewayDeviceIdentity = GatewayDeviceIdentity & {
-  createdAtMs: number;
-  deviceToken?: string;
-  tokenScopes?: string[];
-  version: 1;
+export type OpenClawSessionTranscriptUpdate = {
+  sessionFile?: string;
+  sessionKey?: string;
+  message?: unknown;
+  messageId?: string;
+  messageSeq?: number;
 };
 
 export interface OpenClawSessionCreateOptions {
@@ -145,6 +153,7 @@ export interface OpenClawSessionRef {
   key: string;
   label?: string;
   raw?: unknown;
+  sessionFile?: string;
   sessionId?: string;
 }
 
@@ -317,6 +326,7 @@ export class OpenClawGatewayRuntime {
         lastTo: stringValue(record.lastTo),
         origin: recordValue(record.origin),
         provider: stringValue(record.provider),
+        sessionFile: stringValue(record.sessionFile),
         sessionId: stringValue(record.sessionId),
         updatedAt: typeof record.updatedAt === "number" || record.updatedAt === null ? record.updatedAt : undefined,
       })];
@@ -402,329 +412,62 @@ export class OpenClawGatewayRuntime {
   }
 }
 
-export class OpenClawHttpTransport implements OpenClawTransport {
-  readonly #baseUrl: URL;
-  readonly #eventsPath: string;
-  readonly #fetch: typeof fetch;
-  readonly #requestPath: string;
-  #abortController = new AbortController();
+export class OpenClawHostTransport implements OpenClawTransport {
+  readonly #runtime: OpenClawHostRuntime;
+  readonly #localEvents = new LocalEventBus();
 
-  constructor(options: OpenClawHttpTransportOptions) {
-    this.#baseUrl = normalizeGatewayUrl(options.url);
-    this.#eventsPath = options.eventsPath ?? "/events";
-    this.#fetch = options.fetch ?? fetch;
-    this.#requestPath = options.requestPath ?? "/rpc";
+  constructor(runtime: OpenClawHostRuntime) {
+    this.#runtime = runtime;
   }
 
-  async request<T = unknown>(method: string, params?: unknown, options: GatewayRequestOptions = {}): Promise<T> {
-    const abort = new AbortController();
-    const timeout = options.timeoutMs == null ? undefined : setTimeout(() => abort.abort(), options.timeoutMs);
-    try {
-      const response = await this.#fetch(endpointUrl(this.#baseUrl, this.#requestPath), {
-        body: JSON.stringify(stripUndefined({
-          expectFinal: options.expectFinal,
-          method,
-          params: params ?? {},
-        })),
-        headers: {
-          ...this.#headers("application/json"),
-          "content-type": "application/json",
-        },
-        method: "POST",
-        signal: abort.signal,
-      });
-      const raw = await readGatewayResponse(response);
-      const record = recordValue(raw);
-      if (record?.error !== undefined) throw new Error(`OpenClaw gateway ${method} failed: ${errorMessage(record.error)}`);
-      return (record && "result" in record ? record.result : raw) as T;
-    } finally {
-      if (timeout !== undefined) clearTimeout(timeout);
+  request<T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions): Promise<T> {
+    const call = this.#runtime.request ?? this.#runtime.call;
+    if (!call) return this.#pluginRuntimeRequest<T>(method, params, options);
+    return call(method, params, options);
+  }
+
+  events(filter?: (event: OpenClawGatewayEvent) => boolean): AsyncIterable<OpenClawGatewayEvent> {
+    if (typeof this.#runtime.events === "object" && this.#runtime.events?.onAgentEvent) {
+      return mergeEvents([
+        agentRuntimeEvents(this.#runtime.events.onAgentEvent, filter),
+        this.#localEvents.events(filter),
+      ]);
     }
-  }
-
-  async *events(filter?: (event: OpenClawGatewayEvent) => boolean): AsyncIterable<OpenClawGatewayEvent> {
-    const response = await this.#fetch(endpointUrl(this.#baseUrl, this.#eventsPath), {
-      headers: this.#headers("text/event-stream"),
-      method: "GET",
-      signal: this.#abortController.signal,
-    });
-    if (!response.ok) throw new Error(`OpenClaw gateway events failed (${response.status}): ${await response.text()}`);
-    const stream = response.body;
-    if (!stream) return;
-    for await (const event of parseEventStream(stream)) {
-      if (!filter || filter(event)) yield event;
+    if (typeof this.#runtime.events === "object" && this.#runtime.events?.onSessionTranscriptUpdate) {
+      return mergeEvents([
+        transcriptUpdateEvents(this.#runtime.events.onSessionTranscriptUpdate, filter),
+        this.#localEvents.events(filter),
+      ]);
     }
+    const events = (typeof this.#runtime.events === "function" ? this.#runtime.events : undefined) ?? this.#runtime.subscribe;
+    if (!events) return this.#localEvents.events(filter);
+    return events(filter);
   }
 
-  close(): void {
-    this.#abortController.abort();
-    this.#abortController = new AbortController();
-  }
-
-  #headers(accept: string): Record<string, string> {
-    return stripUndefined({
-      accept,
-    });
+  async #pluginRuntimeRequest<T = unknown>(
+    method: string,
+    params?: unknown,
+    _options?: GatewayRequestOptions
+  ): Promise<T> {
+    switch (method) {
+      case "agents.list":
+        return { agents: agentsFromPluginConfig(this.#runtime.config?.current?.()) } as T;
+      case "chat.history":
+        return { messages: await historyFromPluginRuntime(this.#runtime, params) } as T;
+      case "sessions.create":
+        return await createSessionInPluginRuntime(this.#runtime, params) as T;
+      case "sessions.list":
+        return { sessions: sessionsFromPluginRuntime(this.#runtime, params) } as T;
+      case "sessions.send":
+        return await sendSessionInPluginRuntime(this.#runtime, this.#localEvents, params, _options) as T;
+      default:
+        throw new Error(`OpenClaw plugin runtime does not expose request/call for ${method}`);
+    }
   }
 }
 
-export function createOpenClawHttpTransport(options: OpenClawHttpTransportOptions): OpenClawHttpTransport {
-  return new OpenClawHttpTransport(options);
-}
-
-export class OpenClawWebSocketTransport implements OpenClawTransport {
-  readonly #options: OpenClawWebSocketTransportOptions;
-  readonly #pending = new Map<string, {
-    reject(error: Error): void;
-    resolve(value: unknown): void;
-    timeout: ReturnType<typeof setTimeout>;
-  }>();
-  readonly #subscribers = new Set<{
-    events: OpenClawGatewayEvent[];
-    filter: ((event: OpenClawGatewayEvent) => boolean) | undefined;
-    notify: (() => void) | undefined;
-    closed: boolean;
-  }>();
-  readonly #replay: OpenClawGatewayEvent[] = [];
-  #connectPromise: Promise<void> | undefined;
-  #socket: WebSocket | undefined;
-
-  constructor(options: OpenClawWebSocketTransportOptions) {
-    this.#options = options;
-  }
-
-  async request<T = unknown>(method: string, params?: unknown, options: GatewayRequestOptions = {}): Promise<T> {
-    await this.#connect();
-    return await this.#sendRequest(method, params, options) as T;
-  }
-
-  #sendRequest(method: string, params?: unknown, options: GatewayRequestOptions = {}): Promise<unknown> {
-    const socket = this.#socket;
-    if (!socket) throw new Error("OpenClaw gateway socket is not connected");
-    const id = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const timeoutMs = options.timeoutMs ?? this.#options.requestTimeoutMs ?? 30_000;
-    const response = new Promise<unknown>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.#pending.delete(id);
-        reject(new Error(`OpenClaw gateway request timed out: ${method}`));
-      }, timeoutMs);
-      this.#pending.set(id, { reject, resolve, timeout });
-    });
-    socket.send(JSON.stringify({
-      id,
-      method,
-      params: params ?? {},
-      type: "req",
-    }));
-    return response;
-  }
-
-  async *events(filter?: (event: OpenClawGatewayEvent) => boolean): AsyncIterable<OpenClawGatewayEvent> {
-    await this.#connect();
-    const subscriber = {
-      closed: false,
-      events: this.#replay.filter((event) => !filter || filter(event)),
-      filter,
-      notify: undefined as (() => void) | undefined,
-    };
-    this.#subscribers.add(subscriber);
-    try {
-      for (;;) {
-        const event = subscriber.events.shift();
-        if (event) {
-          yield event;
-          continue;
-        }
-        if (subscriber.closed) return;
-        await new Promise<void>((resolve) => {
-          subscriber.notify = resolve;
-        });
-      }
-    } finally {
-      subscriber.closed = true;
-      this.#subscribers.delete(subscriber);
-    }
-  }
-
-  close(): void {
-    const socket = this.#socket;
-    this.#socket = undefined;
-    this.#connectPromise = undefined;
-    socket?.close();
-    for (const pending of this.#pending.values()) {
-      clearTimeout(pending.timeout);
-      pending.reject(new Error("OpenClaw gateway socket closed"));
-    }
-    this.#pending.clear();
-    for (const subscriber of this.#subscribers) {
-      subscriber.closed = true;
-      subscriber.notify?.();
-    }
-  }
-
-  async #connect(): Promise<void> {
-    if (this.#socket?.readyState === 1) return;
-    this.#connectPromise ??= this.#open();
-    await this.#connectPromise;
-  }
-
-  async #open(): Promise<void> {
-    const WebSocketCtor = this.#options.WebSocket ?? globalThis.WebSocket;
-    if (!WebSocketCtor) throw new Error("OpenClaw WebSocket transport requires WebSocket");
-    const socket = new WebSocketCtor(this.#options.url);
-    this.#socket = socket;
-    await new Promise<void>((resolve, reject) => {
-      const cleanup = () => {
-        socket.removeEventListener("open", onOpen);
-        socket.removeEventListener("error", onError);
-      };
-      const onOpen = () => {
-        cleanup();
-        resolve();
-      };
-      const onError = () => {
-        cleanup();
-        reject(new Error("OpenClaw gateway socket failed to open"));
-      };
-      socket.addEventListener("open", onOpen);
-      socket.addEventListener("error", onError);
-    });
-    socket.addEventListener("message", (event) => {
-      this.#handleFrame(String(event.data));
-    });
-    socket.addEventListener("close", () => {
-      this.close();
-    });
-    const challenge = await this.#waitForConnectChallenge(socket);
-    const identityState = this.#loadDeviceIdentityState();
-    const clientId = this.#options.clientId ?? DEFAULT_GATEWAY_CLIENT_ID;
-    const clientMode = DEFAULT_GATEWAY_CLIENT_MODE;
-    const role = DEFAULT_GATEWAY_ROLE;
-    const scopes = [...DEFAULT_GATEWAY_SCOPES];
-    const platform = process.platform;
-    const deviceToken = this.#options.deviceToken ?? identityState.stored.deviceToken;
-    await this.#sendRequest("connect", {
-      auth: stripUndefined({
-        deviceToken,
-      }),
-      client: {
-        displayName: "pickle-openclaw",
-        id: clientId,
-        mode: clientMode,
-        platform,
-        version: this.#options.clientVersion ?? "0.1.0",
-      },
-      device: buildGatewayDeviceConnectParams(stripUndefined({
-        clientId,
-        clientMode,
-        identity: identityState.identity,
-        nonce: challenge.nonce,
-        platform,
-        role,
-        scopes,
-        token: deviceToken,
-      })),
-      maxProtocol: 4,
-      minProtocol: 4,
-      role,
-      scopes,
-    }).then((hello) => {
-      const auth = recordValue(recordValue(hello)?.auth);
-      const nextDeviceToken = stringValue(auth?.deviceToken);
-      if (nextDeviceToken && this.#options.deviceIdentityPath) {
-        writeDeviceIdentityState(this.#options.deviceIdentityPath, stripUndefined({
-          ...identityState.stored,
-          deviceToken: nextDeviceToken,
-          tokenScopes: arrayValue(auth?.scopes)?.filter((scope): scope is string => typeof scope === "string"),
-        }));
-      }
-    });
-  }
-
-  #waitForConnectChallenge(socket: WebSocket): Promise<{ nonce: string }> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error("OpenClaw gateway connect challenge timed out"));
-      }, this.#options.requestTimeoutMs ?? 30_000);
-      const cleanup = () => {
-        clearTimeout(timeout);
-        socket.removeEventListener("message", onMessage);
-        socket.removeEventListener("close", onClose);
-      };
-      const onClose = () => {
-        cleanup();
-        reject(new Error("OpenClaw gateway socket closed before connect challenge"));
-      };
-      const onMessage = (event: MessageEvent) => {
-        const frame = recordValue(safeJsonParse(String(event.data)));
-        if (frame?.type !== "event" || frame.event !== "connect.challenge") return;
-        const nonce = stringValue(recordValue(frame.payload)?.nonce);
-        if (!nonce) {
-          cleanup();
-          reject(new Error("OpenClaw gateway connect challenge missing nonce"));
-          return;
-        }
-        cleanup();
-        resolve({ nonce });
-      };
-      socket.addEventListener("message", onMessage);
-      socket.addEventListener("close", onClose);
-    });
-  }
-
-  #loadDeviceIdentityState(): { identity: GatewayDeviceIdentity; stored: StoredGatewayDeviceIdentity } {
-    if (this.#options.deviceIdentityPath) return loadOrCreateDeviceIdentityState(this.#options.deviceIdentityPath);
-    const identity = generateDeviceIdentity();
-    return {
-      identity,
-      stored: { ...identity, createdAtMs: Date.now(), version: 1 },
-    };
-  }
-
-  #handleFrame(raw: string): void {
-    const frame = JSON.parse(raw) as Record<string, unknown>;
-    if (frame.type === "res") {
-      const id = stringValue(frame.id);
-      const pending = id ? this.#pending.get(id) : undefined;
-      if (!id || !pending) return;
-      this.#pending.delete(id);
-      clearTimeout(pending.timeout);
-      if (frame.ok === false) pending.reject(new Error(`OpenClaw gateway request failed: ${errorMessage(frame.error)}`));
-      else pending.resolve(frame.payload);
-      return;
-    }
-    if (frame.type === "event") {
-      const event = stripUndefined({
-        event: stringValue(frame.event),
-        payload: frame.payload ?? frame,
-        seq: typeof frame.seq === "number" ? frame.seq : undefined,
-        stateVersion: frame.stateVersion,
-      });
-      this.#recordReplay(event);
-      for (const subscriber of this.#subscribers) {
-        if (!subscriber.filter || subscriber.filter(event)) {
-          subscriber.events.push(event);
-          subscriber.notify?.();
-          subscriber.notify = undefined;
-        }
-      }
-    }
-  }
-
-  #recordReplay(event: OpenClawGatewayEvent): void {
-    this.#replay.push(event);
-    const limit = this.#options.replayLimit ?? 500;
-    if (limit <= 0) {
-      this.#replay.length = 0;
-      return;
-    }
-    if (this.#replay.length > limit) this.#replay.splice(0, this.#replay.length - limit);
-  }
-}
-
-export function createOpenClawWebSocketTransport(options: OpenClawWebSocketTransportOptions): OpenClawWebSocketTransport {
-  return new OpenClawWebSocketTransport(options);
+export function createOpenClawHostTransport(runtime: OpenClawHostRuntime): OpenClawHostTransport {
+  return new OpenClawHostTransport(runtime);
 }
 
 function arrayValue(value: unknown): unknown[] | undefined {
@@ -744,203 +487,521 @@ function settledValue(result: PromiseSettledResult<unknown>): unknown {
   return result.status === "fulfilled" ? result.value : undefined;
 }
 
-async function readGatewayResponse(response: Response): Promise<unknown> {
-  const text = await response.text();
-  if (!response.ok) throw new Error(`OpenClaw gateway request failed (${response.status}): ${text || response.statusText}`);
-  return text ? JSON.parse(text) : undefined;
+async function* emptyEvents(): AsyncIterable<OpenClawGatewayEvent> {}
+
+class LocalEventBus {
+  readonly #subscribers = new Set<(event: OpenClawGatewayEvent) => void>();
+
+  emit(event: OpenClawGatewayEvent): void {
+    for (const subscriber of this.#subscribers) subscriber(event);
+  }
+
+  async *events(filter?: (event: OpenClawGatewayEvent) => boolean): AsyncIterable<OpenClawGatewayEvent> {
+    const queue: OpenClawGatewayEvent[] = [];
+    let notify: (() => void) | undefined;
+    let closed = false;
+    const subscriber = (event: OpenClawGatewayEvent) => {
+      if (filter && !filter(event)) return;
+      queue.push(event);
+      notify?.();
+      notify = undefined;
+    };
+    this.#subscribers.add(subscriber);
+    try {
+      for (;;) {
+        const event = queue.shift();
+        if (event) {
+          yield event;
+          continue;
+        }
+        if (closed) return;
+        await new Promise<void>((resolve) => {
+          notify = resolve;
+        });
+      }
+    } finally {
+      closed = true;
+      this.#subscribers.delete(subscriber);
+      notify?.();
+    }
+  }
 }
 
-function normalizeGatewayUrl(value: string): URL {
-  const url = new URL(value);
-  if (url.protocol === "ws:") url.protocol = "http:";
-  if (url.protocol === "wss:") url.protocol = "https:";
-  return url;
-}
-
-function endpointUrl(baseUrl: URL, path: string): URL {
-  if (/^https?:\/\//.test(path)) return new URL(path);
-  const base = new URL(baseUrl);
-  base.pathname = joinPath(base.pathname, path);
-  base.search = "";
-  base.hash = "";
-  return base;
-}
-
-function joinPath(basePath: string, path: string): string {
-  const base = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
-  const next = path.startsWith("/") ? path : `/${path}`;
-  return `${base}${next}` || "/";
-}
-
-async function* parseEventStream(stream: ReadableStream<Uint8Array>): AsyncIterable<OpenClawGatewayEvent> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+async function* mergeEvents(iterables: AsyncIterable<OpenClawGatewayEvent>[]): AsyncIterable<OpenClawGatewayEvent> {
+  const queue: OpenClawGatewayEvent[] = [];
+  let notify: (() => void) | undefined;
+  let closed = false;
+  const controllers = iterables.map(() => new AbortController());
+  const pump = (async () => {
+    await Promise.all(iterables.map(async (iterable, index) => {
+      try {
+        for await (const event of iterable) {
+          if (controllers[index]?.signal.aborted) return;
+          queue.push(event);
+          notify?.();
+          notify = undefined;
+        }
+      } catch {
+        // Individual event surfaces are best effort. The bridge keeps any other
+        // live source open so streaming does not die on optional host hooks.
+      }
+    }));
+  })();
   try {
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let split = eventBoundary(buffer);
-      while (split >= 0) {
-        const frame = buffer.slice(0, split);
-        buffer = buffer.slice(split + frameBoundaryLength(buffer, split));
-        const event = parseEventFrame(frame);
-        if (event) yield event;
-        split = eventBoundary(buffer);
+      const event = queue.shift();
+      if (event) {
+        yield event;
+        continue;
       }
+      if (closed) return;
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          notify = resolve;
+        }),
+        pump.then(() => undefined),
+      ]);
+      if (queue.length === 0) return;
     }
-    buffer += decoder.decode();
-    const event = parseEventFrame(buffer);
-    if (event) yield event;
   } finally {
-    reader.releaseLock();
+    closed = true;
+    for (const controller of controllers) controller.abort();
+    notify?.();
   }
 }
 
-function eventBoundary(value: string): number {
-  const lf = value.indexOf("\n\n");
-  const crlf = value.indexOf("\r\n\r\n");
-  if (lf < 0) return crlf;
-  if (crlf < 0) return lf;
-  return Math.min(lf, crlf);
-}
-
-function frameBoundaryLength(value: string, index: number): number {
-  return value.slice(index, index + 4) === "\r\n\r\n" ? 4 : 2;
-}
-
-function parseEventFrame(frame: string): OpenClawGatewayEvent | undefined {
-  const lines = frame.split(/\r?\n/);
-  let event: string | undefined;
-  const data: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith("event:")) event = line.slice("event:".length).trim();
-    if (line.startsWith("data:")) data.push(line.slice("data:".length).trimStart());
-  }
-  if (data.length === 0) return undefined;
-  const payload = JSON.parse(data.join("\n")) as unknown;
-  const record = recordValue(payload);
-  if (record && ("event" in record || "payload" in record || "seq" in record)) {
-    return stripUndefined({
-      event: stringValue(record.event) ?? event,
-      payload: record.payload ?? payload,
-      seq: typeof record.seq === "number" ? record.seq : undefined,
-      stateVersion: record.stateVersion,
+async function* agentRuntimeEvents(
+  onAgentEvent: (listener: (event: OpenClawAgentRuntimeEvent) => void) => () => void,
+  filter?: (event: OpenClawGatewayEvent) => boolean,
+): AsyncIterable<OpenClawGatewayEvent> {
+  const queue: OpenClawGatewayEvent[] = [];
+  let notify: (() => void) | undefined;
+  let closed = false;
+  const unsubscribe = onAgentEvent((agentEvent) => {
+    const data = recordValue(agentEvent.data) ?? {};
+    const event = stripUndefined({
+      event: agentEvent.stream,
+      payload: stripUndefined({
+        ...data,
+        ...(agentEvent.sessionKey ? { sessionKey: agentEvent.sessionKey } : {}),
+      }),
+      seq: numberValue(data.seq),
     });
-  }
-  return stripUndefined({ event, payload });
-}
-
-function errorMessage(error: unknown): string {
-  const record = recordValue(error);
-  return stringValue(record?.message) ?? stringValue(error) ?? JSON.stringify(error);
-}
-
-function safeJsonParse(raw: string): unknown {
+    if (filter && !filter(event)) return;
+    queue.push(event);
+    notify?.();
+    notify = undefined;
+  });
   try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return undefined;
+    for (;;) {
+      const event = queue.shift();
+      if (event) {
+        yield event;
+        continue;
+      }
+      if (closed) return;
+      await new Promise<void>((resolve) => {
+        notify = resolve;
+      });
+    }
+  } finally {
+    closed = true;
+    unsubscribe();
+    notify?.();
   }
 }
 
-function loadOrCreateDeviceIdentityState(filePath: string): {
-  identity: GatewayDeviceIdentity;
-  stored: StoredGatewayDeviceIdentity;
-} {
-  const parsed = readStoredDeviceIdentity(filePath);
-  if (parsed) return { identity: parsed, stored: parsed };
-  const identity = generateDeviceIdentity();
-  const stored = { ...identity, createdAtMs: Date.now(), version: 1 as const };
-  writeDeviceIdentityState(filePath, stored);
-  return { identity, stored };
-}
-
-function readStoredDeviceIdentity(filePath: string): StoredGatewayDeviceIdentity | undefined {
-  try {
-    const parsed = recordValue(JSON.parse(readFileSync(filePath, "utf8")) as unknown);
-    if (!parsed || parsed.version !== 1) return undefined;
-    const deviceId = stringValue(parsed.deviceId);
-    const publicKeyPem = stringValue(parsed.publicKeyPem);
-    const privateKeyPem = stringValue(parsed.privateKeyPem);
-    if (!deviceId || !publicKeyPem || !privateKeyPem) return undefined;
-    return stripUndefined({
-      createdAtMs: typeof parsed.createdAtMs === "number" ? parsed.createdAtMs : Date.now(),
-      deviceId,
-      deviceToken: stringValue(parsed.deviceToken),
-      privateKeyPem,
-      publicKeyPem,
-      tokenScopes: arrayValue(parsed.tokenScopes)?.filter((scope): scope is string => typeof scope === "string"),
-      version: 1 as const,
+async function* transcriptUpdateEvents(
+  onSessionTranscriptUpdate: (listener: (update: OpenClawSessionTranscriptUpdate) => void) => () => void,
+  filter?: (event: OpenClawGatewayEvent) => boolean,
+): AsyncIterable<OpenClawGatewayEvent> {
+  const queue: OpenClawGatewayEvent[] = [];
+  let notify: (() => void) | undefined;
+  let closed = false;
+  const unsubscribe = onSessionTranscriptUpdate((update) => {
+    const event = stripUndefined({
+      event: "session.transcript.update",
+      payload: update,
+      seq: update.messageSeq,
     });
+    if (filter && !filter(event)) return;
+    queue.push(event);
+    notify?.();
+    notify = undefined;
+  });
+  try {
+    for (;;) {
+      const event = queue.shift();
+      if (event) {
+        yield event;
+        continue;
+      }
+      if (closed) return;
+      await new Promise<void>((resolve) => {
+        notify = resolve;
+      });
+    }
+  } finally {
+    closed = true;
+    unsubscribe();
+    notify?.();
+  }
+}
+
+function agentsFromPluginConfig(config: unknown): Array<Record<string, unknown>> {
+  const agents = recordValue(recordValue(config)?.agents);
+  const configured = arrayValue(agents?.list)
+    ?? arrayValue(agents?.agents)
+    ?? arrayValue(agents?.items);
+  const normalized = (configured ?? []).flatMap((agent) => {
+    const record = recordValue(agent);
+    if (!record) return [];
+    const id = stringValue(record.id) ?? stringValue(record.agentId) ?? stringValue(record.name);
+    if (!id) return [];
+    return [stripUndefined({
+      id,
+      displayName: stringValue(record.displayName) ?? stringValue(record.name) ?? id,
+      description: stringValue(record.description),
+    })];
+  });
+  return normalized.length > 0 ? normalized : [{ id: "main", displayName: "OpenClaw" }];
+}
+
+function sessionsFromPluginRuntime(runtime: OpenClawHostRuntime, params: unknown): Array<Record<string, unknown>> {
+  const listSessionEntries = runtime.agent?.session?.listSessionEntries;
+  if (!listSessionEntries) return [];
+  const sessionEntriesByKey = new Map<string, { entry: Record<string, unknown>; sessionKey: string }>();
+  for (const item of listSessionEntries() ?? []) {
+    const entry = recordValue(item.entry);
+    const sessionKey = stringValue(item.sessionKey) ?? stringValue(entry?.sessionKey) ?? stringValue(entry?.key);
+    if (entry && sessionKey) sessionEntriesByKey.set(sessionKey, { entry, sessionKey });
+  }
+  for (const agentId of agentIdsFromPluginConfig(runtime.config?.current?.())) {
+    for (const item of listSessionEntries({ agentId }) ?? []) {
+      const entry = recordValue(item.entry);
+      const sessionKey = stringValue(item.sessionKey) ?? stringValue(entry?.sessionKey) ?? stringValue(entry?.key);
+      if (entry && sessionKey) sessionEntriesByKey.set(sessionKey, { entry, sessionKey });
+    }
+  }
+  const sessionEntries = [...sessionEntriesByKey.values()];
+  const includeArchived = recordValue(params)?.includeArchived === true;
+  return sessionEntries.flatMap((item) => {
+    const entry = recordValue(item.entry);
+    const sessionKey = stringValue(item.sessionKey) ?? stringValue(entry?.sessionKey) ?? stringValue(entry?.key);
+    if (!entry || !sessionKey) return [];
+    if (!includeArchived && entry.archived === true) return [];
+    const origin = recordValue(entry.origin);
+    return [stripUndefined({
+      agentId: stringValue(entry.agentId) ?? agentIdFromSessionKey(sessionKey),
+      chatType: stringValue(entry.chatType) ?? stringValue(origin?.chatType),
+      displayName: stringValue(entry.displayName) ?? stringValue(entry.title) ?? stringValue(entry.label) ?? stringValue(entry.derivedTitle) ?? sessionKey,
+      derivedTitle: stringValue(entry.derivedTitle),
+      key: sessionKey,
+      label: stringValue(entry.label),
+      lastAccountId: stringValue(entry.lastAccountId) ?? stringValue(origin?.accountId),
+      lastChannel: stringValue(entry.lastChannel) ?? stringValue(origin?.provider) ?? stringValue(origin?.surface),
+      lastProvider: stringValue(entry.lastProvider) ?? stringValue(origin?.provider),
+      lastTo: stringValue(entry.lastTo) ?? stringValue(origin?.to),
+      origin,
+      provider: stringValue(entry.provider) ?? stringValue(origin?.provider),
+      sessionFile: stringValue(entry.sessionFile),
+      sessionId: stringValue(entry.sessionId),
+      updatedAt: typeof entry.updatedAt === "number" || entry.updatedAt === null ? entry.updatedAt : undefined,
+    })];
+  });
+}
+
+async function createSessionInPluginRuntime(runtime: OpenClawHostRuntime, params: unknown): Promise<Record<string, unknown>> {
+  const record = recordValue(params) ?? {};
+  const agentId = stringValue(record.agentId) ?? "main";
+  const label = stringValue(record.label);
+  const sessionKey = stringValue(record.key) ?? buildPluginSessionKey(agentId, label);
+  const entry = resolvePluginSession(runtime, sessionKey, agentId).entry ?? {};
+  const sessionId = stringValue(entry.sessionId) ?? sessionIdFromSessionKey(sessionKey);
+  const now = Date.now();
+  const next = stripUndefined({
+    ...entry,
+    chatType: stringValue(entry.chatType) ?? "direct",
+    derivedTitle: stringValue(entry.derivedTitle) ?? label,
+    label: label ?? stringValue(entry.label),
+    origin: recordValue(entry.origin) ?? { provider: "beeper", surface: "beeper", chatType: "direct" },
+    provider: stringValue(entry.provider) ?? "beeper",
+    sessionFile: stringValue(entry.sessionFile) ?? resolvePluginSessionFile(runtime, agentId, sessionId, entry),
+    sessionId,
+    updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : now,
+  });
+  await runtime.agent?.session?.upsertSessionEntry?.({ agentId, entry: next, sessionKey });
+  return { agentId, key: sessionKey, label, sessionFile: next.sessionFile, sessionId };
+}
+
+async function sendSessionInPluginRuntime(
+  runtime: OpenClawHostRuntime,
+  localEvents: LocalEventBus,
+  params: unknown,
+  options?: GatewayRequestOptions,
+): Promise<Record<string, unknown>> {
+  const record = recordValue(params) ?? {};
+  const sessionKey = stringValue(record.key) ?? stringValue(record.sessionKey);
+  const message = stringValue(record.message);
+  if (!sessionKey) throw new Error("OpenClaw plugin sessions.send requires key");
+  if (!message) throw new Error("OpenClaw plugin sessions.send requires message");
+  const agentId = agentIdFromSessionKey(sessionKey) ?? "main";
+  const resolved = resolvePluginSession(runtime, sessionKey, agentId);
+  const entry = resolved.entry ?? {};
+  const sessionId = stringValue(entry.sessionId) ?? sessionIdFromSessionKey(sessionKey);
+  const sessionFile = stringValue(entry.sessionFile) ?? resolvePluginSessionFile(runtime, agentId, sessionId, entry);
+  const runId = `beeper:${randomUUID()}`;
+  const cfg = runtime.config?.current?.();
+  const runEmbeddedAgent = runtime.agent?.runEmbeddedAgent ?? runtime.agent?.runEmbeddedPiAgent;
+  if (!runEmbeddedAgent) throw new Error("OpenClaw plugin runtime does not expose agent.runEmbeddedAgent");
+  const workspaceDir = await resolvePluginWorkspaceDir(runtime, cfg, agentId);
+  const timeoutMs = options?.timeoutMs ?? numberValue(record.timeoutMs) ?? runtime.agent?.resolveAgentTimeoutMs?.({ cfg }) ?? 48 * 60 * 60 * 1000;
+  localEvents.emit({ event: "run.started", payload: { agentId, runId, sessionId, sessionKey } });
+  let lastPartialText = "";
+  let lastReasoningText = "";
+  void runEmbeddedAgent(stripUndefined({
+    agentId,
+    config: cfg,
+    currentMessageId: stringValue(record.idempotencyKey),
+    messageChannel: "beeper",
+    messageProvider: "beeper",
+    prompt: message,
+    runId,
+    sessionFile,
+    sessionId,
+    sessionKey,
+    timeoutMs,
+    trigger: "user",
+    workspaceDir,
+    agentDir: runtime.agent?.resolveAgentDir?.(cfg, agentId),
+    onAgentEvent: (event: OpenClawAgentRuntimeEvent) => {
+      const data = recordValue(event.data) ?? {};
+      localEvents.emit(stripUndefined({
+        event: event.stream,
+        payload: stripUndefined({
+          ...data,
+          runId: stringValue(data.runId) ?? runId,
+          sessionKey: event.sessionKey ?? stringValue(data.sessionKey) ?? sessionKey,
+        }),
+        seq: numberValue(data.seq),
+      }));
+    },
+    onAssistantMessageStart: () => {
+      lastPartialText = "";
+      localEvents.emit({ event: "assistant.message.start", payload: { agentId, runId, sessionId, sessionKey } });
+    },
+    onBlockReply: (payload: unknown) => {
+      const text = stringValue(recordValue(payload)?.text);
+      if (!text) return;
+      const delta = text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text;
+      lastPartialText = text;
+      if (!delta) return;
+      localEvents.emit({ event: "assistant.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text } });
+    },
+    onBlockReplyQueued: (payload: unknown) => {
+      const text = stringValue(recordValue(payload)?.text);
+      if (!text) return;
+      const delta = text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text;
+      lastPartialText = text;
+      if (!delta) return;
+      localEvents.emit({ event: "assistant.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text } });
+    },
+    onPartialReply: (payload: unknown) => {
+      const text = stringValue(recordValue(payload)?.text);
+      if (!text) return;
+      const explicitDelta = stringValue(recordValue(payload)?.delta);
+      const delta = explicitDelta ?? (text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text);
+      lastPartialText = text;
+      if (!delta) return;
+      localEvents.emit({ event: "assistant.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text } });
+    },
+    onReasoningEnd: () => {
+      localEvents.emit({ event: "thinking.end", payload: { agentId, runId, sessionId, sessionKey } });
+    },
+    onReasoningStream: (payload: unknown) => {
+      const text = stringValue(recordValue(payload)?.text);
+      if (!text) return;
+      const explicitDelta = stringValue(recordValue(payload)?.delta);
+      const delta = explicitDelta ?? (text.startsWith(lastReasoningText) ? text.slice(lastReasoningText.length) : text);
+      lastReasoningText = text;
+      if (!delta) return;
+      localEvents.emit({ event: "thinking.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text } });
+    },
+    onToolResult: (payload: unknown) => {
+      const record = recordValue(payload) ?? {};
+      localEvents.emit({
+        event: "tool.call.completed",
+        payload: stripUndefined({
+          agentId,
+          output: record.text ?? record.content ?? payload,
+          runId,
+          sessionId,
+          sessionKey,
+          toolCallId: stringValue(record.toolCallId) ?? stringValue(record.id) ?? "tool_result",
+          toolName: stringValue(record.toolName) ?? stringValue(record.name),
+        }),
+      });
+    },
+  })).then(
+    (result) => {
+      const finalText = finalTextFromEmbeddedRunResult(result);
+      if (finalText) {
+        const delta = finalText.startsWith(lastPartialText) ? finalText.slice(lastPartialText.length) : finalText;
+        lastPartialText = finalText;
+        if (delta) {
+          localEvents.emit({ event: "assistant.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text: finalText } });
+        }
+      }
+      localEvents.emit({ event: "run.completed", payload: { agentId, runId, sessionId, sessionKey } });
+    },
+    (error) => {
+      localEvents.emit({ event: "run.failed", payload: { agentId, error: errorText(error), runId, sessionId, sessionKey } });
+    },
+  );
+  return { runId, sessionFile, sessionId, sessionKey };
+}
+
+function finalTextFromEmbeddedRunResult(result: unknown): string | undefined {
+  const record = recordValue(result);
+  const direct = stringValue(record?.text) ?? stringValue(record?.message) ?? stringValue(record?.finalText);
+  if (direct) return direct;
+  const payloads = arrayValue(record?.payloads);
+  if (!payloads) return undefined;
+  const parts: string[] = [];
+  for (const payload of payloads) {
+    const payloadRecord = recordValue(payload);
+    const text = stringValue(payloadRecord?.text) ?? stringValue(payloadRecord?.content);
+    if (text) parts.push(text);
+  }
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
+function resolvePluginSession(runtime: OpenClawHostRuntime, sessionKey: string, agentId?: string): { entry?: Record<string, unknown>; sessionKey: string } {
+  const getSessionEntry = runtime.agent?.session?.getSessionEntry;
+  const direct = recordValue(getSessionEntry?.({ agentId, sessionKey }));
+  if (direct) return { entry: direct, sessionKey };
+  for (const item of sessionsFromPluginRuntime(runtime, { includeArchived: true })) {
+    if (stringValue(item.key) === sessionKey) return { entry: item, sessionKey };
+  }
+  return { sessionKey };
+}
+
+function buildPluginSessionKey(agentId: string, label?: string): string {
+  const suffix = (label ?? randomUUID()).toLowerCase().replace(/[^a-z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 48) || randomUUID();
+  return `agent:${agentId}:beeper:${suffix}`;
+}
+
+function sessionIdFromSessionKey(sessionKey: string): string {
+  return sessionKey.toLowerCase().replace(/[^a-z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 96) || randomUUID();
+}
+
+function resolvePluginSessionFile(
+  runtime: OpenClawHostRuntime,
+  agentId: string,
+  sessionId: string,
+  entry?: Record<string, unknown>,
+): string {
+  const resolver = runtime.agent?.session?.resolveSessionFilePath;
+  if (resolver) return resolver(sessionId, entry, { agentId });
+  const agentDir = runtime.agent?.resolveAgentDir?.(runtime.config?.current?.(), agentId);
+  if (agentDir) return path.join(agentDir, "sessions", `${sessionId}.jsonl`);
+  return path.join(process.env.OPENCLAW_STATE_DIR ?? path.join(process.env.HOME ?? ".", ".openclaw"), "agents", agentId, "sessions", `${sessionId}.jsonl`);
+}
+
+async function resolvePluginWorkspaceDir(runtime: OpenClawHostRuntime, cfg: unknown, agentId: string): Promise<string> {
+  const ensured = await runtime.agent?.ensureAgentWorkspace?.(cfg, agentId);
+  if (typeof ensured === "string" && ensured) return ensured;
+  const resolved = runtime.agent?.resolveAgentWorkspaceDir?.(cfg, agentId);
+  if (resolved) return resolved;
+  return process.cwd();
+}
+
+async function historyFromPluginRuntime(runtime: OpenClawHostRuntime, params: unknown): Promise<Array<Record<string, unknown>>> {
+  const record = recordValue(params) ?? {};
+  const sessionKey = stringValue(record.sessionKey) ?? stringValue(record.key);
+  if (!sessionKey) return [];
+  const agentId = agentIdFromSessionKey(sessionKey) ?? "main";
+  const entry = resolvePluginSession(runtime, sessionKey, agentId).entry;
+  const sessionId = stringValue(entry?.sessionId);
+  const sessionFile = stringValue(entry?.sessionFile) ?? (sessionId ? resolvePluginSessionFile(runtime, agentId, sessionId, entry) : undefined);
+  if (!sessionFile) return [];
+  const limit = numberValue(record.limit);
+  const messages = await readHistoryMessages(sessionFile);
+  return limit && limit > 0 ? messages.slice(-limit) : messages;
+}
+
+async function readHistoryMessages(sessionFile: string): Promise<Array<Record<string, unknown>>> {
+  let raw = "";
+  try {
+    raw = await fs.readFile(sessionFile, "utf8");
   } catch {
-    return undefined;
+    return [];
   }
-}
-
-function writeDeviceIdentityState(filePath: string, value: StoredGatewayDeviceIdentity): void {
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-}
-
-function generateDeviceIdentity(): GatewayDeviceIdentity {
-  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
-  const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-  return {
-    deviceId: createHash("sha256").update(publicKeyRawFromPem(publicKeyPem)).digest("hex"),
-    privateKeyPem,
-    publicKeyPem,
-  };
-}
-
-function buildGatewayDeviceConnectParams(options: {
-  clientId: string;
-  clientMode: string;
-  identity: GatewayDeviceIdentity;
-  nonce: string;
-  platform: string;
-  role: string;
-  scopes: string[];
-  token?: string;
-}): Record<string, unknown> {
-  const signedAt = Date.now();
-  const payload = [
-    "v3",
-    options.identity.deviceId,
-    options.clientId,
-    options.clientMode,
-    options.role,
-    options.scopes.join(","),
-    String(signedAt),
-    options.token ?? "",
-    options.nonce,
-    options.platform.trim(),
-    "",
-  ].join("|");
-  return {
-    id: options.identity.deviceId,
-    nonce: options.nonce,
-    publicKey: base64Url(publicKeyRawFromPem(options.identity.publicKeyPem)),
-    signature: base64Url(sign(null, Buffer.from(payload, "utf8"), createPrivateKey(options.identity.privateKeyPem))),
-    signedAt,
-  };
-}
-
-function publicKeyRawFromPem(publicKeyPem: string): Buffer {
-  const spki = createPublicKey(publicKeyPem).export({ type: "spki", format: "der" }) as Buffer;
-  if (
-    spki.length === ED25519_SPKI_PREFIX.length + 32 &&
-    spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)
-  ) {
-    return spki.subarray(ED25519_SPKI_PREFIX.length);
+  const messages: Array<Record<string, unknown>> = [];
+  let seq = 0;
+  for (const line of raw.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const message = normalizeHistoryRecord(parsed, ++seq);
+    if (message) messages.push(message);
   }
-  return spki;
+  return messages;
 }
 
-function base64Url(value: Buffer): string {
-  return value.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
+function normalizeHistoryRecord(value: unknown, seq: number): Record<string, unknown> | undefined {
+  const record = recordValue(value);
+  if (!record) return undefined;
+  const message = recordValue(record.message) ?? recordValue(record.data) ?? record;
+  const role = stringValue(message.role) ?? stringValue(record.role);
+  const content = historyContentText(message.content) ?? stringValue(message.text) ?? stringValue(message.content) ?? stringValue(record.text);
+  if (!role || !content) return undefined;
+  return stripUndefined({
+    content,
+    id: stringValue(message.id) ?? stringValue(record.id) ?? `history:${seq}`,
+    messageSeq: numberValue(record.messageSeq) ?? seq,
+    role: role === "assistant" ? "agent" : role,
+    timestamp: numberValue(record.timestamp) ?? numberValue(message.timestamp) ?? numberValue(record.createdAt) ?? numberValue(message.createdAt),
+  });
+}
+
+function historyContentText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  const content = arrayValue(value);
+  if (!content) return undefined;
+  const parts: string[] = [];
+  for (const part of content) {
+    const record = recordValue(part);
+    const text = stringValue(record?.text) ?? stringValue(record?.thinking);
+    if (text) parts.push(text);
+  }
+  return parts.length ? parts.join("") : undefined;
+}
+
+function agentIdsFromPluginConfig(config: unknown): string[] {
+  const ids = new Set(["main"]);
+  for (const agent of agentsFromPluginConfig(config)) {
+    const id = stringValue(agent.id) ?? stringValue(agent.agentId);
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+function agentIdFromSessionKey(sessionKey: string): string | undefined {
+  return /^agent:([^:]+)/.exec(sessionKey)?.[1];
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 type StripUndefined<T extends object> = {

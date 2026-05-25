@@ -47,12 +47,12 @@ export interface OpenClawBridgeConfig {
   backfillLimit?: number;
   baseDomain?: string;
   beeperEnv?: "production" | "staging" | "dev" | "local";
+  bridgeId?: string;
   bridgeManagerPostState?: boolean;
   bridgeManagerToken?: string;
   contactVisibility?: "agents" | "agents-and-users" | "none";
   dataDir: string;
   ghostLocalpartPrefix: string;
-  gatewayUrl?: string;
   homeserver?: string;
   hsToken?: string;
   homeserverDomain?: string;

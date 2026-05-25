@@ -219,7 +219,7 @@ export class BeeperStreamPublisher {
       }),
       data: this.#initialMessageMetadata,
       messageId: this.turnId,
-      model: "openclaw/gateway",
+      model: "openclaw/plugin",
       preview: {
         text: "",
         truncated: false,

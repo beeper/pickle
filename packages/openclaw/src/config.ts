@@ -3,10 +3,10 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { getBeeperChannelSettings, type OpenClawSetupConfig } from "./setup";
+import { openClawBeeperBridgeId } from "./ids";
 import type { OpenClawBridgeConfig } from "./types";
 
-export const DEFAULT_APPSERVICE_ID = "pickle-openclaw";
-export const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789";
+export const DEFAULT_APPSERVICE_ID = "sh-openclaw";
 export const DEFAULT_GHOST_LOCALPART_PREFIX = "openclaw_agent_";
 export const DEFAULT_REGISTRATION_URL = "http://127.0.0.1:29391";
 export const DEFAULT_SENDER_LOCALPART = "openclawbot";
@@ -23,6 +23,7 @@ export function defaultConfigPath(dataDir = defaultDataDir()): string {
 
 export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {}): OpenClawBridgeConfig {
   const dataDir = overrides.dataDir ?? process.env.PICKLE_OPENCLAW_DATA_DIR ?? defaultDataDir();
+  const matrixDeviceId = overrides.matrixDeviceId ?? process.env.PICKLE_OPENCLAW_MATRIX_DEVICE_ID;
   const config: OpenClawBridgeConfig = {
     appserviceId:
       overrides.appserviceId ??
@@ -51,11 +52,11 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   const baseDomain = overrides.baseDomain ?? process.env.PICKLE_OPENCLAW_BASE_DOMAIN;
   const beeperEnv = overrides.beeperEnv ?? envBeeperEnv(process.env.PICKLE_OPENCLAW_BEEPER_ENV);
   const bridgeManagerToken = overrides.bridgeManagerToken ?? process.env.PICKLE_OPENCLAW_BRIDGE_MANAGER_TOKEN;
-  const gatewayUrl = overrides.gatewayUrl ?? process.env.PICKLE_OPENCLAW_GATEWAY_URL ?? DEFAULT_GATEWAY_URL;
+  const openClawDeviceId = process.env.PICKLE_OPENCLAW_DEVICE_ID ?? process.env.OPENCLAW_DEVICE_ID;
+  const bridgeId = overrides.bridgeId ?? process.env.PICKLE_OPENCLAW_BRIDGE_ID ?? (openClawDeviceId ? openClawBeeperBridgeId(openClawDeviceId) : undefined);
   const homeserver = overrides.homeserver ?? process.env.PICKLE_OPENCLAW_HOMESERVER;
   const homeserverDomain = overrides.homeserverDomain ?? process.env.PICKLE_OPENCLAW_HOMESERVER_DOMAIN;
   const hsToken = overrides.hsToken ?? process.env.PICKLE_OPENCLAW_HS_TOKEN;
-  const matrixDeviceId = overrides.matrixDeviceId ?? process.env.PICKLE_OPENCLAW_MATRIX_DEVICE_ID;
   const matrixUserId = overrides.matrixUserId ?? process.env.PICKLE_OPENCLAW_MATRIX_USER_ID;
   const backfillLimit = overrides.backfillLimit ?? envNumber(process.env.PICKLE_OPENCLAW_BACKFILL_LIMIT);
   const contactVisibility = overrides.contactVisibility ?? envContactVisibility(process.env.PICKLE_OPENCLAW_CONTACT_VISIBILITY);
@@ -69,8 +70,8 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   if (asToken) config.asToken = asToken;
   if (baseDomain) config.baseDomain = baseDomain;
   if (beeperEnv) config.beeperEnv = beeperEnv;
+  if (bridgeId) config.bridgeId = bridgeId;
   if (bridgeManagerToken) config.bridgeManagerToken = bridgeManagerToken;
-  if (gatewayUrl) config.gatewayUrl = gatewayUrl;
   if (homeserver) config.homeserver = homeserver;
   if (homeserverDomain) config.homeserverDomain = homeserverDomain;
   if (hsToken) config.hsToken = hsToken;

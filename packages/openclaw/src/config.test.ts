@@ -11,12 +11,15 @@ describe("OpenClaw bridge config", () => {
     delete process.env.PICKLE_OPENCLAW_ALLOW_USERS;
     delete process.env.PICKLE_OPENCLAW_APPSERVICE_ID;
     delete process.env.PICKLE_OPENCLAW_APP_SERVICE_ID;
+    delete process.env.PICKLE_OPENCLAW_BRIDGE_ID;
+    delete process.env.PICKLE_OPENCLAW_DEVICE_ID;
+    delete process.env.OPENCLAW_DEVICE_ID;
   });
 
   it("defaults to appservice-owned non-federated bridge settings", () => {
     const config = createDefaultConfig({ dataDir: "/tmp/openclaw-bridge" });
     expect(config).toMatchObject({
-      appserviceId: "pickle-openclaw",
+      appserviceId: "sh-openclaw",
       dataDir: "/tmp/openclaw-bridge",
       ghostLocalpartPrefix: "openclaw_agent_",
       nonFederatedRooms: true,
@@ -25,6 +28,14 @@ describe("OpenClaw bridge config", () => {
       serviceBotLocalpart: "openclawbot",
       storePath: "/tmp/openclaw-bridge/matrix-store",
       userLocalpartPrefix: "openclaw_user_",
+    });
+  });
+
+  it("derives the self-hosted Beeper bridge id from the OpenClaw device id environment", () => {
+    process.env.PICKLE_OPENCLAW_DEVICE_ID = "OPENCLAW.DEV.123";
+    expect(createDefaultConfig({ dataDir: "/tmp/openclaw-bridge" })).toMatchObject({
+      appserviceId: "sh-openclaw",
+      bridgeId: "sh-openclaw-openclaw-dev-123",
     });
   });
 

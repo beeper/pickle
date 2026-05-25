@@ -20,11 +20,12 @@
       "PICKLE_OPENCLAW_BACKFILL_LIMIT",
       "PICKLE_OPENCLAW_BASE_DOMAIN",
       "PICKLE_OPENCLAW_BEEPER_ENV",
+      "PICKLE_OPENCLAW_BRIDGE_ID",
       "PICKLE_OPENCLAW_BRIDGE_MANAGER_POST_STATE",
       "PICKLE_OPENCLAW_BRIDGE_MANAGER_TOKEN",
       "PICKLE_OPENCLAW_CONTACT_VISIBILITY",
       "PICKLE_OPENCLAW_DATA_DIR",
-      "PICKLE_OPENCLAW_GATEWAY_URL",
+      "PICKLE_OPENCLAW_DEVICE_ID",
       "PICKLE_OPENCLAW_GHOST_LOCALPART_PREFIX",
       "PICKLE_OPENCLAW_HOMESERVER",
       "PICKLE_OPENCLAW_HOMESERVER_DOMAIN",
@@ -83,6 +84,10 @@
         "type": "string",
         "description": "Matrix appservice id used in registration namespaces."
       },
+      "bridgeId": {
+        "type": "string",
+        "description": "Beeper self-hosted bridge id, derived as sh-openclaw-$deviceid by login setup."
+      },
       "dataDir": {
         "type": "string",
         "description": "Directory for bridge config, registration, and runtime state."
@@ -90,10 +95,6 @@
       "registrationUrl": {
         "type": "string",
         "description": "Public or LAN callback URL for the Matrix appservice."
-      },
-      "gatewayUrl": {
-        "type": "string",
-        "description": "OpenClaw gateway URL used by the bridge runtime."
       },
       "homeserver": {
         "type": "string",
@@ -244,6 +245,10 @@
             "type": "string",
             "description": "Matrix appservice id used in registration namespaces."
           },
+          "bridgeId": {
+            "type": "string",
+            "description": "Beeper self-hosted bridge id, derived as sh-openclaw-$deviceid by login setup."
+          },
           "dataDir": {
             "type": "string",
             "description": "Directory for bridge config, registration, and runtime state."
@@ -251,10 +256,6 @@
           "registrationUrl": {
             "type": "string",
             "description": "Public or LAN callback URL for the Matrix appservice."
-          },
-          "gatewayUrl": {
-            "type": "string",
-            "description": "OpenClaw gateway URL used by the bridge runtime."
           },
           "homeserver": {
             "type": "string",

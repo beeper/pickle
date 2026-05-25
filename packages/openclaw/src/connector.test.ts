@@ -1,4 +1,4 @@
-import type { BridgeRequestContext, MatrixEdit, MatrixMessage, MatrixReaction, MatrixReactionRemove, MatrixRedaction, UserLogin } from "@beeper/pickle-bridge";
+import type { MatrixEdit, MatrixMessage, MatrixReaction, MatrixReactionRemove, MatrixRedaction, UserLogin } from "@beeper/pickle-bridge";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
 import { createOpenClawConnector, OpenClawNetworkAPI, parseMatrixTextMessage, userLoginFromOpenClawConfig } from "./connector";
@@ -6,9 +6,9 @@ import { OpenClawGatewayRuntime, type OpenClawGatewayEvent, type OpenClawTranspo
 import { OpenClawBridgeRegistry } from "./registry";
 
 describe("OpenClawBridgeConnector", () => {
-  it("exposes bridgev2-shaped metadata, capabilities, and login flow", async () => {
+  it("exposes bridgev2-shaped metadata and direct plugin capabilities", async () => {
     const connector = createOpenClawConnector({
-      config: createDefaultConfig({ dataDir: "/tmp/openclaw", gatewayUrl: "ws://gateway" }),
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
     });
     expect(connector.getName()).toMatchObject({
       beeperBridgeType: "openclaw",
@@ -21,47 +21,38 @@ describe("OpenClawBridgeConnector", () => {
       createDM: true,
       lookupUsername: true,
     });
-    expect(connector.getLoginFlows()).toEqual([
-      {
-        description: "Connect to an existing OpenClaw gateway by URL.",
-        id: "openclaw.gateway",
-        name: "OpenClaw Gateway",
-      },
-    ]);
-
-    const process = connector.createLogin({} as BridgeRequestContext, { id: "@alice:example.com" }, "openclaw.gateway");
-    await expect(process.start()).resolves.toMatchObject({
-      stepId: "openclaw.gateway.credentials",
-      type: "user_input",
-    });
-    await expect(
-      "submitUserInput" in process
-        ? process.submitUserInput({ gateway_url: "ws://gateway" })
-        : undefined
-    ).resolves.toMatchObject({
-      complete: {
-        userLogin: {
-          metadata: {
-            gatewayUrl: "ws://gateway",
-          },
-          remoteName: "OpenClaw",
-          userId: "@alice:example.com",
-        },
-      },
-      type: "complete",
-    });
+    expect(connector.getLoginFlows()).toEqual([]);
+    expect(() => connector.createLogin({} as never, { id: "@alice:example.com" }, "openclaw.gateway")).toThrow("direct plugin mode");
   });
 
-  it("keeps Beeper Matrix tokens out of OpenClaw gateway metadata", () => {
+  it("keeps Beeper Matrix tokens out of OpenClaw plugin login metadata", () => {
     expect(userLoginFromOpenClawConfig(createDefaultConfig({
       accessToken: "matrix-token",
       dataDir: "/tmp/openclaw",
-      gatewayUrl: "ws://gateway",
     }))).toMatchObject({
-      metadata: {
-        gatewayUrl: "ws://gateway",
-      },
+      id: "openclaw:plugin",
+      metadata: {},
     });
+  });
+
+  it("loads the OpenClaw remote login automatically on connector start", async () => {
+    const connector = createOpenClawConnector({
+      config: createDefaultConfig({
+        dataDir: "/tmp/openclaw",
+        matrixUserId: "@batuhan:beeper.com",
+      }),
+    });
+    const loadUserLogin = vi.fn(async () => undefined);
+    await connector.start({
+      bridge: { loadUserLogin },
+      log: vi.fn(),
+    } as never);
+
+    expect(loadUserLogin).toHaveBeenCalledWith(expect.objectContaining({
+      id: "openclaw:plugin",
+      remoteName: "OpenClaw",
+      userId: "@batuhan:beeper.com",
+    }));
   });
 
   it("loads a network API that registers OpenClaw agents as ghosts", async () => {
@@ -211,7 +202,6 @@ describe("OpenClawBridgeConnector", () => {
       },
       name: "Codex",
       roomType: "dm",
-      sender: "codex",
     });
     expect(registry.getBindingByRoom("!codex-dm:example.com")).toMatchObject({
       agentId: "codex",
@@ -275,7 +265,7 @@ describe("OpenClawBridgeConnector", () => {
       portal: {
         id: "agent:codex",
         mxid: "!existing-codex-dm:example.com",
-        portalKey: { id: "agent:codex", receiver: "login" },
+        portalKey: { id: "agent:codex", receiver: "openclaw:plugin" },
       },
       userId: "@codex:example.com",
     });
@@ -368,7 +358,7 @@ describe("OpenClawBridgeConnector", () => {
     await expect(api.listContacts({} as BridgeRequestContext, {})).resolves.toEqual({ contacts: [] });
   });
 
-  it("drops disallowed rooms, users, and bridge-owned senders before forwarding to OpenClaw", async () => {
+  it("drops disallowed rooms, users, and bridge-owned ghost senders before forwarding to OpenClaw", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     registry.upsertAgent({ agentId: "codex", displayName: "Codex", ghostUserId: "@codex:example.com" });
     const runtime = runtimeWith({
@@ -415,6 +405,43 @@ describe("OpenClawBridgeConnector", () => {
     } as MatrixMessage);
 
     expect(runtime.transport.request).not.toHaveBeenCalled();
+  });
+
+  it("accepts the Beeper owner MXID as a sender in self-hosted cloud rooms", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-owner-sender-test.json");
+    const runtime = runtimeWith({
+      events: [{ event: "run.completed", payload: { runId: "run_owner", type: "run.completed" } }],
+      responses: {
+        "sessions.send": { runId: "run_owner", sessionKey: "agent:main:main" },
+      },
+    });
+    runtime.config.matrixUserId = "@owner:beeper-staging.com";
+    runtime.config.homeserverDomain = "beeper.local";
+    const api = new OpenClawNetworkAPI({
+      config: runtime.config,
+      login: login(),
+      registry,
+      runtime,
+      streams: { publish: vi.fn() },
+    });
+    const sessionKey = "agent:main:main";
+    const roomId = `!session:${Buffer.from(sessionKey).toString("base64url")}.openclaw:plugin:beeper.local`;
+
+    await api.handleMatrixMessage({} as BridgeRequestContext, {
+      event: { eventId: "$owner" },
+      portal: {
+        id: roomId,
+        mxid: roomId,
+        portalKey: { id: roomId },
+      },
+      sender: { userId: "@owner:beeper-staging.com" },
+      text: "hello from owner",
+    } as MatrixMessage);
+
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+      key: sessionKey,
+      message: "hello from owner",
+    }), { expectFinal: false });
   });
 
   it("dispatches Matrix text and approval reactions to OpenClaw", async () => {
@@ -951,7 +978,6 @@ describe("OpenClawBridgeConnector", () => {
     });
     runtime.config.importSources = ["dashboard"];
     runtime.config.backfillLimit = 5;
-    runtime.config.gatewayUrl = "ws://gateway";
     runtime.config.allowedRoomIds = ["!room:example.com"];
     runtime.config.allowedUserIds = ["@alice:example.com"];
     runtime.config.beeperEnv = "staging";
@@ -1051,7 +1077,6 @@ describe("OpenClawBridgeConnector", () => {
       id: "session:YWdlbnQ6Y29kZXg6ZGVza3RvcA",
       name: "Desktop chat",
       roomType: "dm",
-      sender: "codex",
     }));
     expect(backfillPortal).toHaveBeenCalledWith(login(), expect.objectContaining({
       mxid: "!imported-desktop:example.com",
@@ -1083,7 +1108,6 @@ describe("OpenClawBridgeConnector", () => {
       },
       name: "fresh",
       roomType: "dm",
-      sender: "codex",
     });
     expect(registry.getBindingByRoom("!new-room:example.com")).toMatchObject({
       agentId: "codex",
@@ -1149,7 +1173,6 @@ describe("OpenClawBridgeConnector", () => {
       },
       name: "Deep work",
       roomType: "dm",
-      sender: "codex",
     });
     expect(registry.getBindingByRoom("!new-management-room:example.com")).toMatchObject({
       agentId: "codex",
@@ -1318,6 +1341,93 @@ describe("OpenClawBridgeConnector", () => {
     });
   });
 
+  it("rebuilds an OpenClaw room binding from a persisted Pickle session portal without metadata", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-rebuild-binding-test.json");
+    const runtime = runtimeWith({
+      events: [{ event: "run.completed", payload: { runId: "run_rebuilt", type: "run.completed" } }],
+      responses: {
+        "sessions.send": { runId: "run_rebuilt", sessionKey: "agent:codex:dashboard:one" },
+      },
+    });
+    runtime.config.homeserverDomain = "example.com";
+    const api = new OpenClawNetworkAPI({
+      config: runtime.config,
+      login: login(),
+      registry,
+      runtime,
+      streams: { publish: vi.fn() },
+    });
+    const sessionKey = "agent:codex:dashboard:one";
+    const portal = {
+      id: `session:${Buffer.from(sessionKey).toString("base64url")}`,
+      mxid: "!session-room:example.com",
+      portalKey: { id: `session:${Buffer.from(sessionKey).toString("base64url")}`, receiver: "openclaw:plugin" },
+      receiver: "openclaw:plugin",
+    };
+
+    await api.handleMatrixMessage({} as BridgeRequestContext, {
+      event: { eventId: "$rebuilt" },
+      portal,
+      sender: { userId: "@alice:example.com" },
+      text: "hello from persisted portal",
+    } as MatrixMessage);
+
+    expect(registry.getBindingByRoom("!session-room:example.com")).toMatchObject({
+      agentId: "codex",
+      ghostUserId: "@openclaw_agent_codex:example.com",
+      owner: "imported",
+      sessionKey,
+    });
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+      key: sessionKey,
+      message: "hello from persisted portal",
+    }), { expectFinal: false });
+  });
+
+  it("rebuilds an OpenClaw room binding from a cloud appservice session room id", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-cloud-room-binding-test.json");
+    const runtime = runtimeWith({
+      events: [{ event: "run.completed", payload: { runId: "run_cloud", type: "run.completed" } }],
+      responses: {
+        "sessions.send": { runId: "run_cloud", sessionKey: "agent:main:dashboard:abc" },
+      },
+    });
+    runtime.config.homeserverDomain = "beeper.local";
+    const api = new OpenClawNetworkAPI({
+      config: runtime.config,
+      login: login(),
+      registry,
+      runtime,
+      streams: { publish: vi.fn() },
+    });
+    const sessionKey = "agent:main:dashboard:abc";
+    const roomId = `!session:${Buffer.from(sessionKey).toString("base64url")}.openclaw:plugin:beeper.local`;
+
+    await api.handleMatrixMessage({
+      log: vi.fn(),
+    } as unknown as BridgeRequestContext, {
+      event: { eventId: "$cloud-room" },
+      portal: {
+        id: roomId,
+        mxid: roomId,
+        portalKey: { id: roomId },
+      },
+      sender: { userId: "@alice:example.com" },
+      text: "hello from cloud room",
+    } as MatrixMessage);
+
+    expect(registry.getBindingByRoom(roomId)).toMatchObject({
+      agentId: "main",
+      ghostUserId: "@openclaw_agent_main:beeper.local",
+      owner: "imported",
+      sessionKey,
+    });
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+      key: sessionKey,
+      message: "hello from cloud room",
+    }), { expectFinal: false });
+  });
+
   it("fetches OpenClaw chat history for Pickle backfill", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     const runtime = runtimeWith({
@@ -1355,7 +1465,7 @@ describe("OpenClawBridgeConnector", () => {
     expect(response.hasMore).toBe(false);
     expect(response.messages).toHaveLength(2);
     expect(response.messages.map((message) => message.event.getID())).toEqual(["m1", "m2"]);
-    expect(response.messages.map((message) => message.event.getSender().sender)).toEqual(["login:human", "codex"]);
+    expect(response.messages.map((message) => message.event.getSender().sender)).toEqual(["@openclawbot:localhost", "@codex:example.com"]);
     expect(response.messages.map((message) => message.event.getTimestamp())).toEqual([
       new Date("2026-05-16T11:59:00.000Z"),
       new Date(1_779_000_000_000),
@@ -1368,7 +1478,7 @@ describe("OpenClawBridgeConnector", () => {
 });
 
 function login(): UserLogin {
-  return { id: "login", metadata: { gatewayUrl: "ws://gateway" }, userId: "@alice:example.com" };
+  return { id: "openclaw:plugin", metadata: {}, userId: "@alice:example.com" };
 }
 
 function runtimeWith(options: {

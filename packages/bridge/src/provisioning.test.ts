@@ -67,6 +67,41 @@ describe("handleProvisioningHTTPProxy", () => {
     expect(runtime.listContacts).toHaveBeenCalledWith({ id: "intern" }, "codex", 10);
   });
 
+  it("runs room backfill through provisioning", async () => {
+    const runtime = provisioningRuntime();
+
+    await expect(handleProvisioningHTTPProxy(runtime, { logins: new Map() }, {
+      body: {
+        cursor: "older",
+        mark_read: true,
+      },
+      method: "POST",
+      path: "/_matrix/provision/v3/backfill/!room%3Aexample",
+      query: "login_id=intern&limit=25",
+    })).resolves.toMatchObject({
+      body: {
+        done: false,
+        has_more: true,
+        next_batch: "next",
+        queued: false,
+        task: {
+          cursor: "next",
+          done: false,
+          portal_key: { id: "sidechat", receiver: "intern" },
+          user_login_id: "intern",
+        },
+      },
+      status: 200,
+    });
+
+    expect(runtime.backfill).toHaveBeenCalledWith({ id: "intern" }, "!room:example", {
+      count: 25,
+      cursor: "older",
+      limit: 25,
+      markRead: true,
+    });
+  });
+
   it("does not fall back to another login when an explicit provisioning login_id is missing", async () => {
     const runtime = provisioningRuntime();
 
@@ -95,6 +130,7 @@ describe("handleProvisioningHTTPProxy", () => {
 
     expect(runtime.resolveIdentifier).not.toHaveBeenCalled();
     expect(runtime.listContacts).not.toHaveBeenCalled();
+    expect(runtime.backfill).not.toHaveBeenCalled();
   });
 });
 
@@ -114,6 +150,18 @@ function provisioningRuntime(): ProvisioningRuntime {
         ghost: { displayName: "Intern", id: "intern", mxid: "@intern:example" },
         userId: "@intern:example",
       }],
+    })),
+    backfill: vi.fn(async () => ({
+      cursor: "next",
+      hasMore: true,
+      queued: false,
+      task: {
+        cursor: "next",
+        done: false,
+        pending: false,
+        portalKey: { id: "sidechat", receiver: "intern" },
+        userLoginId: "intern",
+      },
     })),
     loginFlows: () => [],
     loadLogin: vi.fn(),

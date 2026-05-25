@@ -32,12 +32,15 @@ export class OpenClawMatrixBridgeAgent {
   readonly registry: OpenClawBridgeRegistry;
   readonly runtime: OpenClawGatewayRuntime;
   readonly streams: OpenClawBridgeStreamPublisher;
+  readonly backgroundStreaming: boolean;
 
   constructor(options: {
+    backgroundStreaming?: boolean;
     registry: OpenClawBridgeRegistry;
     runtime: OpenClawGatewayRuntime;
     streams: OpenClawBridgeStreamPublisher;
   }) {
+    this.backgroundStreaming = options.backgroundStreaming ?? false;
     this.registry = options.registry;
     this.runtime = options.runtime;
     this.streams = options.streams;
@@ -74,9 +77,16 @@ export class OpenClawMatrixBridgeAgent {
       sessionKey: run.sessionKey,
       updatedAt: Date.now(),
     }));
-    await this.streamRun({ ...binding, sessionKey: run.sessionKey }, run.runId);
     this.registry.markDedupe(turn.eventId);
     await this.registry.save();
+    const stream = this.streamRun({ ...binding, sessionKey: run.sessionKey }, run.runId);
+    if (this.backgroundStreaming) {
+      void stream.catch((error) => {
+        console.error("[openclaw-beeper] failed to stream OpenClaw run to Beeper", error);
+      });
+    } else {
+      await stream;
+    }
   }
 
   async handleApprovalContent(content: unknown, approvalId?: string): Promise<ParsedApprovalResponse | undefined> {

@@ -11,9 +11,10 @@ import {
 describe("OpenClaw appservice registration", () => {
   it("reserves bridge bot, OpenClaw agent, and human ghost namespaces", () => {
     const config = createDefaultConfig({
-      appserviceId: "pickle-openclaw",
+      appserviceId: "sh-openclaw-device",
       dataDir: "/tmp/openclaw",
       ghostLocalpartPrefix: "oc_agent_",
+      homeserverDomain: "beeper.local",
       senderLocalpart: "ocbot",
       userLocalpartPrefix: "oc_user_",
     });
@@ -21,19 +22,19 @@ describe("OpenClaw appservice registration", () => {
     expect(registration).toMatchObject({
       as_token: "as",
       hs_token: "hs",
-      id: "pickle-openclaw",
+      id: "sh-openclaw-device",
       rate_limited: false,
       receive_ephemeral: true,
       sender_localpart: "ocbot",
       url: "http://127.0.0.1:29391",
     });
     expect(registration.namespaces.users).toEqual([
-      { exclusive: true, regex: "^@ocbot:.*$" },
-      { exclusive: true, regex: "^@oc_agent_.+:.*$" },
-      { exclusive: true, regex: "^@oc_user_.+:.*$" },
+      { exclusive: true, regex: "^@oc_agent_.+:beeper\\.local$" },
+      { exclusive: true, regex: "^@oc_user_.+:beeper\\.local$" },
+      { exclusive: true, regex: "^@ocbot:beeper\\.local$" },
     ]);
     expect(registration.namespaces.aliases).toEqual([
-      { exclusive: true, regex: "^#pickle-openclaw_.+:.*$" },
+      { exclusive: true, regex: "^#sh-openclaw-device_.+:.*$" },
     ]);
   });
 
@@ -41,7 +42,7 @@ describe("OpenClaw appservice registration", () => {
     const config = createDefaultConfig({ dataDir: "/tmp/openclaw" });
     expect(openClawAgentGhostLocalpart(config, "Codex/Main Agent")).toBe("openclaw_agent_codex/main_agent");
     expect(openClawUserGhostLocalpart(config, "@alice:beeper.local")).toBe("openclaw_user_alice_beeper.local");
-    expect(openClawAliasLocalpart(config, "session 1")).toBe("pickle-openclaw_session_1");
+    expect(openClawAliasLocalpart(config, "session 1")).toBe("sh-openclaw_session_1");
     expect(openClawRoomCreationPreset(config)).toEqual({
       creation_content: { "m.federate": false },
       preset: "private_chat",

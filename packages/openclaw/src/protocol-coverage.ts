@@ -215,7 +215,7 @@ export const OPENCLAW_BRIDGE_COVERAGE = {
     bridgeSpecificWrappers: ["agents.list", "sessions.list", "sessions.create", "sessions.send", "sessions.steer", "sessions.abort", "chat.history", "exec.approval.resolve", "models.list", "tools.catalog", "tools.effective", "tools.invoke", "tasks.list", "tasks.get", "tasks.cancel", "artifacts.list", "artifacts.get", "artifacts.download"],
     commonGatewayMethods: OPENCLAW_GATEWAY_COMMON_METHODS,
     genericGatewayCall: "OpenClawGatewayRuntime.call",
-    managementCli: "pickle-openclaw rpc <method> [json-params]",
+    managementSurface: "OpenClaw in-process plugin runtime",
     snapshotProbe: ["health", "status", "models.list", "channels.status", "sessions.list", "commands.list", "tools.catalog", "skills.status", "tasks.list", "usage.status", "artifacts.list", "cron.list", "agents.list", "config.get"],
   },
   source: ".upstream/openclaw/docs/gateway/protocol.md",

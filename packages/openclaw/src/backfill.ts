@@ -108,13 +108,22 @@ export async function backfillAllOpenClawSessions(options: BackfillAllOpenClawSe
   const portals: Portal[] = [];
   const importedSessions: OpenClawBackfillSession[] = [];
   const skipped: OpenClawBackfillSession[] = [];
+  if (sessions.length === 0) {
+    const portal = await createInitialOpenClawRoom(options);
+    if (portal) portals.push(portal);
+    await options.registry.save();
+    return { portals, sessions: importedSessions, skipped };
+  }
   for (const session of sessions) {
-    if (options.registry.getBindingBySessionKey(session.sessionKey)) {
+    const existingBinding = options.registry.getBindingBySessionKey(session.sessionKey);
+    if (existingBinding) {
+      healBindingGhosts(options.runtime.config, options.registry, existingBinding);
       skipped.push(session);
       continue;
     }
-    const agent = options.registry.getAgent(session.agentId) ?? agentContactFromOpenClawAgent(options.runtime.config, {
-      id: session.agentId,
+    const agent = normalizeAgentContact(options.runtime.config, options.registry.getAgent(session.agentId) ?? {
+      agentId: session.agentId,
+      displayName: session.agentId,
     });
     options.registry.upsertAgent(agent);
     if (session.human) options.registry.upsertUser(session.human);
@@ -131,11 +140,11 @@ export async function backfillAllOpenClawSessions(options: BackfillAllOpenClawSe
       },
       name: session.label,
       roomType: "dm",
-      sender: session.agentId,
     };
     const creationContent = openClawBackfillRoomCreationContent(options.runtime.config);
     if (creationContent) portalOptions.creationContent = creationContent;
-    const portal = await options.bridge.createPortal(options.login, portalOptions);
+    const portal = getExistingBridgePortal(options.bridge, { id: portalOptions.id, receiver: options.login.id })
+      ?? await options.bridge.createPortal(options.login, portalOptions);
     portals.push(portal);
     if (!portal.mxid) {
       skipped.push(session);
@@ -154,8 +163,94 @@ export async function backfillAllOpenClawSessions(options: BackfillAllOpenClawSe
   return { portals, sessions: importedSessions, skipped };
 }
 
+async function createInitialOpenClawRoom(options: BackfillAllOpenClawSessionsOptions): Promise<Portal | undefined> {
+  const contacts = await options.runtime.listAgentContacts();
+  const agent = normalizeAgentContact(
+    options.runtime.config,
+    contacts[0] ?? options.registry.data.agents[0] ?? agentContactFromOpenClawAgent(options.runtime.config, { id: "main", name: "OpenClaw" }),
+  );
+  options.registry.upsertAgent(agent);
+  const sessionKey = agentPortalSessionKey(agent.agentId);
+  const existing = options.registry.getBindingBySessionKey(sessionKey);
+  if (existing) {
+    healBindingGhosts(options.runtime.config, options.registry, existing);
+    return undefined;
+  }
+  const portalOptions: BridgeCreatePortalOptions = {
+    id: `agent:${agent.agentId}`,
+    metadata: {
+      openclaw: {
+        agentId: agent.agentId,
+        ghostUserId: agent.ghostUserId,
+        sessionKey,
+      },
+    },
+    name: agent.displayName,
+    roomType: "dm",
+  };
+  const creationContent = openClawBackfillRoomCreationContent(options.runtime.config);
+  if (creationContent) portalOptions.creationContent = creationContent;
+  const portal = getExistingBridgePortal(options.bridge, { id: portalOptions.id, receiver: options.login.id })
+    ?? await options.bridge.createPortal(options.login, portalOptions);
+  if (portal.mxid) {
+    const now = Date.now();
+    options.registry.upsertBinding({
+      agentId: agent.agentId,
+      createdAt: now,
+      ghostUserId: agent.ghostUserId,
+      id: bindingIdForRoom(portal.mxid),
+      kind: "session",
+      label: agent.displayName,
+      owner: "bridge",
+      roomId: portal.mxid,
+      sessionKey,
+      updatedAt: now,
+    });
+  }
+  return portal;
+}
+
 export function portalIdForBackfillSession(session: Pick<OpenClawBackfillSession, "sessionKey">): string {
   return `session:${Buffer.from(session.sessionKey).toString("base64url")}`;
+}
+
+function agentPortalSessionKey(agentId: string): string {
+  return `agent:${agentId}`;
+}
+
+function getExistingBridgePortal(bridge: PickleBridge, portalKey: { id: string; receiver: string }): Portal | null {
+  const getPortal = (bridge as { getPortal?: (key: { id: string; receiver?: string }) => Portal | null }).getPortal;
+  return getPortal?.call(bridge, portalKey) ?? null;
+}
+
+function normalizeAgentContact(
+  config: OpenClawBridgeConfig,
+  agent: { agentId?: string; avatarMxc?: string; description?: string; displayName?: string; ghostUserId?: string } | undefined,
+) {
+  const normalized = agentContactFromOpenClawAgent(config, {
+    avatarMxc: agent?.avatarMxc,
+    description: agent?.description,
+    displayName: agent?.displayName,
+    id: agent?.agentId,
+  });
+  return normalized;
+}
+
+function healBindingGhosts(
+  config: OpenClawBridgeConfig,
+  registry: OpenClawBridgeRegistry,
+  binding: OpenClawSessionBinding,
+): void {
+  const agent = normalizeAgentContact(config, registry.getAgent(binding.agentId) ?? {
+    agentId: binding.agentId,
+    displayName: binding.label ?? binding.agentId,
+  });
+  registry.upsertAgent(agent);
+  registry.updateBinding(binding.id, (existing) => ({
+    ...existing,
+    ghostUserId: agent.ghostUserId,
+    updatedAt: Date.now(),
+  }));
 }
 
 export function isOneToOneSession(session: OpenClawListedSession): boolean {
@@ -163,7 +258,7 @@ export function isOneToOneSession(session: OpenClawListedSession): boolean {
   if (chatType && ["dm", "direct", "private", "one_to_one", "1:1"].includes(chatType)) return true;
   if (session.lastTo && !session.lastTo.includes(",") && !session.lastTo.includes(" ")) return true;
   const originType = stringValue(session.origin?.type) ?? stringValue(session.origin?.surface);
-  return originType === "terminal" || originType === "mac-app";
+  return originType === "terminal" || isDashboardSurface(originType);
 }
 
 export function shouldImportSession(
@@ -210,10 +305,15 @@ function resolveAgentId(session: OpenClawListedSession): string {
 
 function sessionSource(session: OpenClawListedSession): OpenClawBackfillSession["source"] {
   const originSurface = stringValue(session.origin?.surface) ?? stringValue(session.origin?.type);
-  if (originSurface === "terminal" || session.provider === "terminal") return "terminal";
-  if (originSurface === "mac-app" || originSurface === "desktop" || session.provider === "mac-app") return "mac-app";
+  const provider = session.provider ?? session.lastProvider ?? session.lastChannel;
+  if (originSurface === "terminal" || provider === "terminal") return "terminal";
+  if (isDashboardSurface(originSurface) || isDashboardSurface(provider)) return "mac-app";
   if (session.lastChannel || session.lastProvider) return "channel";
   return "unknown";
+}
+
+function isDashboardSurface(value: string | undefined): boolean {
+  return value === "mac-app" || value === "desktop" || value === "webchat" || value === "dashboard";
 }
 
 function contentText(content: unknown): string {

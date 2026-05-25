@@ -111,13 +111,11 @@ describe("OpenClaw Beeper setup surface", () => {
       accountId: "default",
       cfg: {},
       input: {
-        gatewayUrl: "ws://127.0.0.1:18789",
         registrationUrl: "http://127.0.0.1:29391",
       },
     });
     expect(cfg).not.toHaveProperty("then");
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
-      gatewayUrl: "ws://127.0.0.1:18789",
       registrationUrl: "http://127.0.0.1:29391",
     });
   });
@@ -133,7 +131,6 @@ describe("OpenClaw Beeper setup surface", () => {
       backfillLimit: 25,
       dataDir: "/tmp/openclaw-beeper",
       enabled: true,
-      gatewayUrl: "ws://gateway",
       homeserver: "https://matrix.example",
       hsToken: "hs",
       importSources: ["dashboard", "tui"],
@@ -152,7 +149,6 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(appserviceMocks.accountFromOpenClawConfig).toHaveBeenCalledWith(expect.objectContaining({
       accessToken: "at",
       asToken: "as",
-      gatewayUrl: "ws://gateway",
       hsToken: "hs",
     }));
     expect(appserviceMocks.startOpenClawBeeperBridge).toHaveBeenCalledWith(expect.objectContaining({
@@ -178,7 +174,6 @@ describe("OpenClaw Beeper setup surface", () => {
       accountId: "default",
       cfg: applyBeeperChannelSettings({}, {
         enabled: true,
-        gatewayUrl: "ws://gateway",
         registrationUrl: "http://bridge",
       }),
     })).rejects.toThrow("not fully configured");
@@ -205,9 +200,9 @@ describe("OpenClaw Beeper setup surface", () => {
         backfillLimit: "42",
         baseDomain: "beeper-staging.com",
         beeperEnv: "staging",
+        bridgeId: "sh-openclaw-custom",
         bridgeManagerToken: "hungry",
         contactVisibility: "agents-and-users",
-        gatewayUrl: "ws://127.0.0.1:18789",
         ghostLocalpartPrefix: "oc_agent_",
         importSources: "dashboard,tui",
         nonFederatedRooms: "false",
@@ -228,10 +223,10 @@ describe("OpenClaw Beeper setup surface", () => {
       backfillLimit: 42,
       baseDomain: "beeper-staging.com",
       beeperEnv: "staging",
+      bridgeId: "sh-openclaw-custom",
       bridgeManagerToken: "hungry",
       contactVisibility: "agents-and-users",
       enabled: true,
-      gatewayUrl: "ws://127.0.0.1:18789",
       ghostLocalpartPrefix: "oc_agent_",
       importSources: ["dashboard", "tui"],
       nonFederatedRooms: false,
@@ -312,8 +307,9 @@ describe("OpenClaw Beeper setup surface", () => {
             },
             config: {
               accessToken: "at",
-              appserviceId: "pickle-openclaw",
+              appserviceId: "sh-openclaw-dev",
               asToken: "as",
+              bridgeId: "sh-openclaw-dev",
               homeserver: "https://matrix.example",
               hsToken: "hs",
               matrixDeviceId: "DEV",
@@ -324,7 +320,7 @@ describe("OpenClaw Beeper setup surface", () => {
               homeserver: "https://matrix.example",
               registration: {
                 asToken: "as",
-                id: "pickle-openclaw",
+                id: "sh-openclaw-dev",
                 hsToken: "hs",
                 url: "http://127.0.0.1:29391",
               },
@@ -342,7 +338,7 @@ describe("OpenClaw Beeper setup surface", () => {
       baseDomain: "beeper.localtest.me",
       bridgeManagerPostState: false,
       bridgeManagerToken: "hungry",
-      gatewayUrl: "ws://127.0.0.1:18789",
+      bridgeId: "sh-openclaw-dev",
       homeserver: "https://matrix.example",
       homeserverDomain: "beeper.local",
       hsToken: "hs",
@@ -359,14 +355,12 @@ describe("OpenClaw Beeper setup surface", () => {
       input: {
         accessToken: "at",
         asToken: "as",
-        gatewayUrl: "ws://127.0.0.1:18789",
         registrationUrl: "http://127.0.0.1:29391",
       },
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       accessToken: "at",
       asToken: "as",
-      gatewayUrl: "ws://127.0.0.1:18789",
       registrationUrl: "http://127.0.0.1:29391",
     });
   });
@@ -374,14 +368,12 @@ describe("OpenClaw Beeper setup surface", () => {
   it("does not report configured until login, appservice, and gateway details are present", async () => {
     expect(isBeeperChannelConfigured(applyBeeperChannelSettings({}, {
       enabled: true,
-      gatewayUrl: "ws://gateway",
       registrationUrl: "http://bridge",
     }))).toBe(false);
     const cfg = applyBeeperChannelSettings({}, {
       accessToken: "at",
       asToken: "as",
       enabled: true,
-      gatewayUrl: "ws://gateway",
       homeserver: "https://matrix.example",
       hsToken: "hs",
       matrixDeviceId: "DEV",
@@ -399,7 +391,6 @@ describe("OpenClaw Beeper setup surface", () => {
         beeperEnv: "dev",
         code: "123456",
         email: "alice@example.com",
-        gatewayUrl: "ws://127.0.0.1:18789",
         registrationUrl: "http://127.0.0.1:29391",
       },
       runtime: {
@@ -421,8 +412,9 @@ describe("OpenClaw Beeper setup surface", () => {
             },
             config: {
               accessToken: "at",
-              appserviceId: "pickle-openclaw",
+              appserviceId: "sh-openclaw-dev",
               asToken: "as",
+              bridgeId: "sh-openclaw-dev",
               homeserver: "https://matrix.example",
               hsToken: "hs",
               matrixDeviceId: "DEV",
@@ -433,7 +425,7 @@ describe("OpenClaw Beeper setup surface", () => {
               homeserver: "https://matrix.example",
               registration: {
                 asToken: "as",
-                id: "pickle-openclaw",
+                id: "sh-openclaw-dev",
                 hsToken: "hs",
                 url: "http://127.0.0.1:29391",
               },
@@ -446,7 +438,7 @@ describe("OpenClaw Beeper setup surface", () => {
       enabled: true,
       accessToken: "at",
       asToken: "as",
-      gatewayUrl: "ws://127.0.0.1:18789",
+      bridgeId: "sh-openclaw-dev",
       homeserver: "https://matrix.example",
       hsToken: "hs",
       matrixDeviceId: "DEV",
@@ -473,7 +465,6 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(validateBeeperSetupInput({ backfillLimit: "-1" })).toContain("non-negative");
     const cfg = applyBeeperChannelSettings({}, {
       enabled: true,
-      gatewayUrl: "ws://gateway",
       importSources: ["dashboard"],
       registrationUrl: "http://bridge",
     });
@@ -487,7 +478,6 @@ describe("OpenClaw Beeper setup surface", () => {
   it("reports lightweight channel status without starting bridge runtime", () => {
     const account = beeperChannelConfig.resolveAccount(applyBeeperChannelSettings({}, {
       enabled: true,
-      gatewayUrl: "ws://gateway",
       importSources: ["dashboard", "tui"],
       registrationUrl: "http://bridge",
       streamFinalization: "replace",
@@ -499,7 +489,6 @@ describe("OpenClaw Beeper setup surface", () => {
       configured: false,
       enabled: true,
       extra: {
-        gatewayUrl: "ws://gateway",
         importSources: ["dashboard", "tui"],
         mode: "self-hosted-appservice",
         registrationUrl: "http://bridge",
@@ -509,7 +498,6 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(beeperStatusAdapter.buildChannelSummary({ snapshot })).toMatchObject({
       configured: false,
       enabled: true,
-      gatewayUrl: "ws://gateway",
       mode: "self-hosted-appservice",
       running: false,
     });
@@ -527,7 +515,6 @@ describe("OpenClaw Beeper setup surface", () => {
       channels: {
         beeper: {
           dataDir: "/tmp/beeper",
-          gatewayUrl: "ws://gateway",
           homeserver: "https://matrix.example",
           hsToken: "hs",
           matrixDeviceId: "DEV",
@@ -539,7 +526,6 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(cfg).toMatchObject({
       dataDir: "/tmp/beeper",
-      gatewayUrl: "ws://gateway",
       homeserver: "https://matrix.example",
       hsToken: "hs",
       matrixDeviceId: "DEV",
@@ -553,7 +539,6 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(getBeeperChannelSettings({
       channels: {
         beeper: {
-          gatewayUrl: "ws://channel",
           importSources: ["dashboard"],
         },
       },
@@ -562,7 +547,6 @@ describe("OpenClaw Beeper setup surface", () => {
           beeper: {
             config: {
               enabled: true,
-              gatewayUrl: "ws://plugin-entry",
               registrationUrl: "http://bridge",
             },
           },
@@ -570,7 +554,6 @@ describe("OpenClaw Beeper setup surface", () => {
       },
     })).toEqual({
       enabled: true,
-      gatewayUrl: "ws://channel",
       importSources: ["dashboard"],
       registrationUrl: "http://bridge",
     });
@@ -580,14 +563,12 @@ describe("OpenClaw Beeper setup surface", () => {
         entries: {
           beeper: {
             config: {
-              gatewayUrl: "ws://plugin-entry",
               registrationUrl: "http://bridge",
             },
           },
         },
       },
     })).toMatchObject({
-      gatewayUrl: "ws://plugin-entry",
       registrationUrl: "http://bridge",
     });
   });

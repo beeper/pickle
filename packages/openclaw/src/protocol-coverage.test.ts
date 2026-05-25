@@ -44,7 +44,7 @@ describe("OpenClaw gateway protocol coverage manifest", () => {
 
   it("keeps broad feature access routed through generic gateway calls plus wrappers", () => {
     expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.genericGatewayCall).toBe("OpenClawGatewayRuntime.call");
-    expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.managementCli).toBe("pickle-openclaw rpc <method> [json-params]");
+    expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.managementSurface).toBe("OpenClaw in-process plugin runtime");
     expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.bridgeSpecificWrappers).toEqual(expect.arrayContaining([
       "agents.list",
       "sessions.send",

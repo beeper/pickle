@@ -305,6 +305,14 @@ func (c *Core) handleAppserviceCreatePortalRoom(ctx context.Context, payload []b
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
+	resp, err := c.appserviceCreatePortalRoom(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(MatrixCreateRoomResult{Raw: resp, RoomID: resp.RoomID.String()})
+}
+
+func (c *Core) appserviceCreatePortalRoom(ctx context.Context, req MatrixAppserviceCreatePortalRoomOptions) (*mautrix.RespCreateRoom, error) {
 	intent, err := c.requireAppserviceIntent(req.UserID)
 	if err != nil {
 		return nil, err
@@ -312,12 +320,7 @@ func (c *Core) handleAppserviceCreatePortalRoom(ctx context.Context, payload []b
 	if err := c.appservice.ensureRegistered(ctx, intent); err != nil {
 		return nil, err
 	}
-	createReq := c.appservice.makePortalCreateRoomRequest(req, intent.UserID)
-	resp, err := intent.CreateRoom(ctx, createReq)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(MatrixCreateRoomResult{Raw: resp, RoomID: resp.RoomID.String()})
+	return intent.CreateRoom(ctx, c.appservice.makePortalCreateRoomRequest(req, intent.UserID))
 }
 
 func (c *Core) handleAppserviceCreateManagementRoom(ctx context.Context, payload []byte) ([]byte, error) {
@@ -527,12 +530,24 @@ func (c *Core) handleAppserviceSendMessage(ctx context.Context, payload []byte) 
 }
 
 func (c *Core) handleAppserviceBatchSend(ctx context.Context, payload []byte) ([]byte, error) {
-	as, err := c.requireAppservice()
+	var req MatrixAppserviceBatchSendOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	resp, err := c.appserviceBatchSend(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	var req MatrixAppserviceBatchSendOptions
-	if err := json.Unmarshal(payload, &req); err != nil {
+	eventIDs := make([]string, 0, len(resp.EventIDs))
+	for _, eventID := range resp.EventIDs {
+		eventIDs = append(eventIDs, eventID.String())
+	}
+	return json.Marshal(MatrixAppserviceBatchSendResult{EventIDs: eventIDs, Raw: resp})
+}
+
+func (c *Core) appserviceBatchSend(ctx context.Context, req MatrixAppserviceBatchSendOptions) (*mautrix.RespBeeperBatchSend, error) {
+	as, err := c.requireAppservice()
+	if err != nil {
 		return nil, err
 	}
 	events := make([]*event.Event, 0, len(req.Events))
@@ -555,21 +570,13 @@ func (c *Core) handleAppserviceBatchSend(ctx context.Context, payload []byte) ([
 	if err != nil {
 		return nil, err
 	}
-	resp, err := bot.BeeperBatchSend(ctx, id.RoomID(req.RoomID), &mautrix.ReqBeeperBatchSend{
+	return bot.BeeperBatchSend(ctx, id.RoomID(req.RoomID), &mautrix.ReqBeeperBatchSend{
 		Events:              events,
 		Forward:             req.Forward,
 		ForwardIfNoMessages: req.ForwardIfNoMessages,
 		MarkReadBy:          id.UserID(req.MarkReadBy),
 		SendNotification:    req.SendNotification,
 	})
-	if err != nil {
-		return nil, err
-	}
-	eventIDs := make([]string, 0, len(resp.EventIDs))
-	for _, eventID := range resp.EventIDs {
-		eventIDs = append(eventIDs, eventID.String())
-	}
-	return json.Marshal(MatrixAppserviceBatchSendResult{EventIDs: eventIDs, Raw: resp})
 }
 
 func (c *Core) requireAppservice() (*matrixAppservice, error) {

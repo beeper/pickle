@@ -100,6 +100,32 @@ describe("beeper auth", () => {
       onlyExistingAccounts: false,
     });
   });
+
+  it("accepts empty successful Beeper auth responses", async () => {
+    const fetchImpl = vi.fn(async (url: URL | string) => {
+      const path = new URL(String(url)).pathname;
+      if (path === "/user/login") return Response.json({ request: "request-id", type: ["email"] });
+      if (path === "/user/login/email") return new Response("", { status: 200 });
+      if (path === "/user/login/response") return Response.json({ token: "beeper-jwt" });
+      if (path === "/_matrix/client/v3/login") {
+        return Response.json({
+          access_token: "access",
+          device_id: "DEVICE",
+          user_id: "@bot:beeper.com",
+        });
+      }
+      return Response.json({ device_id: "DEVICE", user_id: "@bot:beeper.com" });
+    });
+
+    await expect(createBeeperLogin({
+      email: "bot@example.com",
+      fetch: fetchImpl as typeof fetch,
+      getLoginCode: () => "123456",
+    })).resolves.toMatchObject({
+      accessToken: "access",
+      userId: "@bot:beeper.com",
+    });
+  });
 });
 
 async function requestBody(fetchImpl: ReturnType<typeof vi.fn>, index: number) {

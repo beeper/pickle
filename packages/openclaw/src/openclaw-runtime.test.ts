@@ -1,9 +1,11 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
 import {
+  createOpenClawHostTransport,
   OpenClawGatewayRuntime,
-  createOpenClawHttpTransport,
-  createOpenClawWebSocketTransport,
   type OpenClawGatewayEvent,
   type OpenClawTransport,
 } from "./openclaw-runtime";
@@ -121,254 +123,220 @@ describe("OpenClawGatewayRuntime", () => {
     });
   });
 
-  it("sends OpenClaw requests over the HTTP gateway transport", async () => {
-    const requests: Array<{ body: unknown; headers: Headers; url: string }> = [];
-    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      requests.push({
-        body: JSON.parse(String(init?.body)),
-        headers: new Headers(init?.headers),
-        url: String(input),
-      });
-      return new Response(JSON.stringify({ result: { runId: "run_1" } }), { status: 200 });
-    });
-    const transport = createOpenClawHttpTransport({
-      fetch: fetchImpl,
-      url: "ws://127.0.0.1:18789/openclaw",
-    });
+  it("adapts the in-process OpenClaw plugin runtime request and event surface", async () => {
+    const runtimeEvents: OpenClawGatewayEvent[] = [
+      { event: "session.message", payload: { runId: "skip" } },
+      { event: "session.message", payload: { runId: "run_1" }, seq: 3 },
+    ];
+    const host = {
+      async *events(filter?: (event: OpenClawGatewayEvent) => boolean) {
+        for (const event of runtimeEvents) {
+          if (!filter || filter(event)) yield event;
+        }
+      },
+      request: vi.fn(async (method: string) => ({ method, runId: "run_1" })),
+    };
+    const transport = createOpenClawHostTransport(host);
 
-    await expect(transport.request("sessions.send", { key: "session", message: "hi" }, { expectFinal: false })).resolves.toEqual({
+    await expect(transport.request("sessions.send", { key: "session", message: "hi" })).resolves.toEqual({
+      method: "sessions.send",
       runId: "run_1",
     });
-    expect(requests).toEqual([
-      {
-        body: {
-          expectFinal: false,
-          method: "sessions.send",
-          params: { key: "session", message: "hi" },
-        },
-        headers: expect.any(Headers),
-        url: "http://127.0.0.1:18789/openclaw/rpc",
-      },
-    ]);
-    expect(requests[0]?.headers.get("authorization")).toBeNull();
-  });
+    expect(host.request).toHaveBeenCalledWith("sessions.send", { key: "session", message: "hi" }, undefined);
 
-  it("streams OpenClaw gateway events from SSE frames", async () => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode([
-          "event: assistant.delta",
-          "data: {\"payload\":{\"runId\":\"skip\",\"delta\":\"no\"}}",
-          "",
-          "event: assistant.delta",
-          "data: {\"payload\":{\"runId\":\"run_1\",\"delta\":\"yes\"},\"seq\":2}",
-          "",
-          "",
-        ].join("\n")));
-        controller.close();
-      },
-    });
-    const transport = createOpenClawHttpTransport({
-      fetch: vi.fn(async () => new Response(stream, { status: 200 })),
-      url: "http://gateway",
-    });
-
-    const events: OpenClawGatewayEvent[] = [];
+    const received: OpenClawGatewayEvent[] = [];
     for await (const event of transport.events((candidate) => {
       const payload = candidate.payload as { runId?: string };
       return payload.runId === "run_1";
     })) {
-      events.push(event);
+      received.push(event);
     }
-
-    expect(events).toEqual([
-      {
-        event: "assistant.delta",
-        payload: { runId: "run_1", delta: "yes" },
-        seq: 2,
-      },
-    ]);
+    expect(received).toEqual([{ event: "session.message", payload: { runId: "run_1" }, seq: 3 }]);
   });
 
-  it("uses OpenClaw gateway WebSocket req/res framing and broadcast events", async () => {
-    FakeWebSocket.instances = [];
-    const transport = createOpenClawWebSocketTransport({
-      WebSocket: FakeWebSocket as unknown as typeof WebSocket,
-      url: "ws://gateway",
+  it("adapts OpenClaw plugin runtime helpers when no gateway request surface exists", async () => {
+    const transport = createOpenClawHostTransport({
+      agent: {
+        session: {
+          listSessionEntries: () => [
+            {
+              sessionKey: "agent:main:dashboard:one",
+              entry: {
+                agentId: "main",
+                chatType: "direct",
+                label: "One",
+                lastChannel: "webchat",
+                origin: { provider: "webchat", surface: "webchat" },
+                sessionFile: "/tmp/session.jsonl",
+                updatedAt: 123,
+              },
+            },
+          ],
+        },
+      },
+      config: {
+        current: () => ({
+          agents: {
+            list: [{ id: "main", name: "Main Agent" }],
+          },
+        }),
+      },
     });
 
-    const request = transport.request("sessions.send", { key: "session", message: "hi" });
-    await waitFor(() => FakeWebSocket.instances.length === 1);
-    const socket = FakeWebSocket.instances[0];
-    await sendConnectChallenge(socket);
-    await waitFor(() => socket?.sent.length === 1);
-    expect(JSON.parse(socket?.sent[0] ?? "{}")).toMatchObject({
-      method: "connect",
-      params: {
-        client: {
-          displayName: "pickle-openclaw",
-          id: "gateway-client",
-          mode: "backend",
-          platform: process.platform,
-          version: "0.1.0",
-        },
-        device: {
-          nonce: "nonce-1",
-        },
-        role: "operator",
-        scopes: ["operator.read", "operator.write", "operator.approvals"],
-      },
-      type: "req",
+    await expect(transport.request("agents.list", {})).resolves.toEqual({
+      agents: [{ id: "main", displayName: "Main Agent" }],
     });
-    socket?.receive({ id: JSON.parse(socket.sent[0] ?? "{}").id, ok: true, payload: { ok: true }, type: "res" });
-    await waitFor(() => socket?.sent.length === 2);
-    const sent = JSON.parse(socket?.sent[1] ?? "{}");
+    await expect(transport.request("sessions.list", { includeArchived: true })).resolves.toEqual({
+      sessions: [{
+        agentId: "main",
+        chatType: "direct",
+        displayName: "One",
+        key: "agent:main:dashboard:one",
+        label: "One",
+        lastChannel: "webchat",
+        lastProvider: "webchat",
+        origin: { provider: "webchat", surface: "webchat" },
+        provider: "webchat",
+        sessionFile: "/tmp/session.jsonl",
+        updatedAt: 123,
+      }],
+    });
+    await expect(transport.request("chat.history", { sessionKey: "agent:main:dashboard:one" })).resolves.toEqual({
+      messages: [],
+    });
+  });
+
+  it("runs Beeper-originated sends through the native OpenClaw plugin agent runtime", async () => {
+    const runEmbeddedAgent = vi.fn(async (params: Record<string, unknown>) => {
+      const onAgentEvent = params.onAgentEvent as ((event: { data: Record<string, unknown>; stream: string }) => void) | undefined;
+      const onPartialReply = params.onPartialReply as ((payload: { text: string }) => void) | undefined;
+      onAgentEvent?.({ data: { delta: "hello", runId: params.runId as string }, stream: "assistant.delta" });
+      onPartialReply?.({ text: "hello from callback" });
+      return { payloads: [{ text: "hello from final payload" }] };
+    });
+    const transport = createOpenClawHostTransport({
+      agent: {
+        ensureAgentWorkspace: () => "/tmp/workspace",
+        resolveAgentDir: () => "/tmp/agent",
+        resolveAgentTimeoutMs: () => 1000,
+        runEmbeddedAgent,
+        session: {
+          getSessionEntry: () => ({
+            sessionFile: "/tmp/session.jsonl",
+            sessionId: "session-1",
+          }),
+        },
+      },
+      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
+    });
+
+    const received: OpenClawGatewayEvent[] = [];
+    let observedRunId: string | undefined;
+    const done = (async () => {
+      for await (const event of transport.events((candidate) => {
+        const payload = candidate.payload as { runId?: string };
+        return !observedRunId || payload.runId === observedRunId;
+      })) {
+        received.push(event);
+        if (received.some((event) => event.event === "run.completed")) break;
+      }
+    })();
+    const sent = await transport.request("sessions.send", {
+      key: "agent:main:beeper:room",
+      message: "from Beeper",
+      idempotencyKey: "$event",
+    });
+    observedRunId = (sent as { runId?: string }).runId;
+    await done;
+
     expect(sent).toMatchObject({
-      method: "sessions.send",
-      params: { key: "session", message: "hi" },
-      type: "req",
+      sessionFile: "/tmp/session.jsonl",
+      sessionId: "session-1",
+      sessionKey: "agent:main:beeper:room",
     });
-    socket?.receive({ id: sent.id, ok: true, payload: { runId: "run_1" }, type: "res" });
-    await expect(request).resolves.toEqual({ runId: "run_1" });
-
-    const events: OpenClawGatewayEvent[] = [];
-    const iterator = transport.events((event) => {
-      const payload = event.payload as { runId?: string };
-      return payload.runId === "run_1";
-    });
-    const next = iterator[Symbol.asyncIterator]().next();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    socket?.receive({ event: "session.message", payload: { runId: "skip" }, type: "event" });
-    socket?.receive({ event: "session.message", payload: { runId: "run_1" }, seq: 3, type: "event" });
-    events.push((await next).value);
-    expect(events).toEqual([{ event: "session.message", payload: { runId: "run_1" }, seq: 3 }]);
-    transport.close();
+    expect(runEmbeddedAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agentDir: "/tmp/agent",
+      agentId: "main",
+      currentMessageId: "$event",
+      messageChannel: "beeper",
+      messageProvider: "beeper",
+      prompt: "from Beeper",
+      sessionFile: "/tmp/session.jsonl",
+      sessionId: "session-1",
+      sessionKey: "agent:main:beeper:room",
+      timeoutMs: 1000,
+      trigger: "user",
+      workspaceDir: "/tmp/workspace",
+    }));
+    expect(received).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: "assistant.delta",
+        payload: expect.objectContaining({ delta: "hello from callback" }),
+      }),
+      expect.objectContaining({
+        event: "assistant.delta",
+        payload: expect.objectContaining({ delta: "hello from final payload" }),
+      }),
+      expect.objectContaining({ event: "run.completed" }),
+    ]));
   });
 
-  it("accepts gateway WebSocket events with top-level run metadata", async () => {
-    FakeWebSocket.instances = [];
-    const transport = createOpenClawWebSocketTransport({
-      WebSocket: FakeWebSocket as unknown as typeof WebSocket,
-      url: "ws://gateway",
-    });
-
-    const iterator = transport.events((event) => {
-      const payload = event.payload as { runId?: string };
-      return payload.runId === "run_top";
-    });
-    const next = iterator[Symbol.asyncIterator]().next();
-    await waitFor(() => FakeWebSocket.instances.length === 1);
-    const socket = FakeWebSocket.instances[0]!;
-    await sendConnectChallenge(socket);
-    await waitFor(() => socket.sent.length === 1);
-    socket?.receive({ id: JSON.parse(socket.sent[0] ?? "{}").id, ok: true, payload: { ok: true }, type: "res" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    socket?.receive({ event: "session.message", runId: "run_skip", type: "event" });
-    socket?.receive({ deltaText: "hi", event: "session.message", runId: "run_top", seq: 4, type: "event" });
-
-    await expect(next).resolves.toEqual({
-      done: false,
-      value: {
-        event: "session.message",
-        payload: { deltaText: "hi", event: "session.message", runId: "run_top", seq: 4, type: "event" },
-        seq: 4,
+  it("loads plugin runtime history from the OpenClaw session transcript", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pickle-openclaw-history-"));
+    const sessionFile = path.join(tmpDir, "session.jsonl");
+    await fs.writeFile(sessionFile, [
+      JSON.stringify({ message: { id: "u1", role: "user", content: [{ type: "text", text: "Hi" }] }, timestamp: 10 }),
+      JSON.stringify({ message: { id: "a1", role: "assistant", content: [{ type: "text", text: "Hello" }] }, timestamp: 20 }),
+    ].join("\n"));
+    const transport = createOpenClawHostTransport({
+      agent: {
+        session: {
+          getSessionEntry: () => ({
+            sessionFile,
+            sessionId: "session-1",
+          }),
+        },
       },
     });
-    transport.close();
+
+    await expect(transport.request("chat.history", { limit: 2, sessionKey: "agent:main:beeper:room" })).resolves.toEqual({
+      messages: [
+        { content: "Hi", id: "u1", messageSeq: 1, role: "user", timestamp: 10 },
+        { content: "Hello", id: "a1", messageSeq: 2, role: "agent", timestamp: 20 },
+      ],
+    });
   });
 
-  it("replays early WebSocket run events to late subscribers", async () => {
-    FakeWebSocket.instances = [];
-    const transport = createOpenClawWebSocketTransport({
-      replayLimit: 10,
-      WebSocket: FakeWebSocket as unknown as typeof WebSocket,
-      url: "ws://gateway",
-    });
-
-    const request = transport.request("sessions.send", { key: "session", message: "hi" });
-    await waitFor(() => FakeWebSocket.instances.length === 1);
-    const socket = FakeWebSocket.instances[0]!;
-    await sendConnectChallenge(socket);
-    await waitFor(() => socket.sent.length === 1);
-    socket.receive({ id: JSON.parse(socket.sent[0] ?? "{}").id, ok: true, payload: { ok: true }, type: "res" });
-    await waitFor(() => socket.sent.length === 2);
-    const sent = JSON.parse(socket.sent[1] ?? "{}");
-    socket.receive({ event: "session.message", payload: { deltaText: "early", runId: "run_early" }, seq: 5, type: "event" });
-    socket.receive({ id: sent.id, ok: true, payload: { runId: "run_early" }, type: "res" });
-    await expect(request).resolves.toEqual({ runId: "run_early" });
-
-    const iterator = transport.events((event) => {
-      const payload = event.payload as { runId?: string };
-      return payload.runId === "run_early";
-    })[Symbol.asyncIterator]();
-    await expect(iterator.next()).resolves.toEqual({
-      done: false,
-      value: {
-        event: "session.message",
-        payload: { deltaText: "early", runId: "run_early" },
-        seq: 5,
+  it("adapts plugin transcript lifecycle updates into runtime events", async () => {
+    let listener: ((update: { sessionKey?: string; messageSeq?: number }) => void) | undefined;
+    const transport = createOpenClawHostTransport({
+      events: {
+        onSessionTranscriptUpdate: (next) => {
+          listener = next;
+          return () => {
+            listener = undefined;
+          };
+        },
       },
     });
-    await iterator.return?.();
-    transport.close();
+
+    const received: OpenClawGatewayEvent[] = [];
+    const done = (async () => {
+      for await (const event of transport.events((candidate) => candidate.payload !== undefined)) {
+        received.push(event);
+        break;
+      }
+    })();
+    listener?.({ messageSeq: 9, sessionKey: "agent:main:dashboard:one" });
+    await done;
+
+    expect(received).toEqual([{
+      event: "session.transcript.update",
+      payload: { messageSeq: 9, sessionKey: "agent:main:dashboard:one" },
+      seq: 9,
+    }]);
   });
 });
-
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  readonly sent: string[] = [];
-  readyState = 0;
-  #listeners = new Map<string, Set<(event: { data?: string }) => void>>();
-
-  constructor(readonly url: string) {
-    FakeWebSocket.instances.push(this);
-    queueMicrotask(() => {
-      this.readyState = 1;
-      this.#emit("open", {});
-    });
-  }
-
-  addEventListener(type: string, listener: (event: { data?: string }) => void): void {
-    const listeners = this.#listeners.get(type) ?? new Set();
-    listeners.add(listener);
-    this.#listeners.set(type, listeners);
-  }
-
-  removeEventListener(type: string, listener: (event: { data?: string }) => void): void {
-    this.#listeners.get(type)?.delete(listener);
-  }
-
-  send(data: string): void {
-    this.sent.push(data);
-  }
-
-  close(): void {
-    this.readyState = 3;
-    this.#emit("close", {});
-  }
-
-  receive(frame: unknown): void {
-    this.#emit("message", { data: JSON.stringify(frame) });
-  }
-
-  #emit(type: string, event: { data?: string }): void {
-    for (const listener of this.#listeners.get(type) ?? []) listener(event);
-  }
-}
-
-async function waitFor(predicate: () => boolean): Promise<void> {
-  for (let index = 0; index < 20; index += 1) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  throw new Error("Timed out waiting for condition");
-}
-
-async function sendConnectChallenge(socket: FakeWebSocket | undefined): Promise<void> {
-  await waitFor(() => socket?.readyState === 1);
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  socket?.receive({ event: "connect.challenge", payload: { nonce: "nonce-1" }, type: "event" });
-}
 
 function fakeTransport(responses: Record<string, unknown>, events: OpenClawGatewayEvent[] = []): OpenClawTransport & {
   request: ReturnType<typeof vi.fn>;

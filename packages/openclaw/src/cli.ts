@@ -1,20 +1,9 @@
 #!/usr/bin/env node
-import { chmod, mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { BeeperEnvironment } from "@beeper/pickle/beeper/auth";
-import {
-  accountFromOpenClawConfig,
-  createOpenClawBeeperBridge,
-  startOpenClawBeeperBridge,
-  type CreateOpenClawBeeperBridgeOptions,
-} from "./appservice";
-import { createOpenClawBeeperAppService, loginToBeeperForOpenClaw, setupOpenClawBeeperBridge } from "./beeper-setup";
-import { createDefaultConfig, defaultConfigPath, readConfig, secretToken, writeConfig } from "./config";
-import { createOpenClawRuntimeFromLogin, userLoginFromOpenClawConfig } from "./connector";
-import type { OpenClawGatewayRuntime } from "./openclaw-runtime";
-import { createAppserviceRegistration } from "./registration";
-import type { AppserviceRegistration, OpenClawBridgeConfig } from "./types";
+import { setupOpenClawBeeperBridge } from "./beeper-setup";
+import { createDefaultConfig, defaultConfigPath, readConfig, writeConfig } from "./config";
+import type { OpenClawBridgeConfig } from "./types";
 
 export interface CliIO {
   stderr: Pick<typeof process.stderr, "write">;
@@ -23,12 +12,7 @@ export interface CliIO {
 }
 
 export interface CliDeps {
-  createAppService?: typeof createOpenClawBeeperAppService;
-  createBridge?: typeof createOpenClawBeeperBridge;
-  loginToBeeper?: typeof loginToBeeperForOpenClaw;
-  runtimeFactory?: (config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
   setupBridge?: typeof setupOpenClawBeeperBridge;
-  startBridge?: (options: CreateOpenClawBeeperBridgeOptions) => Promise<unknown>;
 }
 
 export async function runCli(argv = process.argv.slice(2), io: CliIO = process, deps: CliDeps = {}): Promise<number> {
@@ -38,188 +22,9 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       io.stdout.write(helpText());
       return 0;
     }
-    if (command === "init") {
-      const options = parseOptions(args);
-      const config = createDefaultConfig(configOverridesFromOptions(options));
-      await writeConfig(config, stringOption(options, "config") ?? defaultConfigPath(config.dataDir));
-      io.stdout.write(`${JSON.stringify(redactConfig(config), null, 2)}\n`);
-      return 0;
-    }
-    if (command === "register") {
-      const options = parseOptions(args);
-      const config = await loadConfig(options);
-      const registration = createAppserviceRegistration(config, {
-        asToken: stringOption(options, "as-token") ?? config.asToken ?? secretToken(),
-        hsToken: stringOption(options, "hs-token") ?? config.hsToken ?? secretToken(),
-      });
-      const output = stringOption(options, "output") ?? resolve(config.dataDir, "registration.json");
-      await writeRegistration(output, registration);
-      io.stdout.write(`${output}\n`);
-      return 0;
-    }
-    if (command === "status") {
-      const config = await loadConfig(parseOptions(args));
-      io.stdout.write(`${JSON.stringify(redactConfig(config), null, 2)}\n`);
-      return 0;
-    }
-    if (command === "features") {
-      const options = parseOptions(args);
-      const config = await loadConfig(options);
-      const runtime = deps.runtimeFactory?.(config) ?? runtimeFromConfig(config);
-      try {
-        io.stdout.write(`${JSON.stringify(await runtime.featureSnapshot(), null, 2)}\n`);
-      } finally {
-        await runtime.close();
-      }
-      return 0;
-    }
-    if (command === "smoke") {
-      const options = parseOptions(args);
-      const config = await loadConfig(options);
-      const runtime = deps.runtimeFactory?.(config) ?? runtimeFromConfig(config);
-      let bridge: unknown;
-      try {
-        const [features, agents, sessions] = await Promise.all([
-          runtime.featureSnapshot(),
-          runtime.listAgentContacts(),
-          runtime.listSessions({ includeArchived: true, limit: numberOption(options, "session-limit") ?? 25 }),
-        ]);
-        const includeBeeper = !booleanOption(options, "gateway-only");
-        const account = includeBeeper ? accountFromOpenClawConfig(config) : undefined;
-        if (account) {
-          bridge = await (deps.createBridge ?? createOpenClawBeeperBridge)({
-            account,
-            config,
-            getOnly: !booleanOption(options, "start"),
-          });
-          validateSmokeBridgeObject(bridge);
-          if (booleanOption(options, "start")) {
-            await startBridgeObject(bridge);
-          }
-        }
-        io.stdout.write(`${JSON.stringify({
-          beeper: includeBeeper ? {
-            bridgeCreated: Boolean(bridge),
-            getOnly: !booleanOption(options, "start"),
-            homeserver: account?.homeserver,
-            userId: account?.userId,
-          } : { skipped: true },
-          config: {
-            appserviceId: config.appserviceId,
-            gatewayUrl: config.gatewayUrl,
-            hasAccessToken: Boolean(config.accessToken),
-            homeserver: config.homeserver,
-            matrixUserId: config.matrixUserId,
-            registrationUrl: config.registrationUrl,
-          },
-          gateway: {
-            agents: agents.length,
-            featureSnapshot: features,
-            sessions: sessions.length,
-          },
-          ok: true,
-        }, null, 2)}\n`);
-      } finally {
-        await stopBridgeObject(bridge);
-        await runtime.close();
-      }
-      return 0;
-    }
-    if (command === "rpc") {
-      const { paramsText, positional } = splitOptionsAndPositionals(args);
-      const options = parseOptions(args);
-      const method = positional[0];
-      if (!method) throw new Error("rpc requires a Gateway method name");
-      const params = paramsText !== undefined ? parseJsonParam(paramsText) : parseJsonParam(positional[1] ?? "{}");
-      const config = await loadConfig(options);
-      const runtime = deps.runtimeFactory?.(config) ?? runtimeFromConfig(config);
-      try {
-        io.stdout.write(`${JSON.stringify(await runtime.call(method, params), null, 2)}\n`);
-      } finally {
-        await runtime.close();
-      }
-      return 0;
-    }
-    if (command === "start") {
-      const options = parseOptions(args);
-      const config = await loadConfig(options);
-      const startOptions: CreateOpenClawBeeperBridgeOptions = {
-        account: accountFromOpenClawConfig(config),
-        config,
-      };
-      if (booleanOption(options, "get-only")) startOptions.getOnly = true;
-      if (booleanOption(options, "backfill")) startOptions.backfill = true;
-      const backfillLimit = numberOption(options, "backfill-limit");
-      if (backfillLimit !== undefined) startOptions.backfillLimit = backfillLimit;
-      await (deps.startBridge ?? startOpenClawBeeperBridge)(startOptions);
-      io.stdout.write("OpenClaw bridge started\n");
-      return 0;
-    }
-    if (command === "beeper-login") {
+    if (command === "login") {
       const options = parseOptions(args);
       const email = requiredStringOption(options, "email");
-      const loginCode = stringOption(options, "login-code");
-      const loginOptions: Parameters<typeof loginToBeeperForOpenClaw>[0] = {
-        email,
-      };
-      const env = beeperEnvOption(options);
-      if (env !== undefined) loginOptions.env = env;
-      if (loginCode !== undefined) loginOptions.getLoginCode = () => loginCode;
-      else loginOptions.getLoginCode = () => promptForLoginCode(io);
-      const result = await (deps.loginToBeeper ?? loginToBeeperForOpenClaw)(loginOptions);
-      const config = createDefaultConfig({
-        ...configOverridesFromOptions(options),
-        ...beeperRuntimeOverridesFromOptions(options),
-        ...result.config,
-      });
-      await writeConfig(config, stringOption(options, "config") ?? defaultConfigPath(config.dataDir));
-      io.stdout.write(`${JSON.stringify(redactConfig(config), null, 2)}\n`);
-      return 0;
-    }
-    if (command === "beeper-register") {
-      const options = parseOptions(args);
-      const configPath = stringOption(options, "config");
-      const existingConfig = configPath ? await readConfig(configPath) : createDefaultConfig(configOverridesFromOptions(options));
-      const accessToken = stringOption(options, "access-token") ?? existingConfig.accessToken;
-      if (!accessToken) throw new Error("beeper-register requires --access-token or a config with accessToken");
-      const registerOptions: Parameters<typeof createOpenClawBeeperAppService>[0] = {
-        accessToken,
-        address: stringOption(options, "registration-url") ?? existingConfig.registrationUrl,
-        getOnly: booleanOption(options, "get-only"),
-        postState: !booleanOption(options, "no-post-state"),
-        push: booleanOption(options, "push"),
-        selfHosted: !booleanOption(options, "not-self-hosted"),
-      };
-      const baseDomain = stringOption(options, "base-domain") ?? beeperBaseDomainOption(options);
-      const bridge = stringOption(options, "bridge");
-      const bridgeManagerToken = stringOption(options, "bridge-manager-token");
-      const bridgeType = stringOption(options, "bridge-type");
-      const homeserver = stringOption(options, "homeserver") ?? existingConfig.homeserver;
-      const homeserverDomain = stringOption(options, "homeserver-domain");
-      const username = stringOption(options, "username");
-      if (baseDomain !== undefined) registerOptions.baseDomain = baseDomain;
-      if (bridge !== undefined) registerOptions.bridge = bridge;
-      if (bridgeManagerToken !== undefined) registerOptions.bridgeManagerToken = bridgeManagerToken;
-      if (bridgeType !== undefined) registerOptions.bridgeType = bridgeType;
-      if (homeserver !== undefined) registerOptions.homeserver = homeserver;
-      if (homeserverDomain !== undefined) registerOptions.homeserverDomain = homeserverDomain;
-      if (username !== undefined) registerOptions.username = username;
-      const result = await (deps.createAppService ?? createOpenClawBeeperAppService)(registerOptions);
-      const config = createDefaultConfig({
-        ...existingConfig,
-        ...configOverridesFromOptions(options),
-        ...beeperRuntimeOverridesFromOptions(options),
-        ...result.config,
-        accessToken,
-      });
-      await writeConfig(config, configPath ?? defaultConfigPath(config.dataDir));
-      io.stdout.write(`${JSON.stringify({ config: redactConfig(config), init: result.init }, null, 2)}\n`);
-      return 0;
-    }
-    if (command === "beeper-setup") {
-      const options = parseOptions(args);
-      const email = requiredStringOption(options, "email");
-      const loginCode = stringOption(options, "login-code");
       const setupOptions: Parameters<typeof setupOpenClawBeeperBridge>[0] = {
         email,
         postState: !booleanOption(options, "no-post-state"),
@@ -228,7 +33,6 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       };
       const address = stringOption(options, "registration-url");
       const baseDomain = stringOption(options, "base-domain") ?? beeperBaseDomainOption(options);
-      const bridge = stringOption(options, "bridge");
       const bridgeManagerToken = stringOption(options, "bridge-manager-token");
       const bridgeType = stringOption(options, "bridge-type");
       const env = beeperEnvOption(options);
@@ -236,12 +40,10 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       const username = stringOption(options, "username");
       if (address !== undefined) setupOptions.address = address;
       if (baseDomain !== undefined) setupOptions.baseDomain = baseDomain;
-      if (bridge !== undefined) setupOptions.bridge = bridge;
       if (bridgeManagerToken !== undefined) setupOptions.bridgeManagerToken = bridgeManagerToken;
       if (bridgeType !== undefined) setupOptions.bridgeType = bridgeType;
       if (env !== undefined) setupOptions.env = env;
-      if (loginCode !== undefined) setupOptions.getLoginCode = () => loginCode;
-      else setupOptions.getLoginCode = () => promptForLoginCode(io);
+      setupOptions.getLoginCode = () => promptForLoginCode(io);
       if (homeserverDomain !== undefined) setupOptions.homeserverDomain = homeserverDomain;
       if (username !== undefined) setupOptions.username = username;
       const result = await (deps.setupBridge ?? setupOpenClawBeeperBridge)(setupOptions);
@@ -251,21 +53,22 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
         ...result.config,
       });
       await writeConfig(config, stringOption(options, "config") ?? defaultConfigPath(config.dataDir));
-      io.stdout.write(`${JSON.stringify({ config: redactConfig(config), init: result.init }, null, 2)}\n`);
+      io.stdout.write(`${JSON.stringify({
+        account: whoamiPayload(config),
+      }, null, 2)}\n`);
+      return 0;
+    }
+    if (command === "whoami") {
+      const config = await loadConfig(parseOptions(args));
+      io.stdout.write(`${JSON.stringify(whoamiPayload(config), null, 2)}\n`);
       return 0;
     }
     io.stderr.write(`Unknown command: ${command}\n\n${helpText()}`);
     return 2;
   } catch (error) {
-    io.stderr.write(`${formatCliError(error)}\n`);
+    io.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
-}
-
-export async function writeRegistration(path: string, registration: AppserviceRegistration): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(registration, null, 2)}\n`, { mode: 0o600 });
-  await chmod(path, 0o600);
 }
 
 function helpText(): string {
@@ -273,67 +76,25 @@ function helpText(): string {
     "pickle-openclaw <command>",
     "",
     "Commands:",
-    "  init       Write a secure OpenClaw bridge config",
-    "  register   Write a Matrix appservice registration file",
-    "  start      Start the OpenClaw Beeper bridge from config",
-    "  status     Print the redacted effective config",
-    "  features   Probe the documented OpenClaw Gateway feature surface",
-    "  smoke      Validate config, Gateway reachability, and Beeper bridge setup",
-    "  rpc        Call any OpenClaw Gateway RPC method",
-    "  beeper-login     Log in to Beeper and write Matrix credentials",
-    "  beeper-register  Register the OpenClaw appservice with Beeper",
-    "  beeper-setup     Log in and register the OpenClaw appservice",
+    "  login   Log in to Beeper and register the OpenClaw appservice",
+    "  whoami  Print the saved Beeper bridge identity",
     "",
     "Common options:",
     "  --config <path>",
     "  --data-dir <path>",
-    "  --homeserver <url>",
-    "  --gateway-url <url>",
-    "  --registration-url <url>",
-    "  --matrix-device-id <id>",
-    "  --matrix-user-id <mxid>",
-    "  --access-token <token>",
-    "  --hs-token <token>",
-    "  --as-token <token>",
-    "  --output <path>",
     "  --email <address>",
-    "  --login-code <code>",
+    "  --registration-url <url>",
     "  --bridge-manager-token <token>",
-    "  --backfill",
-    "  --backfill-limit <count>",
-    "  --gateway-only",
-    "  --session-limit <count>",
-    "  --start",
-    "  --params-json <json>",
     "  --env <production|staging|dev|local>",
     "",
   ].join("\n");
 }
 
-function formatCliError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message;
-}
-
 function configOverridesFromOptions(options: Map<string, string | boolean>): Partial<OpenClawBridgeConfig> {
   const overrides: Partial<OpenClawBridgeConfig> = {};
-  const accessToken = stringOption(options, "access-token");
-  const asToken = stringOption(options, "as-token");
-  const appserviceId = stringOption(options, "appservice-id");
   const dataDir = stringOption(options, "data-dir");
-  const gatewayUrl = stringOption(options, "gateway-url");
-  const homeserver = stringOption(options, "homeserver");
-  const matrixDeviceId = stringOption(options, "matrix-device-id");
-  const matrixUserId = stringOption(options, "matrix-user-id");
   const registrationUrl = stringOption(options, "registration-url");
-  if (accessToken) overrides.accessToken = accessToken;
-  if (asToken) overrides.asToken = asToken;
-  if (appserviceId) overrides.appserviceId = appserviceId;
   if (dataDir) overrides.dataDir = dataDir;
-  if (gatewayUrl) overrides.gatewayUrl = gatewayUrl;
-  if (homeserver) overrides.homeserver = homeserver;
-  if (matrixDeviceId) overrides.matrixDeviceId = matrixDeviceId;
-  if (matrixUserId) overrides.matrixUserId = matrixUserId;
   if (registrationUrl) overrides.registrationUrl = registrationUrl;
   return overrides;
 }
@@ -359,13 +120,25 @@ async function loadConfig(options: Map<string, string | boolean>): Promise<OpenC
   return createDefaultConfig(configOverridesFromOptions(options));
 }
 
-function redactConfig(config: OpenClawBridgeConfig): OpenClawBridgeConfig {
+function whoamiPayload(config: OpenClawBridgeConfig): Record<string, unknown> {
   return {
-    ...config,
-    ...(config.accessToken ? { accessToken: "<redacted>" } : {}),
-    ...(config.asToken ? { asToken: "<redacted>" } : {}),
-    ...(config.bridgeManagerToken ? { bridgeManagerToken: "<redacted>" } : {}),
-    ...(config.hsToken ? { hsToken: "<redacted>" } : {}),
+    appserviceId: config.appserviceId,
+    beeperEnv: config.beeperEnv ?? "production",
+    bridgeId: config.bridgeId ?? null,
+    bridgeManagerPostState: config.bridgeManagerPostState ?? true,
+    canConnect: Boolean(
+      config.accessToken &&
+      config.asToken &&
+      config.homeserver &&
+      config.hsToken &&
+      config.matrixDeviceId &&
+      config.matrixUserId &&
+      config.registrationUrl
+    ),
+    deviceId: config.matrixDeviceId ?? null,
+    homeserver: config.homeserver ?? null,
+    registrationUrl: config.registrationUrl,
+    userId: config.matrixUserId ?? null,
   };
 }
 
@@ -386,35 +159,6 @@ function parseOptions(args: string[]): Map<string, string | boolean> {
   return options;
 }
 
-function splitOptionsAndPositionals(args: string[]): { paramsText?: string; positional: string[] } {
-  const positional: string[] = [];
-  let paramsText: string | undefined;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (!arg) continue;
-    if (arg === "--params-json") {
-      paramsText = args[index + 1];
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("--")) {
-      const next = args[index + 1];
-      if (next && !next.startsWith("--")) index += 1;
-      continue;
-    }
-    positional.push(arg);
-  }
-  return { ...(paramsText !== undefined ? { paramsText } : {}), positional };
-}
-
-function parseJsonParam(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    throw new Error(`Invalid JSON params: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
 function stringOption(options: Map<string, string | boolean>, key: string): string | undefined {
   const value = options.get(key);
   return typeof value === "string" ? value : undefined;
@@ -430,14 +174,6 @@ function booleanOption(options: Map<string, string | boolean>, key: string): boo
   return options.get(key) === true;
 }
 
-function numberOption(options: Map<string, string | boolean>, key: string): number | undefined {
-  const value = stringOption(options, key);
-  if (value === undefined) return undefined;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`Invalid --${key}: ${value}`);
-  return parsed;
-}
-
 function beeperEnvOption(options: Map<string, string | boolean>): BeeperEnvironment | undefined {
   const env = stringOption(options, "env");
   if (env === undefined) return undefined;
@@ -451,31 +187,6 @@ function beeperBaseDomainOption(options: Map<string, string | boolean>): string 
   if (env === "local") return "beeper.localtest.me";
   if (env === "staging") return "beeper-staging.com";
   return undefined;
-}
-
-async function startBridgeObject(bridge: unknown): Promise<void> {
-  const start = bridge && typeof bridge === "object" && "start" in bridge ? bridge.start : undefined;
-  if (typeof start === "function") await start.call(bridge);
-}
-
-async function stopBridgeObject(bridge: unknown): Promise<void> {
-  const stop = bridge && typeof bridge === "object" && "stop" in bridge ? bridge.stop : undefined;
-  if (typeof stop === "function") await stop.call(bridge);
-}
-
-function validateSmokeBridgeObject(bridge: unknown): void {
-  if (!bridge || typeof bridge !== "object") {
-    throw new Error("Beeper smoke failed: bridge factory did not return a bridge object");
-  }
-  const start = "start" in bridge ? bridge.start : undefined;
-  const stop = "stop" in bridge ? bridge.stop : undefined;
-  if (typeof start !== "function" || typeof stop !== "function") {
-    throw new Error("Beeper smoke failed: bridge object is missing start/stop lifecycle methods");
-  }
-}
-
-function runtimeFromConfig(config: OpenClawBridgeConfig): OpenClawGatewayRuntime {
-  return createOpenClawRuntimeFromLogin(userLoginFromOpenClawConfig(config), config);
 }
 
 async function promptForLoginCode(io: CliIO): Promise<string> {

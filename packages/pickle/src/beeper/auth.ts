@@ -131,7 +131,13 @@ async function beeperRequest(
   if (!response.ok) {
     throw new Error(`Beeper auth failed: ${response.status} ${await response.text()}`);
   }
-  return response.json();
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Beeper auth returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function readRequiredString(value: unknown, key: string): string {

@@ -14,6 +14,7 @@ describe("OpenClaw backfill", () => {
         sessions: [
           { key: "agent:main:terminal:local", origin: { surface: "terminal" } },
           { key: "agent:main:desktop:abc", origin: { surface: "mac-app" } },
+          { chatType: "direct", key: "agent:main:dashboard:web", lastChannel: "webchat", origin: { provider: "webchat", surface: "webchat" } },
           { chatType: "dm", key: "agent:main:whatsapp:user-1", lastTo: "user-1" },
           { chatType: "group", key: "agent:main:whatsapp:group-1", lastTo: "a,b" },
         ],
@@ -33,6 +34,18 @@ describe("OpenClaw backfill", () => {
         label: "agent:main:desktop:abc",
         session: { key: "agent:main:desktop:abc", origin: { surface: "mac-app" } },
         sessionKey: "agent:main:desktop:abc",
+        source: "mac-app",
+      },
+      {
+        agentId: "main",
+        label: "agent:main:dashboard:web",
+        session: {
+          chatType: "direct",
+          key: "agent:main:dashboard:web",
+          lastChannel: "webchat",
+          origin: { provider: "webchat", surface: "webchat" },
+        },
+        sessionKey: "agent:main:dashboard:web",
         source: "mac-app",
       },
       {
@@ -137,6 +150,7 @@ describe("OpenClaw backfill", () => {
   it("filters backfill sessions by opt-in import source and archived state", async () => {
     expect(shouldImportSession({ key: "agent:main:terminal:local", origin: { surface: "terminal" } }, ["tui"])).toBe(true);
     expect(shouldImportSession({ key: "agent:main:desktop:abc", origin: { surface: "mac-app" } }, ["dashboard"])).toBe(true);
+    expect(shouldImportSession({ chatType: "direct", key: "agent:main:dashboard:web", lastChannel: "webchat", origin: { surface: "webchat" } }, ["dashboard"])).toBe(true);
     expect(shouldImportSession({ key: "agent:main:whatsapp:alice", lastProvider: "whatsapp" }, ["channels"])).toBe(true);
     expect(shouldImportSession({ key: "agent:main:terminal:old", origin: { surface: "terminal" }, updatedAt: null }, ["tui"])).toBe(false);
     expect(shouldImportSession({ key: "agent:main:terminal:old", origin: { surface: "terminal" }, updatedAt: null }, ["archived"])).toBe(true);
@@ -150,12 +164,14 @@ describe("OpenClaw backfill", () => {
           { key: "agent:main:terminal:local", origin: { surface: "terminal" } },
           { key: "agent:main:terminal:archived", origin: { surface: "terminal" }, updatedAt: null },
           { key: "agent:main:desktop:abc", origin: { surface: "mac-app" } },
+          { chatType: "direct", key: "agent:main:dashboard:web", lastChannel: "webchat", origin: { surface: "webchat" } },
           { chatType: "dm", key: "agent:main:whatsapp:user-1", lastProvider: "whatsapp", lastTo: "user-1" },
         ],
       },
     });
     await expect(discoverOneToOneSessions(runtime, { importSources: ["dashboard"] })).resolves.toMatchObject([
       { sessionKey: "agent:main:desktop:abc", source: "mac-app" },
+      { sessionKey: "agent:main:dashboard:web", source: "mac-app" },
     ]);
     await expect(discoverOneToOneSessions(runtime, { importSources: ["archived"] })).resolves.toMatchObject([
       { sessionKey: "agent:main:terminal:archived", source: "terminal" },
@@ -211,7 +227,6 @@ describe("OpenClaw backfill", () => {
       },
       name: "Alice",
       roomType: "dm",
-      sender: "codex",
     }));
     expect(bridge.backfillPortal).toHaveBeenCalledWith(login, expect.objectContaining({
       mxid: "!room:example.com",
@@ -378,6 +393,128 @@ describe("OpenClaw backfill", () => {
     });
 
     expect(bridge.createPortal.mock.calls[0]?.[1]).not.toHaveProperty("creationContent");
+  });
+
+  it("creates an initial agent DM when no importable sessions exist", async () => {
+    const runtime = runtimeWith({
+      "agents.list": { agents: [{ displayName: "Main Agent", id: "main" }] },
+      "sessions.list": { sessions: [] },
+    });
+    const dir = await mkdtemp(join(tmpdir(), "openclaw-backfill-empty-test-"));
+    const registry = new OpenClawBridgeRegistry(join(dir, "registry.json"));
+    const bridge = {
+      backfillPortal: vi.fn(async () => ({ eventIds: [] })),
+      createPortal: vi.fn(async () => ({
+        id: "agent:main",
+        mxid: "!main:example.com",
+        portalKey: { id: "agent:main", receiver: "login" },
+        receiver: "login",
+      })),
+    };
+    const login = { id: "login", userId: "@owner:example.com" };
+
+    await expect(backfillAllOpenClawSessions({
+      bridge: bridge as never,
+      importSources: ["dashboard", "tui"],
+      login,
+      registry,
+      runtime,
+    })).resolves.toMatchObject({
+      portals: [{ mxid: "!main:example.com" }],
+      sessions: [],
+      skipped: [],
+    });
+
+    expect(bridge.createPortal).toHaveBeenCalledWith(login, expect.objectContaining({
+      id: "agent:main",
+      name: "Main Agent",
+      roomType: "dm",
+    }));
+    expect(bridge.backfillPortal).not.toHaveBeenCalled();
+    expect(registry.getBindingBySessionKey("agent:main")).toMatchObject({
+      agentId: "main",
+      owner: "bridge",
+      roomId: "!main:example.com",
+    });
+  });
+
+  it("heals stale registry ghost domains when an initial DM already exists", async () => {
+    const runtime = runtimeWith({
+      "agents.list": { agents: [{ displayName: "Main Agent", id: "main" }] },
+      "sessions.list": { sessions: [] },
+    });
+    runtime.config.homeserver = "https://matrix.beeper-staging.com/_hungryserv/account";
+    runtime.config.homeserverDomain = "beeper.local";
+    const dir = await mkdtemp(join(tmpdir(), "openclaw-backfill-heal-test-"));
+    const registry = new OpenClawBridgeRegistry(join(dir, "registry.json"));
+    registry.upsertAgent({
+      agentId: "main",
+      displayName: "Main Agent",
+      ghostUserId: "@openclaw_agent_main:matrix.beeper-staging.com",
+    });
+    registry.upsertBinding({
+      agentId: "main",
+      createdAt: 1,
+      ghostUserId: "@openclaw_agent_main:matrix.beeper-staging.com",
+      id: "existing",
+      kind: "session",
+      label: "Main Agent",
+      owner: "bridge",
+      roomId: "!existing:beeper.local",
+      sessionKey: "agent:main",
+      updatedAt: 1,
+    });
+    const bridge = {
+      backfillPortal: vi.fn(async () => ({ eventIds: [] })),
+      createPortal: vi.fn(async () => ({ id: "agent:main", mxid: "!new:beeper.local", portalKey: { id: "agent:main", receiver: "login" } })),
+    };
+
+    await backfillAllOpenClawSessions({
+      bridge: bridge as never,
+      importSources: ["dashboard", "tui"],
+      login: { id: "login", userId: "@owner:beeper.local" },
+      registry,
+      runtime,
+    });
+
+    expect(bridge.createPortal).not.toHaveBeenCalled();
+    expect(registry.getAgent("main")?.ghostUserId).toBe("@openclaw_agent_main:beeper.local");
+    expect(registry.getBindingBySessionKey("agent:main")?.ghostUserId).toBe("@openclaw_agent_main:beeper.local");
+  });
+
+  it("rebuilds the registry from an existing bridge portal before creating an initial DM", async () => {
+    const runtime = runtimeWith({
+      "agents.list": { agents: [{ displayName: "Main Agent", id: "main" }] },
+      "sessions.list": { sessions: [] },
+    });
+    const dir = await mkdtemp(join(tmpdir(), "openclaw-backfill-existing-portal-test-"));
+    const registry = new OpenClawBridgeRegistry(join(dir, "registry.json"));
+    const existingPortal = {
+      id: "agent:main",
+      mxid: "!existing:beeper.local",
+      portalKey: { id: "agent:main", receiver: "login" },
+      receiver: "login",
+    };
+    const bridge = {
+      backfillPortal: vi.fn(async () => ({ eventIds: [] })),
+      createPortal: vi.fn(),
+      getPortal: vi.fn(() => existingPortal),
+    };
+
+    const result = await backfillAllOpenClawSessions({
+      bridge: bridge as never,
+      importSources: ["dashboard", "tui"],
+      login: { id: "login", userId: "@owner:beeper.local" },
+      registry,
+      runtime,
+    });
+
+    expect(result.portals).toEqual([existingPortal]);
+    expect(bridge.createPortal).not.toHaveBeenCalled();
+    expect(registry.getBindingBySessionKey("agent:main")).toMatchObject({
+      agentId: "main",
+      roomId: "!existing:beeper.local",
+    });
   });
 });
 

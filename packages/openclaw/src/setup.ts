@@ -1,5 +1,6 @@
-import { createConfigFromOpenClawSetup, DEFAULT_GATEWAY_URL, DEFAULT_REGISTRATION_URL, defaultDataDir } from "./config";
+import { createConfigFromOpenClawSetup, DEFAULT_REGISTRATION_URL, defaultDataDir } from "./config";
 import type { setupOpenClawBeeperBridge, SetupOpenClawBeeperBridgeOptions } from "./beeper-setup";
+import type { OpenClawHostRuntime } from "./openclaw-runtime";
 
 export type OpenClawSetupConfig = {
   channels?: Record<string, unknown>;
@@ -22,10 +23,10 @@ export interface BeeperChannelSettings {
   beeperEnv?: "production" | "staging" | "dev" | "local";
   bridgeManagerToken?: string;
   bridgeManagerPostState?: boolean;
+  bridgeId?: string;
   contactVisibility?: "agents" | "agents-and-users" | "none";
   dataDir?: string;
   enabled?: boolean;
-  gatewayUrl?: string;
   ghostLocalpartPrefix?: string;
   homeserver?: string;
   hsToken?: string;
@@ -53,12 +54,12 @@ export interface BeeperSetupInput {
   baseDomain?: string;
   beeperEnv?: string;
   bridgeManagerToken?: string;
+  bridgeId?: string;
   code?: string;
   contactVisibility?: string;
   dataDir?: string;
   email?: string;
   getOnly?: boolean | string;
-  gatewayUrl?: string;
   ghostLocalpartPrefix?: string;
   homeserverDomain?: string;
   importSources?: string[] | string;
@@ -87,11 +88,13 @@ type BeeperGatewayContext = {
   abortSignal: AbortSignal;
   accountId: string;
   cfg: OpenClawSetupConfig;
+  hostRuntime?: unknown;
   log?: {
     info?: (message: string) => void;
     warn?: (message: string) => void;
     error?: (message: string) => void;
   };
+  runtime?: unknown;
   setStatus?: (next: Record<string, unknown>) => void;
 };
 
@@ -133,8 +136,8 @@ export const BeeperChannelConfigSchema = {
     enabled: { type: "boolean" },
     baseDomain: { type: "string" },
     beeperEnv: { type: "string", enum: ["production", "staging", "dev", "local"] },
+    bridgeId: { type: "string" },
     dataDir: { type: "string" },
-    gatewayUrl: { type: "string" },
     ghostLocalpartPrefix: { type: "string" },
     homeserver: { type: "string" },
     hsToken: { type: "string" },
@@ -199,7 +202,7 @@ export const beeperSetupAdapter = {
     runtime?: BeeperSetupRuntime;
   }): OpenClawSetupConfig => {
     if (input.email) {
-      throw new Error("Beeper email login is asynchronous; use the Beeper setup wizard or pickle-openclaw beeper-setup.");
+      throw new Error("Beeper email login is asynchronous; use the Beeper setup wizard or pickle-openclaw login.");
     }
     return applyBeeperChannelSettings(cfg, normalizeBeeperSetupInput(input));
   },
@@ -214,7 +217,7 @@ export const beeperSetupWizard = {
       channel: BEEPER_CHANNEL_ID,
       configured,
       statusLines: [
-        `Gateway: ${settings.gatewayUrl ?? "not configured"}`,
+        "Runtime: OpenClaw plugin",
         `Registration URL: ${settings.registrationUrl ?? "not configured"}`,
         `Import sources: ${(settings.importSources ?? []).join(", ") || "none"}`,
       ],
@@ -337,7 +340,6 @@ export const beeperSetupWizard = {
         backfillLimit,
         code,
         email,
-        gatewayUrl: current.gatewayUrl ?? DEFAULT_GATEWAY_URL,
         importSources,
         nonFederatedRooms,
         postState,
@@ -382,7 +384,6 @@ export const beeperChannelConfig = {
     label: "Beeper",
     configured: account.configured === true,
     extra: {
-      gatewayUrl: account.settings?.gatewayUrl,
       registrationUrl: account.settings?.registrationUrl,
     },
   }),
@@ -401,12 +402,11 @@ export const beeperStatusAdapter = {
   buildChannelSummary: ({ snapshot }: { snapshot: Record<string, unknown> }) => ({
     configured: snapshot.configured === true,
     enabled: snapshot.enabled !== false,
-    gatewayUrl: recordValue(snapshot.extra)?.gatewayUrl,
     homeserver: recordValue(snapshot.extra)?.homeserver,
     mode: "self-hosted-appservice",
     running: snapshot.running === true,
   }),
-  buildAccountSnapshot: ({ account }: { account: { accountId?: string; configured?: boolean; settings?: BeeperChannelSettings } }) => {
+  buildAccountSnapshot: ({ account, runtime }: { account: { accountId?: string; configured?: boolean; settings?: BeeperChannelSettings }; runtime?: Record<string, unknown> }) => {
     const settings = account.settings ?? {};
     return {
       accountId: account.accountId ?? "default",
@@ -416,7 +416,6 @@ export const beeperStatusAdapter = {
         approvalBehavior: settings.approvalBehavior ?? "native",
         beeperEnv: settings.beeperEnv ?? "production",
         contactVisibility: settings.contactVisibility ?? "agents",
-        gatewayUrl: settings.gatewayUrl,
         homeserver: settings.homeserver,
         importSources: settings.importSources ?? [],
         mode: "self-hosted-appservice",
@@ -424,7 +423,7 @@ export const beeperStatusAdapter = {
         streamFinalization: settings.streamFinalization ?? "replace",
       },
       name: "Beeper",
-      running: false,
+      running: runtime?.running === true,
     };
   },
   resolveAccountState: ({ configured, enabled }: { configured: boolean; enabled: boolean }) => {
@@ -460,10 +459,16 @@ export async function applyBeeperSetupConfig(params: {
   if (result.config.homeserver) setupSettings.homeserver = result.config.homeserver;
   if (result.config.accessToken) setupSettings.accessToken = result.config.accessToken;
   if (result.config.asToken) setupSettings.asToken = result.config.asToken;
-  if (params.input.homeserverDomain) setupSettings.homeserverDomain = params.input.homeserverDomain;
+  if (result.config.bridgeId) setupSettings.bridgeId = result.config.bridgeId;
+  if (result.config.ghostLocalpartPrefix) setupSettings.ghostLocalpartPrefix = result.config.ghostLocalpartPrefix;
+  if (result.config.homeserverDomain) setupSettings.homeserverDomain = result.config.homeserverDomain;
+  else if (params.input.homeserverDomain) setupSettings.homeserverDomain = params.input.homeserverDomain;
   if (result.config.hsToken) setupSettings.hsToken = result.config.hsToken;
   if (result.config.matrixDeviceId) setupSettings.matrixDeviceId = result.config.matrixDeviceId;
   if (result.config.matrixUserId) setupSettings.matrixUserId = result.config.matrixUserId;
+  if (result.config.senderLocalpart) setupSettings.senderLocalpart = result.config.senderLocalpart;
+  if (result.config.serviceBotLocalpart) setupSettings.serviceBotLocalpart = result.config.serviceBotLocalpart;
+  if (result.config.userLocalpartPrefix) setupSettings.userLocalpartPrefix = result.config.userLocalpartPrefix;
   return applyBeeperChannelSettings(params.cfg, setupSettings);
 }
 
@@ -513,12 +518,14 @@ export async function startBeeperGatewayAccount(ctx: BeeperGatewayContext): Prom
   }
   const { accountFromOpenClawConfig, startOpenClawBeeperBridge } = await import("./appservice");
   const config = createConfigFromOpenClawSetup(ctx.cfg);
+  const hostRuntime = resolveBeeperHostRuntime(ctx);
   const bridge = await startOpenClawBeeperBridge({
     account: accountFromOpenClawConfig(config),
     backfill: Boolean(config.importSources?.length),
     ...(config.backfillLimit !== undefined ? { backfillLimit: config.backfillLimit } : {}),
     config,
     dataDir: config.dataDir,
+    ...(hostRuntime ? { runtime: hostRuntime } : {}),
   });
   const key = gatewayAccountKey(ctx.accountId);
   startedBridges.set(key, bridge as StartedBeeperBridge);
@@ -540,6 +547,21 @@ export async function startBeeperGatewayAccount(ctx: BeeperGatewayContext): Prom
     });
     ctx.log?.info?.("Beeper bridge stopped.");
   }
+}
+
+function resolveBeeperHostRuntime(ctx: BeeperGatewayContext): OpenClawHostRuntime | undefined {
+  if (ctx.hostRuntime && typeof ctx.hostRuntime === "object" && hasOpenClawSessionRuntime(ctx.hostRuntime)) return ctx.hostRuntime;
+  if (ctx.runtime && typeof ctx.runtime === "object" && hasOpenClawSessionRuntime(ctx.runtime)) return ctx.runtime;
+  return undefined;
+}
+
+function hasOpenClawSessionRuntime(value: object): value is OpenClawHostRuntime {
+  const agent = (value as { agent?: unknown }).agent;
+  if (!agent || typeof agent !== "object") return false;
+  const session = (agent as { session?: unknown }).session;
+  if (!session || typeof session !== "object") return false;
+  return typeof (session as { listSessionEntries?: unknown }).listSessionEntries === "function"
+    || typeof (session as { getSessionEntry?: unknown }).getSessionEntry === "function";
 }
 
 export async function stopBeeperGatewayAccount(ctx: BeeperGatewayContext): Promise<void> {
@@ -569,7 +591,6 @@ export function isBeeperChannelConfigured(cfg: OpenClawSetupConfig): boolean {
     settings.enabled &&
     settings.accessToken &&
     settings.asToken &&
-    settings.gatewayUrl &&
     settings.homeserver &&
     settings.hsToken &&
     settings.matrixDeviceId &&
@@ -614,7 +635,6 @@ export function defaultBeeperChannelSettings(): BeeperChannelSettings {
     contactVisibility: "agents",
     dataDir: defaultDataDir(),
     enabled: true,
-    gatewayUrl: DEFAULT_GATEWAY_URL,
     importSources: ["dashboard", "tui"],
     nonFederatedRooms: true,
     registrationUrl: DEFAULT_REGISTRATION_URL,
@@ -656,9 +676,9 @@ export function normalizeBeeperSetupInput(input: BeeperSetupInput): Partial<Beep
   if (beeperEnv) settings.beeperEnv = beeperEnv;
   if (contactVisibility) settings.contactVisibility = contactVisibility;
   if (input.bridgeManagerToken) settings.bridgeManagerToken = input.bridgeManagerToken;
+  if (input.bridgeId) settings.bridgeId = input.bridgeId;
   if (bridgeManagerPostState !== undefined) settings.bridgeManagerPostState = bridgeManagerPostState;
   if (input.dataDir) settings.dataDir = input.dataDir;
-  if (input.gatewayUrl) settings.gatewayUrl = input.gatewayUrl;
   if (input.ghostLocalpartPrefix) settings.ghostLocalpartPrefix = input.ghostLocalpartPrefix;
   if (input.homeserverDomain) settings.homeserverDomain = input.homeserverDomain;
   if (importSources) settings.importSources = importSources;

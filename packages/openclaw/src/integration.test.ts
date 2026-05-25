@@ -14,7 +14,6 @@ describe("OpenClaw bridge integration", () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-integration-"));
     const config = createDefaultConfig({
       dataDir: dir,
-      gatewayUrl: "ws://gateway",
       homeserver: "https://matrix.example",
       matrixUserId: "@openclawbot:example",
     });
@@ -95,7 +94,6 @@ describe("OpenClaw bridge integration", () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-approval-integration-"));
     const config = createDefaultConfig({
       dataDir: dir,
-      gatewayUrl: "ws://gateway",
       homeserver: "https://matrix.example",
       matrixUserId: "@openclawbot:example",
     });
@@ -154,7 +152,6 @@ describe("OpenClaw bridge integration", () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-relations-integration-"));
     const config = createDefaultConfig({
       dataDir: dir,
-      gatewayUrl: "ws://gateway",
       homeserver: "https://matrix.example",
       matrixUserId: "@openclawbot:example",
     });
@@ -242,7 +239,6 @@ describe("OpenClaw bridge integration", () => {
     const config = createDefaultConfig({
       accessToken: "mx-token",
       dataDir: dir,
-      gatewayUrl: "ws://gateway",
       homeserver: "https://matrix.example",
       importSources: ["dashboard"],
       matrixDeviceId: "DEVICE",
@@ -304,7 +300,6 @@ describe("OpenClaw bridge integration", () => {
       name: "Codex",
       portalKey: { id: "agent:codex", receiver: login.id },
       roomType: "dm",
-      userId: "@codex:example",
     }));
 
     await expect(bridge.dispatchMatrixEvent(messageEvent({

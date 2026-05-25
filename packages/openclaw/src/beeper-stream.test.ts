@@ -29,7 +29,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
         },
         "com.beeper.ai.metadata": expect.objectContaining({
           data: { agent_id: "codex" },
-          model: "openclaw/gateway",
+          model: "openclaw/plugin",
           protocol: "ag-ui",
           runId: "turn_1",
           schema: "com.beeper.ai.run.v1",

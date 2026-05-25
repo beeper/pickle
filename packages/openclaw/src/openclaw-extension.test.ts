@@ -91,6 +91,7 @@ describe("OpenClaw plugin package metadata", () => {
     expect(packageJson.scripts?.prepublishOnly).toBe("node ../../scripts/guard-pnpm-publish.mjs");
     expect(packageJson.files).toContain("dist");
     expect(manifest).toEqual(expect.objectContaining({ id: "beeper", channels: ["beeper"] }));
+    expect(manifest.channelEnvVars?.beeper).toContain("PICKLE_OPENCLAW_DEVICE_ID");
     expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_GATEWAY_ACCESS_TOKEN");
     expect(manifest.channelEnvVars?.beeper).not.toContain("OPENCLAW_GATEWAY_TOKEN");
     expect(manifest.uiHints).toMatchObject({
@@ -109,12 +110,12 @@ describe("OpenClaw plugin package metadata", () => {
       "backfillLimit",
       "baseDomain",
       "beeperEnv",
+      "bridgeId",
       "bridgeManagerPostState",
       "bridgeManagerToken",
       "contactVisibility",
       "dataDir",
       "enabled",
-      "gatewayUrl",
       "ghostLocalpartPrefix",
       "homeserver",
       "homeserverDomain",
@@ -138,7 +139,6 @@ describe("OpenClaw plugin package metadata", () => {
       schema: {
         properties: expect.objectContaining({
           accessToken: expect.any(Object),
-          gatewayUrl: expect.any(Object),
           importSources: expect.any(Object),
         }),
       },
@@ -152,6 +152,7 @@ describe("OpenClaw plugin package metadata", () => {
     const packageJson = JSON.parse(await readFile(resolve("package.json"), "utf8")) as {
       bin?: Record<string, string>;
       dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
       files?: string[];
       main?: string;
       openclaw?: {
@@ -161,6 +162,7 @@ describe("OpenClaw plugin package metadata", () => {
     };
     const npmIgnore = await readFile(resolve(".npmignore"), "utf8");
     const dependencies = Object.entries(packageJson.dependencies ?? {});
+    const devDependencies = Object.entries(packageJson.devDependencies ?? {});
 
     expect(packageJson.files).toContain("dist");
     expect(npmIgnore.split(/\r?\n/)).toEqual(expect.arrayContaining([
@@ -172,13 +174,14 @@ describe("OpenClaw plugin package metadata", () => {
     expect(packageJson.bin?.["pickle-openclaw"]).toBe("./dist/cli.mjs");
     expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs"]);
     expect(packageJson.openclaw?.runtimeSetupEntry).toBe("./dist/setup-entry.mjs");
-    expect(dependencies).toEqual(expect.arrayContaining([
+    expect(dependencies).toEqual([]);
+    expect(devDependencies).toEqual(expect.arrayContaining([
       ["@beeper/pickle", "workspace:^"],
       ["@beeper/pickle-ag-ui", "workspace:^"],
       ["@beeper/pickle-bridge", "workspace:^"],
       ["@beeper/pickle-state-file", "workspace:^"],
     ]));
-    expect(dependencies.find(([, version]) => version === "workspace:*")).toBeUndefined();
+    expect(devDependencies.find(([, version]) => version === "workspace:*")).toBeUndefined();
   });
 });
 
