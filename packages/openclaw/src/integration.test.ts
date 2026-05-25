@@ -67,7 +67,7 @@ describe("OpenClaw bridge integration", () => {
     expect(transport.request).toHaveBeenCalledWith("sessions.send", {
       idempotencyKey: "$hello",
       key: "session_1",
-      matrix: { sender: "@alice:example" },
+      matrix: { roomId: "!codex:example", sender: "@alice:example" },
       message: "hello",
     }, { expectFinal: false });
     expect(registry.getBindingByRoom("!codex:example")).toMatchObject({
@@ -134,7 +134,7 @@ describe("OpenClaw bridge integration", () => {
     });
   });
 
-  it("dispatches Matrix edits, emoji reactions, redactions, receipts, and unread state through Pickle into OpenClaw", async () => {
+  it("dispatches Matrix edits, emoji reactions, and redactions while ignoring receipt-only state as agent turns", async () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-relations-integration-"));
     const config = createDefaultConfig({
       dataDir: dir,
@@ -227,20 +227,13 @@ describe("OpenClaw bridge integration", () => {
       message: "Redacted message $old",
       replyTo: { eventId: "$old", roomId: "!codex:example" },
     }), { expectFinal: false });
-    expect(transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
-      idempotencyKey: "$old:read:@alice:example",
-      matrix: expect.objectContaining({
-        relation: expect.objectContaining({ kind: "read_receipt", receiptType: "m.read", targetEventId: "$old" }),
-      }),
-      message: "Read receipt for $old",
-      replyTo: { eventId: "$old", roomId: "!codex:example" },
-    }), { expectFinal: false });
-    expect(transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
-      matrix: expect.objectContaining({
-        relation: expect.objectContaining({ kind: "marked_unread", unread: true }),
-      }),
-      message: "Marked room unread",
-    }), { expectFinal: false });
+    const sessionSendPayloads = transport.request.mock.calls
+      .filter(([method]) => method === "sessions.send")
+      .map(([, payload]) => payload);
+    expect(sessionSendPayloads).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ message: "Read receipt for $old" }),
+      expect.objectContaining({ message: "Marked room unread" }),
+    ]));
   });
 
   it("smokes contact DM creation, Matrix ingress, approval, and backfill with local fakes", async () => {

@@ -199,6 +199,7 @@ export class BeeperStreamPublisher {
   }
 
   async #publishPart(eventId: string, part: AGUIEvent): Promise<void> {
+    const streamParts = aguiEventToFinalMessageParts(this.turnId, part);
     await this.#client.beeper.streams.publishPart({
       ...(this.#agentId ? { agentId: this.#agentId } : {}),
       eventId,
@@ -206,7 +207,7 @@ export class BeeperStreamPublisher {
       roomId: this.roomId,
       turnId: this.turnId,
     });
-    for (const accumulatorPart of aguiEventToFinalMessageParts(this.turnId, part)) {
+    for (const accumulatorPart of streamParts) {
       applyFinalMessagePart(this.#accumulator, accumulatorPart);
     }
   }

@@ -193,10 +193,11 @@ describe("OpenClaw Beeper setup surface", () => {
               ]),
               id: "approval_1",
             },
+            id: "tool_1",
+            name: "shell",
             state: "approval-requested",
             toolCallId: "tool_1",
-            toolName: "shell",
-            type: "dynamic-tool",
+            type: "tool-call",
           }],
           role: "assistant",
         },
@@ -204,8 +205,8 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(beeperChannelPlugin.actions).toEqual(expect.any(Object));
     expect(beeperChannelPlugin.actions.describeMessageTool()).toMatchObject({
-      actions: ["react", "read", "mark_unread"],
-      capabilities: ["reactions", "readReceipts", "markedUnread"],
+      actions: ["send", "react", "read", "mark_unread"],
+      capabilities: ["text", "reactions", "readReceipts", "markedUnread"],
     });
     expect(beeperChannelPlugin.actions.extractToolSend({
       args: { action: "send", threadId: "$thread", to: "beeper:!room" },
@@ -675,6 +676,13 @@ describe("OpenClaw Beeper setup surface", () => {
   it("routes OpenClaw message actions through the active Beeper runtime", async () => {
 	    const client = {
 	      appservice: { sendMessage: vi.fn(async () => ({ eventId: "$as" })) },
+      beeper: {
+        streams: {
+          finalizeMessage: vi.fn(async () => ({ replacementEventId: "$replace", roomId: "!room", raw: {} })),
+          publishPart: vi.fn(async () => undefined),
+          startMessage: vi.fn(async () => ({ descriptor: { type: "com.beeper.llm" }, eventId: "$stream" })),
+        },
+      },
 	      media: { upload: vi.fn(async () => ({ contentUri: "mxc://example/file", raw: {} })) },
 	      messages: {
         edit: vi.fn(async () => ({ eventId: "$edit" })),
@@ -694,7 +702,7 @@ describe("OpenClaw Beeper setup surface", () => {
 	      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
 	      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
 	    };
-	    setBeeperChannelRuntime(new BeeperChannelRuntime({
+    const runtime = new BeeperChannelRuntime({
 	      bridge: bridge as never,
 	      client: client as never,
       getAgents: () => [{
@@ -716,9 +724,31 @@ describe("OpenClaw Beeper setup surface", () => {
 	        updatedAt: 1,
 	      }),
 	      login: { id: "openclaw:plugin" },
-	    }));
+	    });
+	    setBeeperChannelRuntime(runtime);
+    runtime.createStreamPublisher({
+      agentId: "codex",
+      roomId: "!room",
+      runId: "run_1",
+      sessionKey: "session_1",
+    });
 
 	    const sentMessageId = "openclaw:message:test";
+
+    await beeperChannelPlugin.actions.handleAction({
+      action: "send",
+      params: { message: "hello from tool" },
+      sessionKey: "session_1",
+    });
+    expect(client.beeper.streams.publishPart).toHaveBeenCalledWith(expect.objectContaining({
+      eventId: "$stream",
+      part: expect.objectContaining({
+        delta: "hello from tool",
+        type: "TEXT_MESSAGE_CONTENT",
+      }),
+      roomId: "!room",
+      turnId: "run_1",
+    }));
 
 	    await beeperChannelPlugin.actions.handleAction({
 	      action: "react",

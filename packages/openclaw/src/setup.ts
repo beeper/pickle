@@ -532,15 +532,23 @@ export const beeperApprovalCapability = {
 export const beeperMessageActions = {
   resolveExecutionMode: () => "gateway",
   describeMessageTool: () => ({
-    actions: ["react", "read", "mark_unread"],
-    capabilities: ["reactions", "readReceipts", "markedUnread"],
+    actions: ["send", "react", "read", "mark_unread"],
+    capabilities: ["text", "reactions", "readReceipts", "markedUnread"],
   }),
   supportsAction: ({ action }: { action: string }) =>
-    action === "react" || action === "read" || action === "mark_unread",
+    action === "send" || action === "react" || action === "read" || action === "mark_unread",
   extractToolSend: () => null,
-  handleAction: async (ctx: { action: string; params: Record<string, unknown>; mediaReadFile?: (filePath: string) => Promise<Buffer> }) => {
+  handleAction: async (ctx: { action: string; params: Record<string, unknown>; mediaReadFile?: (filePath: string) => Promise<Buffer>; sessionKey?: string | null }) => {
     const runtime = requireBeeperChannelRuntime();
     const params = ctx.params;
+    if (ctx.action === "send") {
+      const text = readRequiredString(params, "message", "text", "body");
+      const sent = await runtime.publishActiveText({
+        ...(ctx.sessionKey !== undefined ? { sessionKey: ctx.sessionKey } : {}),
+        text,
+      });
+      return { content: [{ type: "text", text: `Published Beeper native stream text ${sent.eventId}` }] };
+    }
     const roomId = resolveBeeperRoomTarget(readRequiredString(params, "to", "roomId", "channelId"));
     if (ctx.action === "react") {
       const eventId = readRequiredString(params, "messageId", "eventId");

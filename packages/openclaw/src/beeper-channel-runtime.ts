@@ -16,6 +16,7 @@ import {
   type UserLogin,
 } from "@beeper/pickle-bridge";
 import { BeeperStreamPublisher } from "./beeper-stream";
+import { AGUIEventType } from "./stream-map";
 import type { OpenClawAgentContact, OpenClawSessionBinding } from "./types";
 
 export interface BeeperChannelRuntimeOptions {
@@ -47,6 +48,7 @@ export class BeeperChannelRuntime {
   #getBindingBySessionKey: (sessionKey: string) => OpenClawSessionBinding | undefined;
   #login: UserLogin | undefined;
   #log: BeeperChannelRuntimeOptions["log"];
+  #activeStreams = new Map<string, BeeperStreamPublisher>();
 
   constructor(options: BeeperChannelRuntimeOptions) {
     this.#bridge = options.bridge;
@@ -139,7 +141,7 @@ export class BeeperChannelRuntime {
     sessionKey: string;
     threadRoot?: string;
   }): BeeperStreamPublisher {
-    return new BeeperStreamPublisher({
+    const publisher = new BeeperStreamPublisher({
       client: this.client,
       initialMessageMetadata: {
         agent_id: options.agentId,
@@ -151,6 +153,32 @@ export class BeeperChannelRuntime {
       ...(options.threadRoot ? { threadRoot: options.threadRoot } : {}),
       ...(this.userId ? { userId: this.userId } : {}),
     });
+    this.#activeStreams.set(options.sessionKey, publisher);
+    return publisher;
+  }
+
+  clearActiveStream(sessionKey: string, publisher: BeeperStreamPublisher): void {
+    if (this.#activeStreams.get(sessionKey) === publisher) this.#activeStreams.delete(sessionKey);
+  }
+
+  async publishActiveText(options: {
+    sessionKey?: string | null;
+    text: string;
+  }): Promise<SentEvent> {
+    const sessionKey = options.sessionKey?.trim();
+    if (!sessionKey) throw new Error("Beeper native stream send requires an active session key.");
+    const publisher = this.#activeStreams.get(sessionKey);
+    if (!publisher) throw new Error(`No active Beeper native stream for session ${sessionKey}.`);
+    await publisher.publish({
+      delta: options.text,
+      messageId: publisher.turnId,
+      type: AGUIEventType.TEXT_MESSAGE_CONTENT,
+    });
+    return {
+      eventId: publisher.targetEventId ?? publisher.turnId,
+      raw: { nativeStream: true, turnId: publisher.turnId },
+      roomId: publisher.roomId,
+    };
   }
 
   debug(message: string, data?: unknown): void {

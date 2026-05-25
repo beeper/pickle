@@ -329,8 +329,8 @@ describe("OpenClawGatewayRuntime", () => {
       channel: "beeper",
       routeSessionKey: "agent:main:beeper:room",
     }));
-    expect((runAssembled.mock.calls[0]?.[0] as { replyOptions?: Record<string, unknown> } | undefined)?.replyOptions).not.toMatchObject({
-      sourceReplyDeliveryMode: "message_tool_only",
+    expect((runAssembled.mock.calls[0]?.[0] as { replyOptions?: Record<string, unknown> } | undefined)?.replyOptions).toMatchObject({
+      sourceReplyDeliveryMode: "automatic",
     });
     expect(beeperStreams.startMessage.mock.invocationCallOrder[0]).toBeLessThan(runAssembled.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
     expect(received).toEqual(expect.arrayContaining([

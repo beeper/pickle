@@ -47,9 +47,9 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
     if (existing !== undefined) return existing;
     const index = state.message.parts.length;
     state.message.parts.push(stripUndefined({
+      content: "",
       providerMetadata,
       state: "streaming",
-      text: "",
       type: kind,
     }));
     indexById.set(partId, index);
@@ -71,19 +71,14 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
     const existing = state.toolIndexByCallId.get(toolCallId);
     if (existing !== undefined) return existing;
     const toolName = state.toolNameByCallId.get(toolCallId) ?? "tool";
-    const dynamic = state.toolDynamicByCallId.get(toolCallId) ?? false;
     const index = state.message.parts.length;
-    state.message.parts.push(stripUndefined(dynamic ? {
-      input: undefined,
-      state: "input-streaming",
+    state.message.parts.push(stripUndefined({
+      arguments: "",
+      id: toolCallId,
+      name: toolName,
+      state: "awaiting-input",
       toolCallId,
-      toolName,
-      type: "dynamic-tool",
-    } : {
-      input: undefined,
-      state: "input-streaming",
-      toolCallId,
-      type: `tool-${toolName}`,
+      type: "tool-call",
     }));
     state.toolIndexByCallId.set(toolCallId, index);
     return index;
@@ -91,11 +86,8 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
   const updateToolLabel = (toolPart: Record<string, unknown>) => {
     const toolName = toolCallId ? state.toolNameByCallId.get(toolCallId) : undefined;
     if (!toolName) return;
-    if (toolPart.type === "dynamic-tool" && (toolPart.toolName === undefined || toolPart.toolName === "tool")) {
-      toolPart.toolName = toolName;
-    }
-    if (toolPart.type === "tool-tool" || toolPart.type === "tool-") {
-      toolPart.type = `tool-${toolName}`;
+    if (toolPart.type === "tool-call" && (toolPart.name === undefined || toolPart.name === "tool")) {
+      toolPart.name = toolName;
     }
   };
 
@@ -113,7 +105,7 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
     case "text-delta": {
       if (!id || typeof part.delta !== "string") return;
       const textPart = getPart(ensureStreamingPart("text", state.textIndexById, id));
-      textPart.text = `${typeof textPart.text === "string" ? textPart.text : ""}${part.delta}`;
+      textPart.content = `${typeof textPart.content === "string" ? textPart.content : ""}${part.delta}`;
       textPart.state = "streaming";
       return;
     }
@@ -130,7 +122,7 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
     case "reasoning-delta": {
       if (!id || typeof part.delta !== "string") return;
       const reasoningPart = getPart(ensureStreamingPart("reasoning", state.reasoningIndexById, id));
-      reasoningPart.text = `${typeof reasoningPart.text === "string" ? reasoningPart.text : ""}${part.delta}`;
+      reasoningPart.content = `${typeof reasoningPart.content === "string" ? reasoningPart.content : ""}${part.delta}`;
       reasoningPart.state = "streaming";
       return;
     }
@@ -172,6 +164,7 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
       const toolPart = getPart(index);
       updateToolLabel(toolPart);
       toolPart.state = "input-streaming";
+      toolPart.arguments = next;
       toolPart.input = parsePartialJson(next);
       return;
     }
@@ -181,7 +174,7 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
       if (index === undefined) return;
       const toolPart = getPart(index);
       updateToolLabel(toolPart);
-      toolPart.state = type === "tool-input-error" ? "output-error" : "input-available";
+      toolPart.state = type === "tool-input-error" ? "output-error" : "input-complete";
       toolPart.input = part.input;
       toolPart.providerExecuted = part.providerExecuted;
       toolPart.callProviderMetadata = part.providerMetadata;
@@ -259,8 +252,8 @@ export function finalizeAccumulatedAIMessage(state: BeeperFinalMessageAccumulato
 export function getFinalMessageText(message: Record<string, unknown>): string {
   const parts = Array.isArray(message.parts) ? message.parts : [];
   return parts
-    .filter((part): part is Record<string, unknown> => isRecord(part) && part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text)
+    .filter((part): part is Record<string, unknown> => isRecord(part) && part.type === "text" && (typeof part.content === "string" || typeof part.text === "string"))
+    .map((part) => typeof part.content === "string" ? part.content : part.text)
     .join("");
 }
 
@@ -347,19 +340,23 @@ function compactParts(parts: unknown[], options: { budget?: { remaining: number 
     .filter(isRecord)
     .flatMap((part) => {
       if (part.type === "text" || part.type === "reasoning") {
+        const content = typeof part.content === "string" ? part.content : typeof part.text === "string" ? part.text : undefined;
         return [stripUndefined({
+          content: typeof content === "string" ? takeText(content, options.budget) : content,
           state: part.state,
-          text: typeof part.text === "string" ? takeText(part.text, options.budget) : part.text,
           type: part.type,
         })];
       }
-      if (part.type === "dynamic-tool" || (typeof part.type === "string" && part.type.startsWith("tool-"))) {
+      if (part.type === "tool-call" || part.type === "dynamic-tool" || (typeof part.type === "string" && part.type.startsWith("tool-"))) {
         return [stripUndefined({
+          arguments: part.arguments,
+          id: part.id ?? part.toolCallId,
           input: options.keepToolInput ? part.input : undefined,
+          name: part.name ?? part.toolName,
+          output: part.output,
           state: part.state,
           toolCallId: part.toolCallId,
-          toolName: part.toolName,
-          type: part.type,
+          type: "tool-call",
         })];
       }
       return [];
@@ -389,8 +386,9 @@ function truncateWithNotice(value: string, maxChars: number): string {
 function messageTextChars(message: Record<string, unknown>): number {
   const parts = Array.isArray(message.parts) ? message.parts : [];
   return parts.reduce((total, part) => {
-    if (!isRecord(part) || typeof part.text !== "string") return total;
-    return total + part.text.length;
+    if (!isRecord(part)) return total;
+    const text = typeof part.content === "string" ? part.content : typeof part.text === "string" ? part.text : "";
+    return total + text.length;
   }, 0);
 }
 

@@ -54,7 +54,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
       body: "hello",
       content: expect.objectContaining({
         "com.beeper.ai": expect.objectContaining({
-          parts: [{ state: "done", text: "hello", type: "text" }],
+          parts: [{ content: "hello", state: "done", type: "text" }],
         }),
         "com.beeper.ai.metadata": expect.objectContaining({
           protocol: "ag-ui",
@@ -236,17 +236,19 @@ describe("OpenClaw Beeper native stream publisher", () => {
 
     const aiMessage = finalizeMessage.mock.calls[0]?.[0].content["com.beeper.ai"];
     expect(aiMessage.parts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ text: "thinking", type: "reasoning" }),
+      expect.objectContaining({ content: "thinking", type: "reasoning" }),
       expect.objectContaining({
         approval: { approved: true, id: "approval_1" },
+        arguments: "{\"cmd\":\"date\"}",
+        id: "tool_1",
         input: { cmd: "date" },
+        name: "shell",
         output: "ok",
         state: "approval-responded",
         toolCallId: "tool_1",
-        toolName: "shell",
-        type: "dynamic-tool",
+        type: "tool-call",
       }),
-      expect.objectContaining({ text: "done", type: "text" }),
+      expect.objectContaining({ content: "done", type: "text" }),
     ]));
   });
 });

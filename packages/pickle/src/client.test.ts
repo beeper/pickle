@@ -915,7 +915,7 @@ describe("createMatrixClient", () => {
       content: {
         "com.beeper.ai": {
           id: expect.any(String),
-          parts: [{ text: "hello", type: "text" }],
+          parts: [{ content: "hello", type: "text" }],
           role: "assistant",
         },
       },
@@ -998,10 +998,10 @@ describe("createMatrixClient", () => {
       content: {
         "com.beeper.ai": {
           parts: [
-            { state: "done", text: "thinking", type: "reasoning" },
+            { content: "thinking", state: "done", type: "reasoning" },
             { data: { stage: 1 }, id: "status", type: "data-status" },
             { sourceId: "src-1", title: "Docs", type: "source-url", url: "https://example.com" },
-            { state: "done", text: "hello", type: "text" },
+            { content: "hello", state: "done", type: "text" },
           ],
           role: "assistant",
         },
@@ -1036,7 +1036,7 @@ describe("createMatrixClient", () => {
     await client.streams.send({
       finalAIMessage: {
         id: "final",
-        parts: [{ text: "override", type: "text" }],
+        parts: [{ content: "override", type: "text" }],
         role: "assistant",
       },
       finalText: "override",
@@ -1050,7 +1050,7 @@ describe("createMatrixClient", () => {
       content: {
         "com.beeper.ai": {
           id: "final",
-          parts: [{ text: "override", type: "text" }],
+          parts: [{ content: "override", type: "text" }],
           role: "assistant",
         },
       },

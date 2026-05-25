@@ -472,43 +472,12 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     if (!msg.portal.mxid) return;
     if (!this.isAllowedRoom(msg.portal.mxid)) return;
     this.upsertPortalBinding(msg.portal);
-    const binding = this.#registry.getBindingByRoom(msg.portal.mxid);
-    await this.#agent.handleMatrixText({
-      eventId: `${msg.targetMessage.id}:read:${msg.userId ?? "unknown"}`,
-      matrix: {
-        relation: {
-          kind: "read_receipt",
-          ...(msg.receiptType ? { receiptType: msg.receiptType } : {}),
-          targetEventId: msg.targetMessage.id,
-          ...streamTargetRelationPatch(binding, msg.targetMessage.id),
-        },
-        sender: msg.userId ?? "receipt",
-      },
-      roomId: msg.portal.mxid,
-      replyToEventId: msg.targetMessage.id,
-      sender: msg.userId ?? "receipt",
-      text: `Read receipt for ${msg.targetMessage.id}`,
-    });
   }
 
   async handleMatrixMarkedUnread(_ctx: BridgeRequestContext, msg: MatrixMarkedUnread): Promise<void> {
     if (!msg.portal.mxid) return;
     if (!this.isAllowedRoom(msg.portal.mxid)) return;
     this.upsertPortalBinding(msg.portal);
-    const eventId = `${msg.portal.mxid}:marked-unread:${msg.unread ? "1" : "0"}:${Date.now()}`;
-    await this.#agent.handleMatrixText({
-      eventId,
-      matrix: {
-        relation: {
-          kind: "marked_unread",
-          unread: msg.unread,
-        },
-        sender: msg.userId ?? "marked_unread",
-      },
-      roomId: msg.portal.mxid,
-      sender: msg.userId ?? "marked_unread",
-      text: msg.unread ? "Marked room unread" : "Unmarked room unread",
-    });
   }
 
   async handleMatrixTyping(_ctx: BridgeRequestContext, msg: MatrixTyping): Promise<void> {

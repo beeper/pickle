@@ -980,6 +980,7 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
       },
       replyOptions: {
         runId: params.runId,
+        sourceReplyDeliveryMode: "automatic",
         timeoutOverrideSeconds: Math.max(1, Math.ceil(params.timeoutMs / 1000)),
         suppressDefaultToolProgressMessages: true,
         allowProgressCallbacksWhenSourceDeliverySuppressed: true,
@@ -1287,6 +1288,7 @@ function createBeeperReplyStreamEmitter(base: {
         runId: base.runId,
       });
       await publisher.finalize(stripUndefined({ terminalPart: terminal, finishReason: "stop" }));
+      channelRuntime.clearActiveStream(base.sessionKey, publisher);
       channelRuntime.debug("openclaw_beeper_stream_finalized", {
         eventId: publisher.targetEventId,
         roomId: base.roomId,
@@ -1311,6 +1313,7 @@ function createBeeperReplyStreamEmitter(base: {
           type: AGUIEventType.RUN_ERROR,
         },
       });
+      channelRuntime.clearActiveStream(base.sessionKey, publisher);
     },
   };
 }
