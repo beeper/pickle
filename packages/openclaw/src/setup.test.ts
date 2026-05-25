@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import extension from "./openclaw-extension";
 import setupEntry from "./setup-entry";
 import {
+  BeeperChannelRuntime,
+  setBeeperChannelRuntime,
+} from "./beeper-channel-runtime";
+import {
   applyBeeperChannelSettings,
   beeperChannelConfig,
   beeperChannelPlugin,
@@ -27,6 +31,7 @@ describe("OpenClaw Beeper setup surface", () => {
   beforeEach(() => {
     appserviceMocks.accountFromOpenClawConfig.mockClear();
     appserviceMocks.startOpenClawBeeperBridge.mockReset();
+    setBeeperChannelRuntime(undefined);
   });
 
   it("exposes a channel plugin through the setup entry shape OpenClaw loads", () => {
@@ -40,7 +45,7 @@ describe("OpenClaw Beeper setup surface", () => {
       capabilities: {
         media: true,
         reactions: true,
-        threads: true,
+        threads: false,
       },
       reload: {
         configPrefixes: ["channels.beeper", "plugins.entries.beeper"],
@@ -68,7 +73,7 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(beeperChannelPlugin.setupWizard).toBe(beeperSetupWizard);
   });
 
-  it("matches the OpenClaw channel contract surface used by the dashboard and runtime", () => {
+  it("matches the OpenClaw channel contract surface used by the dashboard and runtime", async () => {
     expect(beeperChannelPlugin.id).toBe("beeper");
     expect(beeperChannelPlugin.meta).toEqual(expect.objectContaining({
       blurb: expect.any(String),
@@ -78,8 +83,107 @@ describe("OpenClaw Beeper setup surface", () => {
       selectionLabel: expect.any(String),
     }));
     expect(beeperChannelPlugin.capabilities.chatTypes).toEqual(
-      expect.arrayContaining(["direct", "thread"]),
+      ["direct"],
     );
+    expect(beeperChannelPlugin.message).toEqual(expect.objectContaining({
+      durableFinal: expect.objectContaining({
+        capabilities: expect.objectContaining({
+          media: true,
+          messageSendingHooks: true,
+          replyTo: true,
+          text: true,
+          thread: true,
+        }),
+      }),
+      live: expect.objectContaining({
+        capabilities: expect.objectContaining({
+          nativeStreaming: true,
+          previewFinalization: true,
+          progressUpdates: true,
+          quietFinalization: true,
+        }),
+      }),
+      send: expect.objectContaining({
+        media: expect.any(Function),
+        payload: expect.any(Function),
+        text: expect.any(Function),
+      }),
+    }));
+    expect(beeperChannelPlugin.outbound).toEqual(expect.objectContaining({
+      deliveryMode: "direct",
+      sendMedia: expect.any(Function),
+      sendPayload: expect.any(Function),
+      sendText: expect.any(Function),
+    }));
+    expect(beeperChannelPlugin.messaging).toEqual(expect.objectContaining({
+      defaultMarkdownTableMode: "bullets",
+      normalizeTarget: expect.any(Function),
+      resolveOutboundSessionRoute: expect.any(Function),
+      targetPrefixes: ["beeper", "agent", "openclaw"],
+    }));
+    expect(beeperChannelPlugin.messaging.normalizeTarget("openclaw:codex")).toBe("codex");
+    await expect(beeperChannelPlugin.messaging.targetResolver.resolveTarget({
+      cfg: {} as OpenClawSetupConfig,
+      input: "agent:codex",
+      normalized: "agent:codex",
+    })).resolves.toMatchObject({
+      display: "@codex",
+      kind: "user",
+      source: "normalized",
+      to: "codex",
+    });
+    expect(beeperChannelPlugin.conversationBindings).toEqual(expect.objectContaining({
+      buildBoundReplyPayload: expect.any(Function),
+      defaultTopLevelPlacement: "current",
+      supportsCurrentConversationBinding: true,
+    }));
+    expect(beeperChannelPlugin.directory).toEqual(expect.objectContaining({
+      listPeers: expect.any(Function),
+    }));
+    await expect(beeperChannelPlugin.directory.listPeers({
+      cfg: {
+        agents: {
+          list: [
+            { id: "codex", name: "Codex" },
+            { id: "planner", name: "Planner" },
+          ],
+        },
+      } as unknown as OpenClawSetupConfig,
+      query: "code",
+    })).resolves.toEqual([{
+      handle: "codex",
+      id: "codex",
+      kind: "user",
+      name: "Codex",
+      raw: { id: "codex", name: "Codex" },
+    }]);
+    await expect(beeperChannelPlugin.resolver.resolveTargets({
+      cfg: {
+        agents: { list: [{ id: "codex", name: "Codex" }] },
+      } as unknown as OpenClawSetupConfig,
+      inputs: ["beeper:codex", "agent:unknown"],
+      kind: "user",
+    })).resolves.toEqual([
+      { id: "codex", input: "beeper:codex", name: "Codex", resolved: true },
+      { id: "unknown", input: "agent:unknown", name: "@unknown", resolved: true },
+    ]);
+    expect(beeperChannelPlugin.heartbeat).toEqual(expect.objectContaining({
+      sendTyping: expect.any(Function),
+    }));
+    expect(beeperChannelPlugin.approvalCapability).toEqual(expect.any(Object));
+    expect(beeperChannelPlugin.actions).toEqual(expect.any(Object));
+    expect(beeperChannelPlugin.actions.describeMessageTool()).toMatchObject({
+      actions: ["send", "edit", "delete", "react"],
+      capabilities: ["media", "replyTo", "reactions"],
+    });
+    expect(beeperChannelPlugin.actions.extractToolSend({
+      args: { action: "send", threadId: "$thread", to: "beeper:!room" },
+    })).toEqual({ threadId: "$thread", to: "beeper:!room" });
+    expect(beeperChannelPlugin.agentPrompt).toEqual(expect.objectContaining({
+      inboundFormattingHints: expect.any(Function),
+      messageToolCapabilities: expect.any(Function),
+      reactionGuidance: expect.any(Function),
+    }));
     expect(beeperChannelPlugin.config).toEqual(expect.objectContaining({
       describeAccount: expect.any(Function),
       hasConfiguredState: expect.any(Function),
@@ -533,6 +637,96 @@ describe("OpenClaw Beeper setup surface", () => {
       nonFederatedRooms: false,
       registrationUrl: "http://bridge",
     });
+  });
+
+  it("routes OpenClaw message actions through the active Beeper runtime", async () => {
+    const client = {
+      appservice: { sendMessage: vi.fn(async () => ({ eventId: "$as" })) },
+      messages: {
+        edit: vi.fn(async () => ({ eventId: "$edit" })),
+        redact: vi.fn(async () => undefined),
+        send: vi.fn(async () => ({ eventId: "$send" })),
+        sendMedia: vi.fn(async () => ({ eventId: "$media" })),
+      },
+      reactions: {
+        redact: vi.fn(async () => undefined),
+        send: vi.fn(async () => ({ eventId: "$reaction" })),
+      },
+      typing: { set: vi.fn(async () => undefined) },
+    };
+    setBeeperChannelRuntime(new BeeperChannelRuntime({
+      client: client as never,
+      getAgents: () => [{
+        avatarMxc: "mxc://avatar",
+        description: "Helpful coding agent",
+        agentId: "codex",
+        displayName: "Codex",
+        ghostUserId: "@codex:example",
+      }],
+    }));
+
+    await expect(beeperChannelPlugin.actions.handleAction({
+      action: "send",
+      params: { message: "hello", replyTo: "$parent", to: "!room" },
+    })).resolves.toEqual({ content: [{ type: "text", text: "Sent Beeper message $send" }] });
+    expect(client.messages.send).toHaveBeenCalledWith({
+      content: { body: "hello", msgtype: "m.text" },
+      replyTo: "$parent",
+      roomId: "!room",
+      text: "hello",
+    });
+
+    await beeperChannelPlugin.actions.handleAction({
+      action: "send",
+      mediaReadFile: async () => Buffer.from("file"),
+      params: { mediaUrl: "/tmp/a.txt", text: "caption", to: "!room" },
+    });
+    expect(client.messages.sendMedia).toHaveBeenCalledWith({
+      bytes: Buffer.from("file"),
+      caption: "caption",
+      filename: "a.txt",
+      kind: "file",
+      roomId: "!room",
+    });
+
+    await beeperChannelPlugin.actions.handleAction({
+      action: "edit",
+      params: { eventId: "$event", text: "updated", to: "!room" },
+    });
+    expect(client.messages.edit).toHaveBeenCalledWith({ eventId: "$event", roomId: "!room", text: "updated" });
+
+    await beeperChannelPlugin.actions.handleAction({
+      action: "react",
+      params: { eventId: "$event", key: "+1", to: "!room" },
+    });
+    expect(client.reactions.send).toHaveBeenCalledWith({ eventId: "$event", key: "+1", roomId: "!room" });
+
+    await beeperChannelPlugin.actions.handleAction({
+      action: "delete",
+      params: { eventId: "$event", reason: "cleanup", to: "!room" },
+    });
+    expect(client.messages.redact).toHaveBeenCalledWith({ eventId: "$event", reason: "cleanup", roomId: "!room" });
+
+    await beeperChannelPlugin.heartbeat.sendTyping({ to: "!room" });
+    expect(client.typing.set).toHaveBeenCalledWith({ roomId: "!room", typing: true });
+
+    await expect(beeperChannelPlugin.directory.listPeersLive({
+      cfg: {} as OpenClawSetupConfig,
+    })).resolves.toEqual([{
+      avatarUrl: "mxc://avatar",
+      description: "Helpful coding agent",
+      handle: "codex",
+      id: "codex",
+      kind: "user",
+      name: "Codex",
+      raw: {
+        avatarMxc: "mxc://avatar",
+        description: "Helpful coding agent",
+        agentId: "codex",
+        displayName: "Codex",
+        ghostUserId: "@codex:example",
+      },
+    }]);
   });
 
   it("reads plugin-entry channel config with channels.beeper taking precedence", () => {

@@ -43,6 +43,10 @@
       "types": "./dist/beeper-setup.d.mts",
       "import": "./dist/beeper-setup.mjs"
     },
+    "./beeper-channel-runtime": {
+      "types": "./dist/beeper-channel-runtime.d.mts",
+      "import": "./dist/beeper-channel-runtime.mjs"
+    },
     "./beeper-stream": {
       "types": "./dist/beeper-stream.d.mts",
       "import": "./dist/beeper-stream.mjs"
@@ -58,6 +62,10 @@
     "./connector": {
       "types": "./dist/connector.d.mts",
       "import": "./dist/connector.mjs"
+    },
+    "./matrix-parser": {
+      "types": "./dist/matrix-parser.d.mts",
+      "import": "./dist/matrix-parser.mjs"
     },
     "./openclaw-event-map": {
       "types": "./dist/openclaw-event-map.d.mts",

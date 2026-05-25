@@ -30,9 +30,15 @@ describe("OpenClaw plugin package metadata", () => {
       expect.objectContaining({
         capabilities: expect.objectContaining({
           reactions: true,
-          threads: true,
+          threads: false,
         }),
         id: "beeper",
+        message: expect.objectContaining({
+          live: expect.objectContaining({
+            capabilities: expect.objectContaining({ nativeStreaming: true }),
+          }),
+        }),
+        messaging: expect.any(Object),
         setup: expect.any(Object),
         setupWizard: expect.any(Object),
       }),

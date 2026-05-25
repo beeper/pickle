@@ -38,6 +38,19 @@ export interface OpenClawHostRuntime {
       upsertSessionEntry?: (options: Record<string, unknown>) => Promise<void> | void;
     };
   };
+  channel?: {
+    reply?: {
+      dispatchReplyWithBufferedBlockDispatcher?: (params: Record<string, unknown>) => Promise<unknown>;
+    };
+    session?: {
+      recordInboundSession?: (params: Record<string, unknown>) => Promise<void> | void;
+      resolveStorePath?: (store?: string, options?: Record<string, unknown>) => string;
+    };
+    turn?: {
+      buildContext?: (params: Record<string, unknown>) => Record<string, unknown>;
+      runAssembled?: (params: Record<string, unknown>) => Promise<unknown>;
+    };
+  };
   call?: <T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions) => Promise<T>;
   config?: {
     current?: () => unknown;
@@ -753,112 +766,427 @@ async function sendSessionInPluginRuntime(
   const runId = `beeper:${randomUUID()}`;
   const cfg = runtime.config?.current?.();
   const runEmbeddedAgent = runtime.agent?.runEmbeddedAgent ?? runtime.agent?.runEmbeddedPiAgent;
-  if (!runEmbeddedAgent) throw new Error("OpenClaw plugin runtime does not expose agent.runEmbeddedAgent");
-  const workspaceDir = await resolvePluginWorkspaceDir(runtime, cfg, agentId);
+  if (!runEmbeddedAgent && !canRunNativeChannelTurn(runtime)) {
+    throw new Error("OpenClaw plugin runtime does not expose channel turn helpers or agent.runEmbeddedAgent");
+  }
   const timeoutMs = options?.timeoutMs ?? numberValue(record.timeoutMs) ?? runtime.agent?.resolveAgentTimeoutMs?.({ cfg }) ?? 48 * 60 * 60 * 1000;
-  localEvents.emit({ event: "run.started", payload: { agentId, runId, sessionId, sessionKey } });
-  let lastPartialText = "";
-  let lastReasoningText = "";
-  void runEmbeddedAgent(stripUndefined({
-    agentId,
-    config: cfg,
-    currentMessageId: stringValue(record.idempotencyKey),
+  queuePluginRun(() => {
+    if (canRunNativeChannelTurn(runtime)) {
+      return runBeeperChannelTurnInPluginRuntime({
+        agentId,
+        cfg,
+        localEvents,
+        message,
+        record,
+        runId,
+        runtime,
+        sessionFile,
+        sessionId,
+        sessionKey,
+        timeoutMs,
+      });
+    }
+    return runEmbeddedAgentInPluginRuntime({
+      agentId,
+      cfg,
+      localEvents,
+      message,
+      record,
+      runEmbeddedAgent: runEmbeddedAgent as (params: Record<string, unknown>) => Promise<unknown>,
+      runId,
+      runtime,
+      sessionFile,
+      sessionId,
+      sessionKey,
+      timeoutMs,
+    });
+  });
+  return { runId, sessionFile, sessionId, sessionKey };
+}
+
+function queuePluginRun(run: () => Promise<void>): void {
+  setTimeout(() => {
+    void run().catch(() => {
+      // The runner emits run.failed with details. This catch keeps the timer
+      // task from surfacing an unhandled rejection in plugin hosts.
+    });
+  }, 0);
+}
+
+function canRunNativeChannelTurn(runtime: OpenClawHostRuntime): boolean {
+  return Boolean(
+    runtime.channel?.turn?.buildContext &&
+      runtime.channel.turn.runAssembled &&
+      runtime.channel.session?.recordInboundSession &&
+      runtime.channel.reply?.dispatchReplyWithBufferedBlockDispatcher,
+  );
+}
+
+async function runBeeperChannelTurnInPluginRuntime(params: {
+  agentId: string;
+  cfg: unknown;
+  localEvents: LocalEventBus;
+  message: string;
+  record: Record<string, unknown>;
+  runId: string;
+  runtime: OpenClawHostRuntime;
+  sessionFile: string;
+  sessionId: string;
+  sessionKey: string;
+  timeoutMs: number;
+}): Promise<void> {
+  const turn = params.runtime.channel?.turn;
+  const channelSession = params.runtime.channel?.session;
+  const channelReply = params.runtime.channel?.reply;
+  if (!turn?.buildContext || !turn.runAssembled || !channelSession?.recordInboundSession || !channelReply?.dispatchReplyWithBufferedBlockDispatcher) {
+    throw new Error("OpenClaw plugin runtime channel turn helpers are incomplete");
+  }
+
+  const sender = recordValue(recordValue(params.record.matrix)?.sender) ?? {};
+  const matrix = recordValue(params.record.matrix) ?? {};
+  const senderId = stringValue(matrix.sender) ?? stringValue(sender.id) ?? "beeper";
+  const roomId = stringValue(recordValue(params.record.matrix)?.roomId) ?? stringValue(params.record.roomId) ?? params.sessionKey;
+  const eventId = stringValue(params.record.idempotencyKey) ?? params.runId;
+  const sessionConfig = recordValue(recordValue(params.cfg)?.session);
+  const storePath = channelSession.resolveStorePath?.(stringValue(sessionConfig?.store), { agentId: params.agentId })
+    ?? path.dirname(params.sessionFile);
+  const ctxPayload = turn.buildContext({
+    channel: "beeper",
+    accountId: "beeper",
+    provider: "beeper",
+    surface: "beeper",
+    messageId: eventId,
+    timestamp: Date.now(),
+    from: senderId,
+    sender: {
+      id: senderId,
+      name: senderId,
+      displayLabel: senderId,
+    },
+    conversation: {
+      kind: "direct",
+      id: roomId,
+      label: roomId,
+      routePeer: {
+        kind: "direct",
+        id: roomId,
+      },
+    },
+    route: {
+      agentId: params.agentId,
+      accountId: "beeper",
+      routeSessionKey: params.sessionKey,
+      dispatchSessionKey: params.sessionKey,
+      createIfMissing: true,
+    },
+    reply: {
+      to: roomId,
+      originatingTo: roomId,
+      nativeChannelId: roomId,
+      replyToId: stringValue(recordValue(matrix.relation)?.replyToEventId) ?? stringValue(recordValue(params.record.replyTo)?.eventId),
+      sourceReplyDeliveryMode: "direct",
+    },
+    message: {
+      body: params.message,
+      rawBody: params.message,
+      bodyForAgent: params.message,
+      commandBody: params.message,
+      envelopeFrom: senderId,
+      senderLabel: senderId,
+      preview: params.message.slice(0, 280),
+    },
+    access: {
+      commands: {
+        authorized: true,
+        allowTextCommands: true,
+        useAccessGroups: false,
+        authorizers: [{ configured: true, allowed: true }],
+      },
+      dm: {
+        decision: "allow",
+        allowFrom: [],
+      },
+      event: {
+        kind: "message",
+        authMode: "none",
+        mayPair: false,
+        authorized: true,
+        hasOriginSubject: true,
+        originSubjectMatched: true,
+      },
+    },
+    supplemental: relationSupplementalContext(matrix),
+    extra: {
+      OpenClawBeeperRunId: params.runId,
+    },
+  });
+
+  const emit = createBeeperReplyEventEmitter(params.localEvents, {
+    agentId: params.agentId,
+    runId: params.runId,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+  });
+  params.localEvents.emit({ event: "run.started", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
+  try {
+    await turn.runAssembled({
+      cfg: params.cfg,
+      channel: "beeper",
+      accountId: "beeper",
+      agentId: params.agentId,
+      routeSessionKey: params.sessionKey,
+      storePath,
+      ctxPayload,
+      recordInboundSession: channelSession.recordInboundSession,
+      dispatchReplyWithBufferedBlockDispatcher: channelReply.dispatchReplyWithBufferedBlockDispatcher,
+      delivery: {
+        deliver: async (payload: unknown) => {
+          emit.textPayload(payload);
+          return { visibleReplySent: true };
+        },
+        onError: (error: unknown) => {
+          params.localEvents.emit({ event: "run.failed", payload: { agentId: params.agentId, error: errorText(error), runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
+        },
+      },
+      replyOptions: {
+        runId: params.runId,
+        timeoutOverrideSeconds: Math.max(1, Math.ceil(params.timeoutMs / 1000)),
+        suppressDefaultToolProgressMessages: true,
+        allowProgressCallbacksWhenSourceDeliverySuppressed: true,
+        onAssistantMessageStart: emit.assistantMessageStart,
+        onBlockReply: emit.textPayload,
+        onBlockReplyQueued: emit.textPayload,
+        onPartialReply: emit.textPayload,
+        onReasoningEnd: emit.reasoningEnd,
+        onReasoningStream: emit.reasoningPayload,
+        onToolStart: emit.toolStart,
+        onToolResult: emit.toolResult,
+        onItemEvent: emit.itemEvent,
+        onPlanUpdate: emit.planUpdate,
+        onApprovalEvent: emit.approvalEvent,
+        onCommandOutput: emit.commandOutput,
+        onPatchSummary: emit.patchSummary,
+        onCompactionStart: () => emit.itemEvent({ kind: "compaction", phase: "start", title: "Compacting context" }),
+        onCompactionEnd: () => emit.itemEvent({ kind: "compaction", phase: "complete", title: "Compacted context" }),
+      },
+      record: {
+        createIfMissing: true,
+        onRecordError: (error: unknown) => {
+          params.localEvents.emit({ event: "session.record.failed", payload: { agentId: params.agentId, error: errorText(error), runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
+        },
+        updateLastRoute: {
+          sessionKey: params.sessionKey,
+          channel: "beeper",
+          to: roomId,
+          accountId: "beeper",
+        },
+      },
+      messageId: eventId,
+    });
+    params.localEvents.emit({ event: "run.completed", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
+  } catch (error) {
+    params.localEvents.emit({ event: "run.failed", payload: { agentId: params.agentId, error: errorText(error), runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
+  }
+}
+
+async function runEmbeddedAgentInPluginRuntime(params: {
+  agentId: string;
+  cfg: unknown;
+  localEvents: LocalEventBus;
+  message: string;
+  record: Record<string, unknown>;
+  runEmbeddedAgent: (params: Record<string, unknown>) => Promise<unknown>;
+  runId: string;
+  runtime: OpenClawHostRuntime;
+  sessionFile: string;
+  sessionId: string;
+  sessionKey: string;
+  timeoutMs: number;
+}): Promise<void> {
+  params.localEvents.emit({ event: "run.started", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
+  const emit = createBeeperReplyEventEmitter(params.localEvents, {
+    agentId: params.agentId,
+    runId: params.runId,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+  });
+  await params.runEmbeddedAgent(stripUndefined({
+    agentId: params.agentId,
+    config: params.cfg,
+    currentMessageId: stringValue(params.record.idempotencyKey),
     messageChannel: "beeper",
     messageProvider: "beeper",
-    prompt: message,
-    runId,
-    sessionFile,
-    sessionId,
-    sessionKey,
-    timeoutMs,
+    prompt: params.message,
+    runId: params.runId,
+    sessionFile: params.sessionFile,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+    timeoutMs: params.timeoutMs,
     trigger: "user",
-    workspaceDir,
-    agentDir: runtime.agent?.resolveAgentDir?.(cfg, agentId),
+    workspaceDir: await resolvePluginWorkspaceDir(params.runtime, params.cfg, params.agentId),
+    agentDir: params.runtime.agent?.resolveAgentDir?.(params.cfg, params.agentId),
     onAgentEvent: (event: OpenClawAgentRuntimeEvent) => {
       const data = recordValue(event.data) ?? {};
-      localEvents.emit(stripUndefined({
+      params.localEvents.emit(stripUndefined({
         event: event.stream,
         payload: stripUndefined({
           ...data,
-          runId: stringValue(data.runId) ?? runId,
-          sessionKey: event.sessionKey ?? stringValue(data.sessionKey) ?? sessionKey,
+          runId: stringValue(data.runId) ?? params.runId,
+          sessionKey: event.sessionKey ?? stringValue(data.sessionKey) ?? params.sessionKey,
         }),
         seq: numberValue(data.seq),
       }));
     },
-    onAssistantMessageStart: () => {
-      lastPartialText = "";
-      localEvents.emit({ event: "assistant.message.start", payload: { agentId, runId, sessionId, sessionKey } });
-    },
-    onBlockReply: (payload: unknown) => {
-      const text = stringValue(recordValue(payload)?.text);
-      if (!text) return;
-      const delta = text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text;
-      lastPartialText = text;
-      if (!delta) return;
-      localEvents.emit({ event: "assistant.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text } });
-    },
-    onBlockReplyQueued: (payload: unknown) => {
-      const text = stringValue(recordValue(payload)?.text);
-      if (!text) return;
-      const delta = text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text;
-      lastPartialText = text;
-      if (!delta) return;
-      localEvents.emit({ event: "assistant.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text } });
-    },
-    onPartialReply: (payload: unknown) => {
-      const text = stringValue(recordValue(payload)?.text);
-      if (!text) return;
-      const explicitDelta = stringValue(recordValue(payload)?.delta);
-      const delta = explicitDelta ?? (text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text);
-      lastPartialText = text;
-      if (!delta) return;
-      localEvents.emit({ event: "assistant.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text } });
-    },
-    onReasoningEnd: () => {
-      localEvents.emit({ event: "thinking.end", payload: { agentId, runId, sessionId, sessionKey } });
-    },
-    onReasoningStream: (payload: unknown) => {
-      const text = stringValue(recordValue(payload)?.text);
-      if (!text) return;
-      const explicitDelta = stringValue(recordValue(payload)?.delta);
-      const delta = explicitDelta ?? (text.startsWith(lastReasoningText) ? text.slice(lastReasoningText.length) : text);
-      lastReasoningText = text;
-      if (!delta) return;
-      localEvents.emit({ event: "thinking.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text } });
-    },
-    onToolResult: (payload: unknown) => {
-      const record = recordValue(payload) ?? {};
-      localEvents.emit({
-        event: "tool.call.completed",
-        payload: stripUndefined({
-          agentId,
-          output: record.text ?? record.content ?? payload,
-          runId,
-          sessionId,
-          sessionKey,
-          toolCallId: stringValue(record.toolCallId) ?? stringValue(record.id) ?? "tool_result",
-          toolName: stringValue(record.toolName) ?? stringValue(record.name),
-        }),
-      });
-    },
+    onAssistantMessageStart: emit.assistantMessageStart,
+    onBlockReply: emit.textPayload,
+    onBlockReplyQueued: emit.textPayload,
+    onPartialReply: emit.textPayload,
+    onReasoningEnd: emit.reasoningEnd,
+    onReasoningStream: emit.reasoningPayload,
+    onToolResult: emit.toolResult,
   })).then(
     (result) => {
-      const finalText = finalTextFromEmbeddedRunResult(result);
-      if (finalText) {
-        const delta = finalText.startsWith(lastPartialText) ? finalText.slice(lastPartialText.length) : finalText;
-        lastPartialText = finalText;
-        if (delta) {
-          localEvents.emit({ event: "assistant.delta", payload: { agentId, delta, runId, sessionId, sessionKey, text: finalText } });
-        }
-      }
-      localEvents.emit({ event: "run.completed", payload: { agentId, runId, sessionId, sessionKey } });
+      emit.finalText(finalTextFromEmbeddedRunResult(result));
+      params.localEvents.emit({ event: "run.completed", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
     },
     (error) => {
-      localEvents.emit({ event: "run.failed", payload: { agentId, error: errorText(error), runId, sessionId, sessionKey } });
+      params.localEvents.emit({ event: "run.failed", payload: { agentId: params.agentId, error: errorText(error), runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
     },
   );
-  return { runId, sessionFile, sessionId, sessionKey };
+}
+
+function createBeeperReplyEventEmitter(localEvents: LocalEventBus, base: {
+  agentId: string;
+  runId: string;
+  sessionId: string;
+  sessionKey: string;
+}) {
+  let lastPartialText = "";
+  let lastReasoningText = "";
+  const emit = (event: string, payload: Record<string, unknown>) => {
+    localEvents.emit({ event, payload: stripUndefined({ ...base, ...payload }) });
+  };
+  const textPayload = (payload: unknown) => {
+    const text = stringValue(recordValue(payload)?.text);
+    if (!text) return;
+    const explicitDelta = stringValue(recordValue(payload)?.delta);
+    const delta = explicitDelta ?? (text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text);
+    lastPartialText = text;
+    if (delta) emit("assistant.delta", { delta, text });
+  };
+  const reasoningPayload = (payload: unknown) => {
+    const text = stringValue(recordValue(payload)?.text);
+    if (!text) return;
+    const explicitDelta = stringValue(recordValue(payload)?.delta);
+    const delta = explicitDelta ?? (text.startsWith(lastReasoningText) ? text.slice(lastReasoningText.length) : text);
+    lastReasoningText = text;
+    if (delta) emit("thinking.delta", { delta, text });
+  };
+  const toolIdFor = (payload: Record<string, unknown>, fallback: string) =>
+    stringValue(payload.toolCallId) ?? stringValue(payload.itemId) ?? stringValue(payload.approvalId) ?? fallback;
+  return {
+    assistantMessageStart: () => {
+      lastPartialText = "";
+      emit("assistant.message.start", {});
+    },
+    finalText: (text: string | undefined) => {
+      if (!text) return;
+      textPayload({ text });
+    },
+    reasoningEnd: () => emit("thinking.end", {}),
+    reasoningPayload,
+    textPayload,
+    toolStart: (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      emit("tool.call.started", {
+        args: data.args,
+        input: data.args,
+        phase: stringValue(data.phase),
+        toolCallId: toolIdFor(data, `tool:${stringValue(data.name) ?? "tool"}`),
+        toolName: stringValue(data.name),
+      });
+    },
+    toolResult: (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      emit("tool.call.completed", {
+        output: data.text ?? data.content ?? payload,
+        toolCallId: toolIdFor(data, "tool_result"),
+        toolName: stringValue(data.toolName) ?? stringValue(data.name),
+      });
+    },
+    itemEvent: (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      emit("tool.call.delta", {
+        delta: stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.status) ?? stringValue(data.phase),
+        inputTextDelta: stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.status) ?? stringValue(data.phase),
+        toolCallId: toolIdFor(data, `item:${stringValue(data.name) ?? stringValue(data.kind) ?? "work"}`),
+        toolName: stringValue(data.name) ?? stringValue(data.kind),
+      });
+    },
+    planUpdate: (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      emit("tool.call.delta", {
+        delta: stringValue(data.title) ?? stringValue(data.explanation) ?? stringValue(data.phase),
+        inputTextDelta: stringValue(data.title) ?? stringValue(data.explanation) ?? stringValue(data.phase),
+        toolCallId: "plan",
+        toolName: "plan",
+      });
+    },
+    approvalEvent: (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      const phase = stringValue(data.phase);
+      if (phase === "requested") {
+        emit("approval.requested", {
+          approvalId: stringValue(data.approvalId) ?? stringValue(data.approvalSlug),
+          message: stringValue(data.message) ?? stringValue(data.reason) ?? stringValue(data.title),
+          toolCallId: stringValue(data.toolCallId) ?? stringValue(data.itemId),
+          toolName: stringValue(data.kind) ?? stringValue(data.command),
+        });
+        return;
+      }
+      if (phase === "resolved" || phase === "complete" || stringValue(data.status)) {
+        emit("approval.resolved", {
+          approvalId: stringValue(data.approvalId) ?? stringValue(data.approvalSlug),
+          approved: stringValue(data.status) === "approved" || stringValue(data.status) === "allow",
+          decision: stringValue(data.status),
+          toolCallId: stringValue(data.toolCallId) ?? stringValue(data.itemId),
+        });
+      }
+    },
+    commandOutput: (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      const complete = stringValue(data.phase) === "complete" || stringValue(data.status) === "complete";
+      emit("tool.call.completed", {
+        output: stringValue(data.output) ?? data,
+        preliminary: !complete,
+        toolCallId: toolIdFor(data, `command:${stringValue(data.name) ?? "output"}`),
+        toolName: stringValue(data.name) ?? stringValue(data.title) ?? "command",
+      });
+    },
+    patchSummary: (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      emit("tool.call.completed", {
+        output: data.summary ?? data,
+        toolCallId: toolIdFor(data, "patch"),
+        toolName: stringValue(data.name) ?? "patch",
+      });
+    },
+  };
+}
+
+function relationSupplementalContext(matrix: Record<string, unknown>): Record<string, unknown> | undefined {
+  const relation = recordValue(matrix.relation);
+  const quote = recordValue(relation?.quote);
+  if (!quote) return undefined;
+  return {
+    quote: stripUndefined({
+      id: stringValue(relation?.replyToEventId) ?? stringValue(relation?.targetEventId),
+      body: stringValue(quote.body),
+      sender: stringValue(quote.sender),
+      senderAllowed: true,
+      isQuote: true,
+    }),
+  };
 }
 
 function finalTextFromEmbeddedRunResult(result: unknown): string | undefined {

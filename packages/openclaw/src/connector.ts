@@ -37,9 +37,11 @@ import {
 } from "@beeper/pickle-bridge";
 import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions } from "./backfill";
 import { parseApprovalResponseContent } from "./approval";
+import { BeeperChannelRuntime, setBeeperChannelRuntime } from "./beeper-channel-runtime";
 import { OpenClawBeeperStreamPublisher } from "./beeper-stream";
 import { agentPortalSessionKey, OpenClawMatrixBridgeAgent, type OpenClawBridgeStreamPublisher } from "./bridge-agent";
 import { createDefaultConfig } from "./config";
+import { parseMatrixTextMessage, type ParsedMatrixTextMessage } from "./matrix-parser";
 import { createOpenClawHostTransport, OpenClawGatewayRuntime, type OpenClawHostRuntime, type OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 import { agentContactFromOpenClawAgent, agentGhostUserId, serviceBotUserId } from "./rooms";
@@ -134,6 +136,12 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
     const ownUserId = ctx.bridge.getOwnUserId();
     if (ownUserId) streamOptions.userId = ownUserId;
     this.#streams ??= new OpenClawBeeperStreamPublisher(streamOptions);
+    setBeeperChannelRuntime(new BeeperChannelRuntime({
+      client: ctx.client,
+      getAgents: () => this.registry.data.agents,
+      log: (level, message, data) => ctx.log(level, message, data),
+      ...(ownUserId ? { userId: ownUserId } : {}),
+    }));
   }
 
   async start(ctx: BridgeContext): Promise<void> {
@@ -180,6 +188,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     this.#registry = options.registry;
     this.#runtime = options.runtime;
     this.#agent = new OpenClawMatrixBridgeAgent({
+      backgroundStreaming: true,
       registry: options.registry,
       runtime: options.runtime,
       streams: options.streams,
@@ -220,7 +229,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     const contact = findAgentContact(this.#registry.data.agents, params.identifier);
     if (!contact) return {};
     let portal = params.createDM
-      ? existingAgentPortal(this.#registry.getBindingBySessionKey(agentPortalSessionKey(contact.agentId)), this.#login.id) ?? portalForAgent(contact, this.#login.id)
+      ? await this.createSessionPortalForAgent(ctx, contact)
       : undefined;
     if (portal && params.createDM && !portal.mxid) {
       const portalOptions: Parameters<typeof ctx.bridge.createPortal>[1] = {
@@ -639,6 +648,15 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
       label: labelParts.join(" ") || "Beeper",
     };
   }
+
+  private async createSessionPortalForAgent(
+    _ctx: BridgeRequestContext,
+    contact: OpenClawAgentContact,
+    label = contact.displayName,
+  ): Promise<Portal> {
+    const session = await this.#runtime.createSession({ agentId: contact.agentId, label });
+    return portalForAgentSession(contact, this.#login.id, session.key, label);
+  }
 }
 
 function commandNotice(ctx: BridgeRequestContext, login: UserLogin, msg: MatrixMessage, text: string): MatrixMessageResponse {
@@ -770,16 +788,22 @@ function matrixMetadataFromParsed(
   return metadata;
 }
 
-function portalForAgent(contact: OpenClawAgentContact, receiver: string): Portal {
-  const id = `agent:${contact.agentId}`;
+function portalForAgentSession(
+  contact: OpenClawAgentContact,
+  receiver: string,
+  sessionKey: string,
+  label?: string,
+): Portal {
+  const id = portalIdForSession(sessionKey);
   return {
     id,
     metadata: {
-      openclaw: {
+      openclaw: stripUndefined({
         agentId: contact.agentId,
         ghostUserId: contact.ghostUserId,
-        sessionKey: agentPortalSessionKey(contact.agentId),
-      },
+        ...(label ? { label } : {}),
+        sessionKey,
+      }),
     },
     portalKey: { id, receiver },
     receiver,
@@ -795,25 +819,6 @@ function findAgentContact(contacts: readonly OpenClawAgentContact[], identifier:
     contact.ghostUserId.toLowerCase() === normalized ||
     contact.displayName.toLowerCase() === normalized
   );
-}
-
-function existingAgentPortal(binding: OpenClawSessionBinding | undefined, receiver: string): Portal | undefined {
-  if (!binding) return undefined;
-  if (!binding.roomId) return undefined;
-  return {
-    id: `agent:${binding.agentId}`,
-    metadata: {
-      openclaw: {
-        agentId: binding.agentId,
-        ghostUserId: binding.ghostUserId,
-        sessionKey: binding.sessionKey,
-      },
-    },
-    mxid: binding.roomId,
-    portalKey: { id: `agent:${binding.agentId}`, receiver },
-    receiver,
-    roomType: "dm",
-  };
 }
 
 function portalIdForSession(sessionKey: string): string {
@@ -855,13 +860,15 @@ function bindingFromPortal(portal: Portal, config: OpenClawBridgeConfig): OpenCl
   const ghostUserId = stringValue(openclaw?.ghostUserId) ?? (agentId ? agentGhostUserId(config, agentId) : undefined);
   if (!roomId || !agentId || !sessionKey || !ghostUserId) return undefined;
   const now = Date.now();
+  const label = stringValue(openclaw?.label);
   return {
     agentId,
     createdAt: now,
     ghostUserId,
     id: Buffer.from(roomId).toString("base64url"),
     kind: "session",
-    owner: portalId.startsWith("session:") ? "imported" : "bridge",
+    ...(label ? { label } : {}),
+    owner: openclaw ? "bridge" : "imported",
     roomId,
     sessionKey,
     updatedAt: now,
@@ -965,159 +972,7 @@ function senderUserId(sender: unknown): string | undefined {
   return stringValue(recordValue(sender)?.userId);
 }
 
-export interface ParsedMatrixTextMessage {
-  attachments: unknown[];
-  command?: {
-    args: string;
-    name: string;
-  };
-  formattedBody?: string;
-  mentions?: { room?: boolean; userIds?: string[] };
-  replyQuote?: {
-    body?: string;
-    sender?: string;
-  };
-  replyToEventId?: string;
-  text: string;
-  threadRootEventId?: string;
-}
-
-export function parseMatrixTextMessage(text: string, content: unknown, msg?: Pick<MatrixMessage, "attachments" | "event" | "replyTo" | "threadRoot">): ParsedMatrixTextMessage {
-  const contentRecord = recordValue(content);
-  const newContent = recordValue(contentRecord?.["m.new_content"]);
-  const messageContent = newContent ?? contentRecord;
-  const relates = recordValue(contentRecord?.["m.relates_to"]);
-  const effectiveText = stringValue(messageContent?.body) ?? text;
-  const replyToEventId =
-    stringValue(msg?.replyTo?.id) ??
-    stringValue(msg?.event.replyTo) ??
-    stringValue(recordValue(relates?.["m.in_reply_to"])?.event_id) ??
-    (relates?.rel_type === "m.thread" ? stringValue(relates.event_id) : undefined);
-  const threadRootEventId = stringValue(msg?.threadRoot?.id) ?? stringValue(msg?.event.threadRoot) ?? (relates?.rel_type === "m.thread" ? stringValue(relates.event_id) : undefined);
-  const fallback = extractMatrixReplyFallback(effectiveText);
-  const body = fallback.body;
-  const command = parseSlashCommand(body) ?? parseSlashCommand(stripLeadingMatrixMention(body));
-  const formattedBody = stripMatrixHtmlReplyFallback(stringValue(messageContent?.formatted_body) ?? stringValue(msg?.event.html));
-  const mentions = normalizeMentions(messageContent?.["m.mentions"] ?? contentRecord?.["m.mentions"] ?? msg?.event.mentions);
-  const attachments = normalizeMatrixAttachments(msg?.attachments ?? msg?.event.attachments ?? [], messageContent ?? content);
-  return {
-    attachments,
-    ...(command ? { command } : {}),
-    ...(formattedBody ? { formattedBody } : {}),
-    ...(mentions ? { mentions } : {}),
-    ...(fallback.quote ? { replyQuote: fallback.quote } : {}),
-    ...(replyToEventId ? { replyToEventId } : {}),
-    text: body,
-    ...(threadRootEventId ? { threadRootEventId } : {}),
-  };
-}
-
-function stripMatrixHtmlReplyFallback(html: string | undefined): string | undefined {
-  if (!html) return undefined;
-  const stripped = html.replace(/^\s*<mx-reply>[\s\S]*?<\/mx-reply>\s*/iu, "").trim();
-  return stripped || undefined;
-}
-
-function normalizeMatrixAttachments(attachments: unknown[], content: unknown): unknown[] {
-  const normalized: unknown[] = attachments.flatMap((attachment) => {
-    const record = recordValue(attachment);
-    if (!record) return [];
-    return [stripUndefined({
-      contentType: record.contentType,
-      contentUri: record.contentUri,
-      duration: record.duration,
-      encryptedFile: record.encryptedFile,
-      filename: record.filename,
-      height: record.height,
-      kind: record.kind,
-      size: record.size,
-      width: record.width,
-    })];
-  });
-  const contentUri = stringValue(recordValue(content)?.url);
-  if (normalized.length === 0 && contentUri) {
-    normalized.push(stripUndefined({
-      contentUri,
-      filename: stringValue(recordValue(content)?.filename) ?? stringValue(recordValue(content)?.body),
-      kind: matrixAttachmentKind(stringValue(recordValue(content)?.msgtype)),
-    }));
-  }
-  return normalized;
-}
-
-function matrixAttachmentKind(msgtype: string | undefined): string | undefined {
-  switch (msgtype) {
-    case "m.image":
-      return "image";
-    case "m.video":
-      return "video";
-    case "m.audio":
-      return "audio";
-    case "m.file":
-      return "file";
-    default:
-      return undefined;
-  }
-}
-
-function normalizeMentions(value: unknown): ParsedMatrixTextMessage["mentions"] | undefined {
-  const record = recordValue(value);
-  if (!record) return undefined;
-  const mentions: { room?: boolean; userIds?: string[] } = {};
-  if (record.room === true) mentions.room = true;
-  if (Array.isArray(record.user_ids)) mentions.userIds = record.user_ids.filter((item): item is string => typeof item === "string");
-  if (Array.isArray(record.userIds)) mentions.userIds = record.userIds.filter((item): item is string => typeof item === "string");
-  return mentions.room || mentions.userIds?.length ? mentions : undefined;
-}
-
-function extractMatrixReplyFallback(text: string): {
-  body: string;
-  quote?: {
-    body?: string;
-    sender?: string;
-  };
-} {
-  const lines = text.replace(/\r\n?/gu, "\n").split("\n");
-  let index = 0;
-  while (index < lines.length && lines[index]?.startsWith(">")) index += 1;
-  const quotedLines = lines.slice(0, index).map((line) => line.replace(/^>\s?/u, ""));
-  if (index > 0 && lines[index] === "") index += 1;
-  const body = lines.slice(index).join("\n").trim();
-  const quote = parseMatrixReplyQuote(quotedLines);
-  return {
-    body,
-    ...(quote ? { quote } : {}),
-  };
-}
-
-function parseMatrixReplyQuote(lines: string[]): { body?: string; sender?: string } | undefined {
-  const text = lines.join("\n").trim();
-  if (!text) return undefined;
-  const firstLine = lines[0]?.trim() ?? "";
-  const senderMatch = /^<([^>]+)>\s?(.*)$/su.exec(firstLine);
-  const sender = senderMatch?.[1]?.trim();
-  const firstBody = senderMatch?.[2] ?? firstLine;
-  const rest = lines.slice(1);
-  const body = [firstBody, ...rest].join("\n").trim();
-  return stripUndefined({
-    ...(body ? { body } : {}),
-    ...(sender ? { sender } : {}),
-  });
-}
-
-function parseSlashCommand(text: string): ParsedMatrixTextMessage["command"] | undefined {
-  if (!text.startsWith("/") || text.startsWith("//")) return undefined;
-  const match = /^\/([A-Za-z][\w-]*)(?:\s+(.*))?$/su.exec(text.trim());
-  if (!match) return undefined;
-  return {
-    args: match[2] ?? "",
-    name: match[1]!.toLowerCase(),
-  };
-}
-
-function stripLeadingMatrixMention(text: string): string {
-  return text.trimStart().replace(/^@[^\s:]+(?::[^\s]+)?\s+/u, "");
-}
+export { parseMatrixTextMessage, type ParsedMatrixTextMessage } from "./matrix-parser";
 
 function stripUndefined<T extends Record<string, unknown>>(input: T): T {
   for (const key of Object.keys(input)) {

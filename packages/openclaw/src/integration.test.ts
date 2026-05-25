@@ -290,15 +290,15 @@ describe("OpenClaw bridge integration", () => {
       type: "username",
     });
     expect(resolved.portal).toMatchObject({
-      id: "agent:codex",
+      id: "session:c2Vzc2lvbl8x",
       mxid: "!created:example",
-      portalKey: { id: "agent:codex", receiver: login.id },
+      portalKey: { id: "session:c2Vzc2lvbl8x", receiver: login.id },
     });
     expect(client.appservice.createPortalRoom).toHaveBeenCalledWith(expect.objectContaining({
       creationContent: { "m.federate": false },
       isDirect: true,
       name: "Codex",
-      portalKey: { id: "agent:codex", receiver: login.id },
+      portalKey: { id: "session:c2Vzc2lvbl8x", receiver: login.id },
       roomType: "dm",
     }));
 
@@ -323,11 +323,11 @@ describe("OpenClaw bridge integration", () => {
       streamType: "com.beeper.llm",
       userId: "@openclawbot:example",
     }));
-    expect(client.beeper.streams.publishPart).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(client.beeper.streams.publishPart).toHaveBeenCalledWith(expect.objectContaining({
       part: expect.objectContaining({ type: "CUSTOM" }),
       roomId: "!created:example",
       turnId: expect.any(String),
-    }));
+    })));
     expect(client.beeper.streams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       content: expect.objectContaining({
         "com.beeper.ai": expect.objectContaining({

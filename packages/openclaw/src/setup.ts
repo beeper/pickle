@@ -1,5 +1,6 @@
 import { createConfigFromOpenClawSetup, DEFAULT_REGISTRATION_URL, defaultDataDir } from "./config";
 import type { setupOpenClawBeeperBridge, SetupOpenClawBeeperBridgeOptions } from "./beeper-setup";
+import { requireBeeperChannelRuntime } from "./beeper-channel-runtime";
 import type { OpenClawHostRuntime } from "./openclaw-runtime";
 
 export type OpenClawSetupConfig = {
@@ -184,6 +185,410 @@ export const BeeperChannelUiHints = {
     label: "Homeserver Token",
     sensitive: true,
   },
+} as const;
+
+export const beeperMessageAdapter = {
+  id: BEEPER_CHANNEL_ID,
+  durableFinal: {
+    capabilities: {
+      media: true,
+      messageSendingHooks: true,
+      replyTo: true,
+      text: true,
+      thread: true,
+    },
+  },
+  live: {
+    capabilities: {
+      nativeStreaming: true,
+      previewFinalization: true,
+      progressUpdates: true,
+      quietFinalization: true,
+    },
+    finalizer: {
+      capabilities: {
+        finalEdit: true,
+        normalFallback: true,
+        previewReceipt: true,
+        retainOnAmbiguousFailure: true,
+      },
+    },
+  },
+  receive: {
+    defaultAckPolicy: "after_agent_dispatch",
+    supportedAckPolicies: ["after_receive_record", "after_agent_dispatch"],
+  },
+  send: {
+    text: async (ctx: {
+      cfg: OpenClawSetupConfig;
+      to: string;
+      text: string;
+      replyToId?: string | null;
+      threadId?: string | number | null;
+    }) => beeperMessageSendResult(await beeperOutboundAdapter.sendText(ctx)),
+    media: async (ctx: {
+      cfg: OpenClawSetupConfig;
+      to: string;
+      text?: string;
+      mediaUrl?: string;
+      mediaReadFile?: (filePath: string) => Promise<Buffer>;
+      replyToId?: string | null;
+      threadId?: string | number | null;
+    }) => beeperMessageSendResult(await beeperOutboundAdapter.sendMedia(ctx)),
+    payload: async (ctx: {
+      cfg: OpenClawSetupConfig;
+      to: string;
+      text?: string;
+      mediaUrl?: string;
+      mediaReadFile?: (filePath: string) => Promise<Buffer>;
+      payload?: unknown;
+      replyToId?: string | null;
+      threadId?: string | number | null;
+    }) => beeperMessageSendResult(await beeperOutboundAdapter.sendPayload(ctx)),
+  },
+} as const;
+
+export const beeperOutboundAdapter = {
+  deliveryMode: "direct",
+  sendText: async (ctx: {
+    to: string;
+    text: string;
+    replyToId?: string | null;
+    threadId?: string | number | null;
+  }) => {
+    const runtime = requireBeeperChannelRuntime();
+    const sent = await runtime.sendText({
+      roomId: resolveBeeperRoomTarget(ctx.to),
+      text: ctx.text,
+      ...(ctx.replyToId ? { replyToId: ctx.replyToId } : {}),
+      ...(ctx.threadId != null ? { threadRoot: ctx.threadId } : {}),
+    });
+    return beeperOutboundResult(sent);
+  },
+  sendMedia: async (ctx: {
+    to: string;
+    text?: string;
+    mediaUrl?: string;
+    mediaReadFile?: (filePath: string) => Promise<Buffer>;
+    threadId?: string | number | null;
+  }) => {
+    const runtime = requireBeeperChannelRuntime();
+    const mediaUrl = ctx.mediaUrl?.trim();
+    if (!mediaUrl) {
+      return await beeperOutboundAdapter.sendText({
+        to: ctx.to,
+        text: ctx.text ?? "",
+        ...(ctx.threadId != null ? { threadId: ctx.threadId } : {}),
+      });
+    }
+    const bytes = ctx.mediaReadFile ? await ctx.mediaReadFile(mediaUrl) : undefined;
+    const filename = mediaUrl.split("/").pop();
+    const mediaOptions = {
+      roomId: resolveBeeperRoomTarget(ctx.to),
+      ...(bytes !== undefined ? { bytes } : {}),
+      ...(ctx.text !== undefined ? { caption: ctx.text } : {}),
+      ...(filename ? { filename } : {}),
+      ...(bytes === undefined ? { path: mediaUrl } : {}),
+      ...(ctx.threadId != null ? { threadRoot: String(ctx.threadId) } : {}),
+    };
+    const sent = await runtime.sendMedia(mediaOptions);
+    return beeperOutboundResult(sent);
+  },
+  sendPayload: async (ctx: {
+    to: string;
+    text?: string;
+    mediaUrl?: string;
+    mediaReadFile?: (filePath: string) => Promise<Buffer>;
+    payload?: unknown;
+    replyToId?: string | null;
+    threadId?: string | number | null;
+  }) => {
+    const mediaUrl = ctx.mediaUrl ?? firstPayloadMediaUrl(ctx.payload);
+    const text = ctx.text ?? firstPayloadText(ctx.payload) ?? "";
+    if (mediaUrl) {
+      return await beeperOutboundAdapter.sendMedia({
+        mediaUrl,
+        text,
+        to: ctx.to,
+        ...(ctx.mediaReadFile !== undefined ? { mediaReadFile: ctx.mediaReadFile } : {}),
+        ...(ctx.threadId != null ? { threadId: ctx.threadId } : {}),
+      });
+    }
+    return await beeperOutboundAdapter.sendText({
+      text,
+      to: ctx.to,
+      ...(ctx.replyToId ? { replyToId: ctx.replyToId } : {}),
+      ...(ctx.threadId != null ? { threadId: ctx.threadId } : {}),
+    });
+  },
+} as const;
+
+export const beeperMessagingAdapter = {
+  defaultMarkdownTableMode: "bullets",
+  targetPrefixes: ["beeper", "agent", "openclaw"],
+  normalizeTarget: normalizeBeeperMessagingTarget,
+  resolveInboundConversation: ({ to, conversationId, threadId }: {
+    to?: string;
+    conversationId?: string;
+    threadId?: string | number;
+    isGroup: boolean;
+  }) => {
+    const id = normalizeBeeperConversationId(conversationId ?? to);
+    if (!id) return null;
+    return stripUndefined({
+      conversationId: id,
+      ...(threadId !== undefined ? { parentConversationId: id } : {}),
+    });
+  },
+  resolveDeliveryTarget: ({ conversationId }: { conversationId: string; parentConversationId?: string }) => ({
+    to: normalizeBeeperConversationId(conversationId) ?? conversationId,
+  }),
+  resolveSessionConversation: ({ kind, rawId }: { kind: "group" | "channel"; rawId: string }) =>
+    kind === "channel"
+      ? {
+          baseConversationId: normalizeBeeperConversationId(rawId) ?? rawId,
+          id: normalizeBeeperConversationId(rawId) ?? rawId,
+          parentConversationCandidates: [normalizeBeeperConversationId(rawId) ?? rawId],
+        }
+      : null,
+  resolveSessionTarget: ({ id }: { kind: "group" | "channel"; id: string }) => `beeper:${id}`,
+  inferTargetChatType: () => "direct",
+  formatTargetDisplay: ({ target, display }: { target: string; display?: string }) =>
+    display?.trim() || formatBeeperTargetDisplay(target),
+  resolveOutboundSessionRoute: (params: {
+    cfg: OpenClawSetupConfig;
+    agentId: string;
+    accountId?: string | null;
+    target: string;
+    resolvedTarget?: { to?: string };
+  }) => {
+    const target = normalizeBeeperMessagingTarget(params.resolvedTarget?.to ?? params.target);
+    if (!target) return null;
+    const sessionKey = [
+      "agent",
+      params.agentId,
+      BEEPER_CHANNEL_ID,
+      params.accountId ?? "default",
+      "direct",
+      target,
+    ].join(":");
+    return {
+      baseSessionKey: sessionKey,
+      chatType: "direct",
+      from: `beeper:${target}`,
+      peer: { kind: "direct", id: target },
+      sessionKey,
+      to: `beeper:${target}`,
+    };
+  },
+  targetResolver: {
+    hint: "<agent-id|@agent-mxid|room-id>",
+    looksLikeId: (value: string) => Boolean(normalizeBeeperMessagingTarget(value)),
+    resolveTarget: async ({ input, normalized }: { input: string; normalized: string }) => {
+      const target = normalizeBeeperMessagingTarget(normalized) ?? normalizeBeeperMessagingTarget(input);
+      return target
+        ? {
+            display: formatBeeperTargetDisplay(target),
+            kind: "user" as const,
+            source: "normalized" as const,
+            to: target,
+          }
+        : null;
+    },
+  },
+} as const;
+
+export const beeperConversationBindings = {
+  supportsCurrentConversationBinding: true,
+  defaultTopLevelPlacement: "current",
+  resolveConversationRef: ({ conversationId, parentConversationId }: {
+    accountId?: string | null;
+    conversationId: string;
+    parentConversationId?: string;
+    threadId?: string | number | null;
+  }) => stripUndefined({
+    conversationId: normalizeBeeperConversationId(conversationId) ?? conversationId,
+    ...(parentConversationId ? { parentConversationId } : {}),
+  }),
+  buildBoundReplyPayload: ({ operation, conversation }: {
+    operation: "acp-spawn";
+    placement: "current" | "child";
+    conversation: { channel: string; accountId?: string | null; conversationId: string; parentConversationId?: string };
+  }) => operation === "acp-spawn"
+    ? {
+        channelData: {
+          beeper: {
+            conversationId: conversation.conversationId,
+            kind: "agent_dm",
+          },
+        },
+      }
+    : null,
+} as const;
+
+export const beeperDirectoryAdapter = {
+  listPeers: async ({ cfg, query, limit }: {
+    cfg: OpenClawSetupConfig;
+    query?: string | null;
+    limit?: number | null;
+  }) => listLiveOrConfiguredAgentDirectoryEntries(cfg, query, limit),
+  listPeersLive: async ({ cfg, query, limit }: {
+    cfg: OpenClawSetupConfig;
+    query?: string | null;
+    limit?: number | null;
+  }) => listLiveOrConfiguredAgentDirectoryEntries(cfg, query, limit),
+  listGroups: async () => [],
+} as const;
+
+export const beeperResolverAdapter = {
+  resolveTargets: async ({ cfg, inputs, kind }: {
+    cfg: OpenClawSetupConfig;
+    accountId?: string | null;
+    inputs: string[];
+    kind: "user" | "group";
+  }) => {
+    if (kind === "group") {
+      return inputs.map((input) => ({
+        input,
+        note: "Beeper OpenClaw v1 supports agent DMs only.",
+        resolved: false as const,
+      }));
+    }
+    const peers = await beeperDirectoryAdapter.listPeers({ cfg });
+    return inputs.map((input) => {
+      const target = normalizeBeeperMessagingTarget(input);
+      if (!target) return { input, resolved: false as const };
+      const directoryHit = peers.find((peer) =>
+        peer.id.toLowerCase() === target.toLowerCase() ||
+        peer.handle?.toLowerCase() === target.toLowerCase() ||
+        peer.name?.toLowerCase() === target.toLowerCase()
+      );
+      return {
+        id: directoryHit?.id ?? target,
+        input,
+        name: directoryHit?.name ?? formatBeeperTargetDisplay(target),
+        resolved: true as const,
+      };
+    });
+  },
+} as const;
+
+export const beeperHeartbeatAdapter = {
+  sendTyping: async ({ to }: { to: string }) => {
+    await requireBeeperChannelRuntime().typing({ roomId: resolveBeeperRoomTarget(to) });
+  },
+  clearTyping: async ({ to }: { to: string }) => {
+    await requireBeeperChannelRuntime().typing({ roomId: resolveBeeperRoomTarget(to), typing: false });
+  },
+} as const;
+
+export const beeperApprovalCapability = {
+  initiatingSurface: {
+    exec: () => ({ kind: "enabled" }),
+    plugin: () => ({ kind: "enabled" }),
+  },
+  render: {
+    exec: {
+      buildPendingPayload: ({ request, nowMs }: { request: { id?: string; approvalId?: string; command?: string }; nowMs: number }) => ({
+        body: `Approval requested: ${request.command ?? request.id ?? request.approvalId ?? "OpenClaw tool call"}`,
+        channelData: {
+          beeper: {
+            approvalId: request.approvalId ?? request.id,
+            createdAt: nowMs,
+            kind: "exec",
+          },
+        },
+      }),
+    },
+  },
+} as const;
+
+export const beeperMessageActions = {
+  resolveExecutionMode: () => "gateway",
+  describeMessageTool: () => ({
+    actions: ["send", "edit", "delete", "react"],
+    capabilities: ["media", "replyTo", "reactions"],
+  }),
+  supportsAction: ({ action }: { action: string }) =>
+    action === "send" || action === "edit" || action === "delete" || action === "react",
+  extractToolSend: ({ args }: { args: Record<string, unknown> }) => {
+    const action = stringValue(args.action)?.trim();
+    if (action !== "send" && action !== "sendMessage") return null;
+    const to = stringValue(args.to);
+    if (!to) return null;
+    const accountId = stringValue(args.accountId);
+    const threadId = stringValue(args.threadId);
+    return stripUndefined({ accountId, threadId, to });
+  },
+  handleAction: async (ctx: { action: string; params: Record<string, unknown>; mediaReadFile?: (filePath: string) => Promise<Buffer> }) => {
+    const runtime = requireBeeperChannelRuntime();
+    const params = ctx.params;
+    const roomId = resolveBeeperRoomTarget(readRequiredString(params, "to", "roomId", "channelId"));
+    if (ctx.action === "send") {
+      const mediaUrl = stringValue(params.media) ?? stringValue(params.mediaUrl) ?? stringValue(params.filePath) ?? stringValue(params.path);
+      const text = stringValue(params.message) ?? stringValue(params.text) ?? "";
+      const replyToId = stringValue(params.replyTo) ?? stringValue(params.replyToId);
+      if (mediaUrl) {
+        const bytes = ctx.mediaReadFile ? await ctx.mediaReadFile(mediaUrl) : undefined;
+        const filename = mediaUrl.split("/").pop();
+        const sent = await runtime.sendMedia({
+          roomId,
+          ...(bytes !== undefined ? { bytes } : {}),
+          ...(text ? { caption: text } : {}),
+          ...(filename ? { filename } : {}),
+          ...(bytes === undefined ? { path: mediaUrl } : {}),
+        });
+        return { content: [{ type: "text", text: `Sent Beeper media ${sent.eventId}` }] };
+      }
+      const sent = await runtime.sendText({
+        roomId,
+        text,
+        ...(replyToId ? { replyToId } : {}),
+      });
+      return { content: [{ type: "text", text: `Sent Beeper message ${sent.eventId}` }] };
+    }
+    if (ctx.action === "edit") {
+      const eventId = readRequiredString(params, "messageId", "eventId");
+      const text = readRequiredString(params, "message", "text");
+      const sent = await runtime.edit({ eventId, roomId, text });
+      return { content: [{ type: "text", text: `Edited Beeper message ${sent.eventId}` }] };
+    }
+    if (ctx.action === "delete") {
+      const eventId = readRequiredString(params, "messageId", "eventId");
+      const reason = stringValue(params.reason);
+      await runtime.redact({
+        eventId,
+        roomId,
+        ...(reason !== undefined ? { reason } : {}),
+      });
+      return { content: [{ type: "text", text: `Deleted Beeper message ${eventId}` }] };
+    }
+    if (ctx.action === "react") {
+      const eventId = readRequiredString(params, "messageId", "eventId");
+      const emoji = readRequiredString(params, "emoji", "reaction", "key");
+      const remove = params.remove === true;
+      if (remove) {
+        await runtime.removeReaction({ emoji, eventId, roomId });
+        return { content: [{ type: "text", text: `Removed Beeper reaction ${emoji}` }] };
+      }
+      const sent = await runtime.react({ emoji, eventId, roomId });
+      return { content: [{ type: "text", text: `Sent Beeper reaction ${sent.eventId}` }] };
+    }
+    throw new Error(`Unsupported Beeper message action: ${ctx.action}`);
+  },
+} as const;
+
+export const beeperAgentPromptAdapter = {
+  inboundFormattingHints: () => ({
+    rules: [
+      "Beeper OpenClaw rooms are direct chats between the owner and one OpenClaw agent ghost.",
+      "Matrix replies, edits, reactions, redactions, mentions, and attachments are forwarded as structured metadata when available.",
+      "Native Beeper streaming renders assistant text, tool calls, approvals, and terminal status incrementally.",
+    ],
+    text_markup: "Matrix-flavored plain text with optional formatted_body metadata",
+  }),
+  messageToolCapabilities: () => ["nativeStreaming", "replyTo", "reactions"],
+  reactionGuidance: () => ({ channelLabel: "Beeper", level: "minimal" as const }),
 } as const;
 
 export const beeperSetupAdapter = {
@@ -489,16 +894,37 @@ export const beeperChannelPlugin = {
     quickstartAllowFrom: true,
   },
   capabilities: {
-    chatTypes: ["direct", "thread"],
+    chatTypes: ["direct"],
     media: true,
     reactions: true,
-    threads: true,
+    threads: false,
   },
   reload: { configPrefixes: ["channels.beeper", "plugins.entries.beeper"] },
   configSchema: BeeperChannelConfigSchema,
   uiHints: BeeperChannelUiHints,
   config: beeperChannelConfig,
   status: beeperStatusAdapter,
+  conversationBindings: beeperConversationBindings,
+  message: beeperMessageAdapter,
+  messaging: beeperMessagingAdapter,
+  outbound: beeperOutboundAdapter,
+  directory: beeperDirectoryAdapter,
+  resolver: beeperResolverAdapter,
+  heartbeat: beeperHeartbeatAdapter,
+  approvalCapability: beeperApprovalCapability,
+  actions: beeperMessageActions,
+  agentPrompt: beeperAgentPromptAdapter,
+  bindings: {
+    selfParentConversationByDefault: true,
+    compileConfiguredBinding: ({ conversationId }: { conversationId: string }) => conversationId,
+    matchInboundConversation: ({ compiledBinding, conversationId }: { compiledBinding: string; conversationId: string }) =>
+      compiledBinding === conversationId,
+    resolveCommandConversation: ({ originatingTo, commandTo, fallbackTo }: {
+      originatingTo?: string;
+      commandTo?: string;
+      fallbackTo?: string;
+    }) => commandTo ?? originatingTo ?? fallbackTo,
+  },
   gateway: {
     startAccount: startBeeperGatewayAccount,
     stopAccount: stopBeeperGatewayAccount,
@@ -506,6 +932,159 @@ export const beeperChannelPlugin = {
   setup: beeperSetupAdapter,
   setupWizard: beeperSetupWizard,
 };
+
+function stripUndefined<T extends Record<string, unknown>>(input: T): T {
+  for (const key of Object.keys(input)) {
+    if (input[key] === undefined) delete input[key];
+  }
+  return input;
+}
+
+function normalizeBeeperMessagingTarget(raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  return trimmed
+    .replace(/^beeper:/iu, "")
+    .replace(/^agent:/iu, "")
+    .replace(/^openclaw:/iu, "")
+    .trim() || undefined;
+}
+
+function normalizeBeeperConversationId(raw: string | undefined): string | undefined {
+  const normalized = normalizeBeeperMessagingTarget(raw);
+  if (!normalized) return undefined;
+  if (normalized.startsWith("room:")) return normalized.slice("room:".length) || undefined;
+  return normalized;
+}
+
+function formatBeeperTargetDisplay(target: string): string {
+  const normalized = normalizeBeeperMessagingTarget(target) ?? target;
+  if (normalized.startsWith("@")) return normalized;
+  if (normalized.startsWith("!")) return normalized;
+  return `@${normalized}`;
+}
+
+function resolveBeeperRoomTarget(target: string): string {
+  const normalized = normalizeBeeperConversationId(target);
+  if (!normalized) throw new Error("Beeper target is required.");
+  return normalized;
+}
+
+function beeperOutboundResult(sent: { eventId: string; roomId: string }): {
+  channel: string;
+  messageId: string;
+  conversationId: string;
+} {
+  return {
+    channel: BEEPER_CHANNEL_ID,
+    conversationId: sent.roomId,
+    messageId: sent.eventId,
+  };
+}
+
+function beeperMessageSendResult(result: { messageId: string; conversationId?: string }): {
+  messageId: string;
+  raw: unknown;
+} {
+  return {
+    messageId: result.messageId,
+    raw: result,
+  };
+}
+
+function firstPayloadText(payload: unknown): string | undefined {
+  const record = recordValue(payload);
+  return stringValue(record?.text)
+    ?? stringValue(record?.body)
+    ?? stringValue(record?.message)
+    ?? stringValue(recordValue(record?.content)?.text);
+}
+
+function firstPayloadMediaUrl(payload: unknown): string | undefined {
+  const record = recordValue(payload);
+  const media = record?.media ?? record?.mediaUrl ?? record?.filePath ?? record?.path;
+  if (typeof media === "string") return media;
+  if (Array.isArray(media)) return media.find((item): item is string => typeof item === "string");
+  return undefined;
+}
+
+function readRequiredString(params: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = stringValue(params[key]);
+    if (value) return value;
+  }
+  throw new Error(`Missing required Beeper action parameter: ${keys.join(" or ")}`);
+}
+
+function stringifyOptional(value: string | number | null | undefined): string | undefined {
+  return value == null ? undefined : String(value);
+}
+
+function listConfiguredAgentDirectoryEntries(
+  cfg: OpenClawSetupConfig,
+  query?: string | null,
+  limit?: number | null,
+): Array<{ kind: "user"; id: string; name?: string; handle?: string; raw?: unknown }> {
+  const agents = recordValue(cfg)?.agents;
+  const list = recordValue(agents)?.list;
+  if (!Array.isArray(list)) return [];
+  const normalizedQuery = query?.trim().toLowerCase();
+  return list.flatMap((agent) => {
+    const record = recordValue(agent);
+    const id = stringValue(record?.id) ?? stringValue(record?.name);
+    if (!id) return [];
+    const name = stringValue(record?.displayName) ?? stringValue(record?.name) ?? id;
+    const haystack = `${id} ${name}`.toLowerCase();
+    if (normalizedQuery && !haystack.includes(normalizedQuery)) return [];
+    return [stripUndefined({
+      handle: id,
+      id,
+      kind: "user" as const,
+      name,
+      raw: agent,
+    })];
+  }).slice(0, limit ?? 100);
+}
+
+function listLiveOrConfiguredAgentDirectoryEntries(
+  cfg: OpenClawSetupConfig,
+  query?: string | null,
+  limit?: number | null,
+): Array<{ kind: "user"; id: string; name?: string; handle?: string; avatarUrl?: string; description?: string; raw?: unknown }> {
+  const runtimeAgents = (() => {
+    try {
+      return requireBeeperChannelRuntime().listAgents();
+    } catch {
+      return [];
+    }
+  })();
+  if (runtimeAgents.length === 0) return listConfiguredAgentDirectoryEntries(cfg, query, limit);
+  const normalizedQuery = query?.trim().toLowerCase();
+  return runtimeAgents.flatMap((agent) => {
+    const agentRecord = recordValue(agent);
+    const id = agent.agentId ?? stringValue(agentRecord?.id);
+    if (!id) return [];
+    const name = agent.displayName ?? stringValue(agentRecord?.displayName) ?? stringValue(agentRecord?.name) ?? id;
+    const avatarUrl = agent.avatarMxc ?? stringValue(agentRecord?.avatarMxc) ?? stringValue(agentRecord?.avatarUrl);
+    const description = agent.description ?? stringValue(agentRecord?.description);
+    const haystack = `${id} ${name} ${description ?? ""}`.toLowerCase();
+    if (normalizedQuery && !haystack.includes(normalizedQuery)) return [];
+    const entry = stripUndefined({
+      ...(avatarUrl ? { avatarUrl } : {}),
+      ...(description ? { description } : {}),
+      handle: id,
+      id,
+      kind: "user" as const,
+      name,
+      raw: agent,
+    });
+    return [entry];
+  }).slice(0, limit ?? 100);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
 
 export async function startBeeperGatewayAccount(ctx: BeeperGatewayContext): Promise<void> {
   const settings = getBeeperChannelSettings(ctx.cfg);
