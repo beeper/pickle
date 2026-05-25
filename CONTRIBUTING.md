@@ -17,7 +17,7 @@ Requires Node 22+, pnpm 9+, and a Go toolchain.
 pnpm typecheck
 pnpm test
 pnpm build
-go test ./...   # run from packages/pickle/native
+pnpm test:go    # runs Pickle's Go tests with the goolm build tag
 ```
 
 ## Release

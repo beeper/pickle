@@ -10,7 +10,7 @@ import { OpenClawGatewayRuntime, type OpenClawGatewayEvent, type OpenClawTranspo
 import { OpenClawBridgeRegistry } from "./registry";
 
 describe("OpenClaw bridge integration", () => {
-  it("dispatches a Matrix DM through Pickle into OpenClaw and publishes native stream chunks", async () => {
+  it("dispatches a Matrix DM through Pickle into OpenClaw", async () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-integration-"));
     const config = createDefaultConfig({
       dataDir: dir,
@@ -18,23 +18,17 @@ describe("OpenClaw bridge integration", () => {
       matrixUserId: "@openclawbot:example",
     });
     const transport = fakeTransport({
-      events: [
-        { event: "assistant.delta", payload: { data: { delta: "hi" }, runId: "run_1", type: "assistant.delta" } },
-        { event: "run.completed", payload: { runId: "run_1", type: "run.completed" } },
-      ],
       responses: {
         "agents.list": { agents: [{ id: "codex", name: "Codex" }] },
         "sessions.create": { key: "session_1" },
         "sessions.send": { runId: "run_1", sessionKey: "session_1" },
       },
     });
-    const streams = { publish: vi.fn(async () => {}) };
     const registry = new OpenClawBridgeRegistry(resolve(dir, "registry.json"));
     const connector = createOpenClawConnector({
       config,
       registry,
       runtimeFactory: () => new OpenClawGatewayRuntime({ config, transport }),
-      streams,
     });
     const client = createFakeMatrixClient();
     const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
@@ -76,13 +70,6 @@ describe("OpenClaw bridge integration", () => {
       matrix: { sender: "@alice:example" },
       message: "hello",
     }, { expectFinal: false });
-    await vi.waitFor(() => expect(streams.publish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        roomId: "!codex:example",
-        sessionKey: "session_1",
-      }),
-      expect.arrayContaining([expect.objectContaining({ type: "TEXT_MESSAGE_CONTENT" })]),
-    ));
     expect(registry.getBindingByRoom("!codex:example")).toMatchObject({
       lastMatrixEventId: "$hello",
       lastRunId: "run_1",
@@ -90,7 +77,7 @@ describe("OpenClaw bridge integration", () => {
     });
   });
 
-  it("dispatches approval reactions through Pickle into OpenClaw approval resolution", async () => {
+  it("ignores approval reactions instead of using fallback approval resolution", async () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-approval-integration-"));
     const config = createDefaultConfig({
       dataDir: dir,
@@ -108,7 +95,6 @@ describe("OpenClaw bridge integration", () => {
       config,
       registry,
       runtimeFactory: () => new OpenClawGatewayRuntime({ config, transport }),
-      streams: { publish: vi.fn(async () => {}) },
     });
     const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, createFakeMatrixClient());
     const login = userLoginFromOpenClawConfig(config);
@@ -142,13 +128,13 @@ describe("OpenClaw bridge integration", () => {
       roomId: "!codex:example",
     });
 
-    expect(transport.request).toHaveBeenCalledWith("exec.approval.resolve", {
+    expect(transport.request).not.toHaveBeenCalledWith("exec.approval.resolve", {
       approvalId: "approval_1",
       decision: "approve",
     });
   });
 
-  it("dispatches Matrix edits, emoji reactions, and redactions through Pickle into OpenClaw", async () => {
+  it("dispatches Matrix edits, emoji reactions, redactions, receipts, and unread state through Pickle into OpenClaw", async () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-relations-integration-"));
     const config = createDefaultConfig({
       dataDir: dir,
@@ -166,7 +152,6 @@ describe("OpenClaw bridge integration", () => {
       config,
       registry,
       runtimeFactory: () => new OpenClawGatewayRuntime({ config, transport }),
-      streams: { publish: vi.fn(async () => {}) },
     });
     const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, createFakeMatrixClient());
     const login = userLoginFromOpenClawConfig(config);
@@ -207,6 +192,16 @@ describe("OpenClaw bridge integration", () => {
       roomId: "!codex:example",
       sender: "@alice:example",
     }))).resolves.toMatchObject({ dispatched: true, handlers: 1, kind: "redaction" });
+    await expect(bridge.dispatchMatrixEvent(receiptEvent({
+      eventId: "$old",
+      roomId: "!codex:example",
+      sender: "@alice:example",
+    }))).resolves.toMatchObject({ dispatched: true, handlers: 1, kind: "receipt" });
+    await expect(bridge.dispatchMatrixEvent(markedUnreadEvent({
+      roomId: "!codex:example",
+      sender: "@alice:example",
+      unread: true,
+    }))).resolves.toMatchObject({ dispatched: true, handlers: 1, kind: "accountData" });
 
     expect(transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
       idempotencyKey: "$edit:edit",
@@ -232,9 +227,23 @@ describe("OpenClaw bridge integration", () => {
       message: "Redacted message $old",
       replyTo: { eventId: "$old", roomId: "!codex:example" },
     }), { expectFinal: false });
+    expect(transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+      idempotencyKey: "$old:read:@alice:example",
+      matrix: expect.objectContaining({
+        relation: expect.objectContaining({ kind: "read_receipt", receiptType: "m.read", targetEventId: "$old" }),
+      }),
+      message: "Read receipt for $old",
+      replyTo: { eventId: "$old", roomId: "!codex:example" },
+    }), { expectFinal: false });
+    expect(transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+      matrix: expect.objectContaining({
+        relation: expect.objectContaining({ kind: "marked_unread", unread: true }),
+      }),
+      message: "Marked room unread",
+    }), { expectFinal: false });
   });
 
-  it("smokes contact DM creation, Matrix ingress, native streaming, approval, and backfill with local fakes", async () => {
+  it("smokes contact DM creation, Matrix ingress, approval, and backfill with local fakes", async () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-local-smoke-"));
     const config = createDefaultConfig({
       accessToken: "mx-token",
@@ -245,12 +254,6 @@ describe("OpenClaw bridge integration", () => {
       matrixUserId: "@openclawbot:example",
     });
     const transport = fakeTransport({
-      events: [
-        { event: "session.operation", payload: { phase: "started", runId: "run_1", sessionKey: "session_1" } },
-        { event: "session.message", payload: { deltaText: "hello from OpenClaw", role: "assistant", runId: "run_1" } },
-        { event: "exec.approval.requested", payload: { approvalId: "approval_1", message: "Run tool?", runId: "run_1", toolCallId: "tool_1", toolName: "shell" } },
-        { event: "session.operation", payload: { phase: "completed", runId: "run_1" } },
-      ],
       responses: {
         "agents.list": { agents: [{ id: "codex", name: "Codex" }] },
         "chat.history": { messages: [{ content: "older desktop turn", id: "m1", role: "user" }] },
@@ -313,34 +316,6 @@ describe("OpenClaw bridge integration", () => {
       roomId: "!created:example",
     });
 
-    await vi.waitFor(() => expect(client.beeper.streams.startMessage).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.objectContaining({
-        "com.beeper.ai": expect.objectContaining({ id: "run_1" }),
-        "com.beeper.ai.metadata": expect.objectContaining({ protocol: "ag-ui", runId: "run_1" }),
-        "com.beeper.stream": { type: "com.beeper.llm", user_id: "@openclawbot:example" },
-      }),
-      roomId: "!created:example",
-      streamType: "com.beeper.llm",
-      userId: "@openclawbot:example",
-    })));
-    await vi.waitFor(() => expect(client.beeper.streams.publishPart).toHaveBeenCalledWith(expect.objectContaining({
-      part: expect.objectContaining({ type: "CUSTOM" }),
-      roomId: "!created:example",
-      turnId: expect.any(String),
-    })));
-    await vi.waitFor(() => expect(client.beeper.streams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.objectContaining({
-        "com.beeper.ai": expect.objectContaining({
-          parts: expect.arrayContaining([
-            expect.objectContaining({ text: "hello from OpenClaw", type: "text" }),
-          ]),
-        }),
-        "com.beeper.stream": { type: "com.beeper.llm", user_id: "@openclawbot:example" },
-      }),
-      eventId: "$stream-root",
-      roomId: "!created:example",
-    })));
-
     await expect(bridge.dispatchMatrixEvent(reactionEvent({
       eventId: "$approve",
       key: "approval.allow_once",
@@ -348,7 +323,7 @@ describe("OpenClaw bridge integration", () => {
       roomId: "!created:example",
       sender: "@alice:example",
     }))).resolves.toMatchObject({ dispatched: true, kind: "reaction" });
-    expect(transport.request).toHaveBeenCalledWith("exec.approval.resolve", {
+    expect(transport.request).not.toHaveBeenCalledWith("exec.approval.resolve", {
       approvalId: "approval_1",
       decision: "approve",
     });
@@ -471,6 +446,35 @@ function redactionEvent(options: { eventId: string; redacts: string; roomId: str
     roomId: options.roomId,
     sender: { isMe: false, userId: options.sender },
     type: "m.room.redaction",
+  } as MatrixClientEvent;
+}
+
+function receiptEvent(options: { eventId: string; roomId: string; sender: string }): MatrixClientEvent {
+  return {
+    class: "ephemeral",
+    content: {
+      [options.eventId]: {
+        "m.read": {
+          [options.sender]: { ts: 1 },
+        },
+      },
+    },
+    kind: "receipt",
+    raw: {},
+    roomId: options.roomId,
+    type: "m.receipt",
+  } as MatrixClientEvent;
+}
+
+function markedUnreadEvent(options: { roomId: string; sender: string; unread: boolean }): MatrixClientEvent {
+  return {
+    class: "accountData",
+    content: { unread: options.unread },
+    kind: "accountData",
+    raw: {},
+    roomId: options.roomId,
+    sender: { isMe: false, userId: options.sender },
+    type: "m.marked_unread",
   } as MatrixClientEvent;
 }
 

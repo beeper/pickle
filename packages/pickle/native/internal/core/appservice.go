@@ -151,8 +151,11 @@ type MatrixAppserviceTransactionOptions struct {
 }
 
 type matrixAppserviceTransaction struct {
-	Events         []*event.Event `json:"events"`
-	ToDeviceEvents []*event.Event `json:"to_device,omitempty"`
+	AccountData     []*event.Event `json:"account_data,omitempty"`
+	EphemeralEvents []*event.Event `json:"ephemeral,omitempty"`
+	Events          []*event.Event `json:"events"`
+	RoomAccountData []*event.Event `json:"room_account_data,omitempty"`
+	ToDeviceEvents  []*event.Event `json:"to_device,omitempty"`
 }
 
 type beeperStreamEventProcessor struct {
@@ -228,21 +231,64 @@ func (c *Core) handleAppserviceApplyTransaction(ctx context.Context, payload []b
 			Int("to_device_events", len(txn.ToDeviceEvents)).
 			Msg("Applying appservice transaction")
 	}
-	c.dispatchAppserviceEvents(ctx, txn.Events, event.MessageEventType)
-	c.dispatchAppserviceEvents(ctx, txn.ToDeviceEvents, event.ToDeviceEventType)
+	c.dispatchAppserviceEvents(ctx, txn.Events, "appservice_events")
+	c.dispatchAppserviceMetadata(ctx, txn.EphemeralEvents, "appservice_ephemeral", "")
+	c.dispatchAppserviceMetadata(ctx, txn.AccountData, "appservice_account_data", "")
+	c.dispatchAppserviceMetadata(ctx, txn.RoomAccountData, "appservice_room_account_data", "")
+	c.dispatchAppserviceToDeviceEvents(ctx, txn.ToDeviceEvents)
 	return c.empty()
 }
 
-func (c *Core) dispatchAppserviceEvents(ctx context.Context, events []*event.Event, class event.TypeClass) {
+func (c *Core) dispatchAppserviceEvents(ctx context.Context, events []*event.Event, section string) {
 	for _, evt := range events {
 		if evt == nil {
 			continue
 		}
-		evt.Type.Class = class
+		evt.Type.Class = classifyAppserviceEventClass(evt.Type)
+		if evt.Type == event.EventMessage || evt.Type == event.EventReaction || evt.Type == event.EventRedaction || evt.Type == event.EventEncrypted {
+			c.processEvent(ctx, evt)
+			continue
+		}
+		if c.emit != nil {
+			roomID := evt.RoomID
+			c.emitClassifiedRoomEvent(section, roomID, evt, "", "")
+		}
+	}
+}
+
+func (c *Core) dispatchAppserviceMetadata(ctx context.Context, events []*event.Event, section string, defaultClass string) {
+	_ = ctx
+	for _, evt := range events {
+		if evt == nil || c.emit == nil {
+			continue
+		}
+		class := defaultClass
+		if class == "" {
+			class = "ephemeral"
+			switch evt.Type {
+			case event.EphemeralEventReceipt:
+				class = "receipt"
+			case event.EphemeralEventTyping:
+				class = "typing"
+			}
+			if section == "appservice_account_data" || section == "appservice_room_account_data" {
+				class = "accountData"
+			}
+		}
+		c.emitSyncEvent(section, class, evt.RoomID, evt, "", "")
+	}
+}
+
+func (c *Core) dispatchAppserviceToDeviceEvents(ctx context.Context, events []*event.Event) {
+	for _, evt := range events {
+		if evt == nil {
+			continue
+		}
+		evt.Type.Class = event.ToDeviceEventType
 		if err := evt.Content.ParseRaw(evt.Type); err != nil && c.client != nil && (evt.Type == event.ToDeviceBeeperStreamSubscribe || evt.Type == event.ToDeviceEncrypted || evt.Type == event.ToDeviceBeeperStreamUpdate) {
 			c.client.Log.Debug().Err(err).Str("event_type", evt.Type.Type).Msg("Failed to parse appservice stream event content")
 		}
-		if c.client != nil && class == event.ToDeviceEventType && (evt.Type == event.ToDeviceBeeperStreamSubscribe || evt.Type == event.ToDeviceEncrypted || evt.Type == event.ToDeviceBeeperStreamUpdate) {
+		if c.client != nil && (evt.Type == event.ToDeviceBeeperStreamSubscribe || evt.Type == event.ToDeviceEncrypted || evt.Type == event.ToDeviceBeeperStreamUpdate) {
 			subscribe := evt.Content.AsBeeperStreamSubscribe()
 			encrypted := evt.Content.AsEncrypted()
 			c.client.Log.Debug().
@@ -256,7 +302,21 @@ func (c *Core) dispatchAppserviceEvents(ctx context.Context, events []*event.Eve
 				Str("encrypted_stream_id", encrypted.StreamID).
 				Msg("Dispatching appservice stream to-device event")
 		}
+		if c.emit != nil {
+			c.emitSyncEvent("appservice_to_device", "toDevice", "", evt, "", "")
+		}
 		c.appserviceProcessor.Dispatch(ctx, evt)
+	}
+}
+
+func classifyAppserviceEventClass(evtType event.Type) event.TypeClass {
+	switch evtType.Type {
+	case event.StateMember.Type, event.StateRoomName.Type, event.StateTopic.Type, event.StateRoomAvatar.Type, event.StateEncryption.Type:
+		return event.StateEventType
+	case event.EventRedaction.Type, event.EventMessage.Type, event.EventReaction.Type, event.EventEncrypted.Type:
+		return event.MessageEventType
+	default:
+		return evtType.Class
 	}
 }
 
@@ -351,25 +411,20 @@ func (as *matrixAppservice) makePortalCreateRoomRequest(req MatrixAppserviceCrea
 	} else if roomType == "" {
 		roomType = "default"
 	}
-	localRoomID := as.deterministicPortalRoomID(req.PortalKey)
 	bridgeName := req.BridgeName
 	if bridgeName == "" {
 		bridgeName = req.Bridge.NetworkID
 	}
 	createReq := &mautrix.ReqCreateRoom{
-		BeeperBridgeAccountID: req.PortalKey.Receiver,
-		BeeperBridgeName:      bridgeName,
-		BeeperLocalRoomID:     localRoomID,
-		CreationContent:       cloneMap(req.CreationContent),
-		InitialState:          make([]*event.Event, 0, 5),
-		Invite:                toUserIDs(req.Invite),
-		IsDirect:              req.IsDirect,
-		MeowRoomID:            localRoomID,
-		Name:                  req.Name,
-		PowerLevelOverride:    defaultBridgePowerLevels(bridgeBot),
-		Preset:                "private_chat",
-		Topic:                 req.Topic,
-		Visibility:            "private",
+		CreationContent:    cloneMap(req.CreationContent),
+		InitialState:       make([]*event.Event, 0, 5),
+		Invite:             toUserIDs(req.Invite),
+		IsDirect:           req.IsDirect,
+		Name:               req.Name,
+		PowerLevelOverride: defaultBridgePowerLevels(bridgeBot),
+		Preset:             "private_chat",
+		Topic:              req.Topic,
+		Visibility:         "private",
 	}
 	if req.AutoJoinInvites {
 		createReq.BeeperAutoJoinInvites = true
@@ -415,10 +470,6 @@ func (as *matrixAppservice) makeManagementCreateRoomRequest(req MatrixAppservice
 		createReq.Invite = appendMissingUserIDs(createReq.Invite, createReq.BeeperInitialMembers...)
 	}
 	return createReq
-}
-
-func (as *matrixAppservice) deterministicPortalRoomID(portalKey MatrixAppservicePortalKey) id.RoomID {
-	return id.RoomID(fmt.Sprintf("!%s.%s:%s", portalKey.ID, portalKey.Receiver, as.homeserverDomain))
 }
 
 func defaultBridgePowerLevels(bridgeBot id.UserID) *event.PowerLevelsEventContent {

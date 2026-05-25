@@ -4,6 +4,20 @@ import path from "node:path";
 import type { OpenClawAgentContact, OpenClawBridgeConfig } from "./types";
 import { agentContactFromOpenClawAgent } from "./rooms";
 import type { OpenClawApprovalResolvePayload } from "./approval";
+import { getBeeperChannelRuntime } from "./beeper-channel-runtime";
+import {
+  AGUIEventType,
+  closeReasoningPart,
+  createStreamRunState,
+  finishRunEvents,
+  mapOpenClawApprovalRequest,
+  mapOpenClawApprovalResponse,
+  mapOpenClawMessageDelta,
+  mapOpenClawToolInput,
+  mapOpenClawToolOutput,
+  startRunEvents,
+} from "./stream-map";
+import type { AGUIEvent } from "./stream-map";
 
 export type GatewayRequestOptions = {
   expectFinal?: boolean;
@@ -119,17 +133,19 @@ export interface OpenClawMatrixMessageMetadata {
   };
   relation?: {
     key?: string;
-    kind?: "reply" | "thread" | "edit" | "reaction" | "reaction_remove" | "redaction";
+    kind?: "reply" | "thread" | "edit" | "reaction" | "reaction_remove" | "redaction" | "read_receipt" | "marked_unread";
     quote?: {
       body?: string;
       sender?: string;
     };
     replyToEventId?: string;
+    receiptType?: string;
     targetEventId?: string;
     targetReactionId?: string;
     targetRunId?: string;
     targetSessionKey?: string;
     threadRootEventId?: string;
+    unread?: boolean;
   };
   sender?: string;
   threadRootEventId?: string;
@@ -403,13 +419,6 @@ export class OpenClawGatewayRuntime {
     }));
   }
 
-  eventsForRun(runId: string): AsyncIterable<OpenClawGatewayEvent> {
-    return this.transport.events((event) => {
-      const payload = recordValue(event.payload);
-      return stringValue(payload?.runId) === runId || stringValue(payload?.id) === runId;
-    });
-  }
-
   async resolveApproval(payload: OpenClawApprovalResolvePayload): Promise<unknown> {
     const { approvalKind, ...requestPayload } = payload;
     const method = approvalKind === "plugin" ? "plugin.approval.resolve" : "exec.approval.resolve";
@@ -430,6 +439,9 @@ export class OpenClawHostTransport implements OpenClawTransport {
   }
 
   request<T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions): Promise<T> {
+    if (isDirectPluginRuntimeMethod(method)) {
+      return this.#pluginRuntimeRequest<T>(method, params, options);
+    }
     const call = this.#runtime.request ?? this.#runtime.call;
     if (!call) return this.#pluginRuntimeRequest<T>(method, params, options);
     return call(method, params, options);
@@ -479,6 +491,14 @@ export function createOpenClawHostTransport(runtime: OpenClawHostRuntime): OpenC
   return new OpenClawHostTransport(runtime);
 }
 
+function isDirectPluginRuntimeMethod(method: string): boolean {
+  return method === "agents.list"
+    || method === "chat.history"
+    || method === "sessions.create"
+    || method === "sessions.list"
+    || method === "sessions.send";
+}
+
 function arrayValue(value: unknown): unknown[] | undefined {
   return Array.isArray(value) ? value : undefined;
 }
@@ -490,6 +510,10 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function settledValue(result: PromiseSettledResult<unknown>): unknown {
@@ -863,7 +887,6 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
       originatingTo: roomId,
       nativeChannelId: roomId,
       replyToId: stringValue(recordValue(matrix.relation)?.replyToEventId) ?? stringValue(recordValue(params.record.replyTo)?.eventId),
-      sourceReplyDeliveryMode: "direct",
     },
     message: {
       body: params.message,
@@ -900,11 +923,15 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
     },
   });
 
-  const emit = createBeeperReplyEventEmitter(params.localEvents, {
+  const threadRoot = stringValue(recordValue(matrix.relation)?.threadRootEventId) ?? stringValue(recordValue(matrix.relation)?.replyToEventId);
+  const stream = createBeeperReplyStreamEmitter({
     agentId: params.agentId,
+    localEvents: params.localEvents,
+    roomId,
     runId: params.runId,
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
+    ...(threadRoot ? { threadRoot } : {}),
   });
   params.localEvents.emit({ event: "run.started", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
   try {
@@ -919,34 +946,37 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
       recordInboundSession: channelSession.recordInboundSession,
       dispatchReplyWithBufferedBlockDispatcher: channelReply.dispatchReplyWithBufferedBlockDispatcher,
       delivery: {
-        deliver: async (payload: unknown) => {
-          emit.textPayload(payload);
+        deliver: async (payload: unknown, info?: unknown) => {
+          await stream.textPayload(payload);
+          if (stringValue(recordValue(info)?.kind) === "final") await stream.finish(payload);
           return { visibleReplySent: true };
         },
-        onError: (error: unknown) => {
+        onError: async (error: unknown) => {
+          await stream.fail(error);
           params.localEvents.emit({ event: "run.failed", payload: { agentId: params.agentId, error: errorText(error), runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
         },
       },
       replyOptions: {
         runId: params.runId,
         timeoutOverrideSeconds: Math.max(1, Math.ceil(params.timeoutMs / 1000)),
+        sourceReplyDeliveryMode: "message_tool_only",
         suppressDefaultToolProgressMessages: true,
         allowProgressCallbacksWhenSourceDeliverySuppressed: true,
-        onAssistantMessageStart: emit.assistantMessageStart,
-        onBlockReply: emit.textPayload,
-        onBlockReplyQueued: emit.textPayload,
-        onPartialReply: emit.textPayload,
-        onReasoningEnd: emit.reasoningEnd,
-        onReasoningStream: emit.reasoningPayload,
-        onToolStart: emit.toolStart,
-        onToolResult: emit.toolResult,
-        onItemEvent: emit.itemEvent,
-        onPlanUpdate: emit.planUpdate,
-        onApprovalEvent: emit.approvalEvent,
-        onCommandOutput: emit.commandOutput,
-        onPatchSummary: emit.patchSummary,
-        onCompactionStart: () => emit.itemEvent({ kind: "compaction", phase: "start", title: "Compacting context" }),
-        onCompactionEnd: () => emit.itemEvent({ kind: "compaction", phase: "complete", title: "Compacted context" }),
+        onAssistantMessageStart: stream.assistantMessageStart,
+        onBlockReply: stream.textPayload,
+        onBlockReplyQueued: stream.textPayload,
+        onPartialReply: stream.textPayload,
+        onReasoningEnd: stream.reasoningEnd,
+        onReasoningStream: stream.reasoningPayload,
+        onToolStart: stream.toolStart,
+        onToolResult: stream.toolResult,
+        onItemEvent: stream.itemEvent,
+        onPlanUpdate: stream.planUpdate,
+        onApprovalEvent: stream.approvalEvent,
+        onCommandOutput: stream.commandOutput,
+        onPatchSummary: stream.patchSummary,
+        onCompactionStart: () => stream.itemEvent({ kind: "compaction", phase: "start", title: "Compacting context" }),
+        onCompactionEnd: () => stream.itemEvent({ kind: "compaction", phase: "complete", title: "Compacted context" }),
       },
       record: {
         createIfMissing: true,
@@ -962,38 +992,86 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
       },
       messageId: eventId,
     });
+    await stream.finish();
     params.localEvents.emit({ event: "run.completed", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
   } catch (error) {
+    await stream.fail(error);
     params.localEvents.emit({ event: "run.failed", payload: { agentId: params.agentId, error: errorText(error), runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
   }
 }
 
-function createBeeperReplyEventEmitter(localEvents: LocalEventBus, base: {
+function createBeeperReplyStreamEmitter(base: {
   agentId: string;
+  localEvents: LocalEventBus;
+  roomId: string;
   runId: string;
   sessionId: string;
   sessionKey: string;
+  threadRoot?: string;
 }) {
+  const channelRuntime = getBeeperChannelRuntime();
+  if (!channelRuntime) {
+    throw new Error("OpenClaw Beeper requires the Beeper channel runtime for native rich streaming");
+  }
+  const publisher = channelRuntime.createStreamPublisher({
+    agentId: base.agentId,
+    roomId: base.roomId,
+    runId: base.runId,
+    sessionKey: base.sessionKey,
+    ...(base.threadRoot ? { threadRoot: base.threadRoot } : {}),
+  });
+  const state = createStreamRunState(base.runId);
+  let hasPublished = false;
+  let finalized = false;
   let lastPartialText = "";
   let lastReasoningText = "";
   const emit = (event: string, payload: Record<string, unknown>) => {
-    localEvents.emit({ event, payload: stripUndefined({ ...base, ...payload }) });
+    base.localEvents.emit({
+      event,
+      payload: stripUndefined({
+        agentId: base.agentId,
+        runId: base.runId,
+        sessionId: base.sessionId,
+        sessionKey: base.sessionKey,
+        ...payload,
+      }),
+    });
   };
-  const textPayload = (payload: unknown) => {
+  const publish = async (parts: Iterable<AGUIEvent>) => {
+    if (finalized) return;
+    const list = [...parts];
+    if (list.length === 0) return;
+    const withStart = hasPublished
+      ? list
+      : [
+          ...startRunEvents(state, {
+            agent_id: base.agentId,
+            session_key: base.sessionKey,
+          }),
+          ...list,
+        ];
+    hasPublished = true;
+    await publisher.publishMany(withStart);
+  };
+  const textPayload = async (payload: unknown) => {
     const text = replyPayloadText(payload);
     if (!text) return;
     const explicitDelta = stringValue(recordValue(payload)?.delta);
     const delta = explicitDelta ?? (text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text);
     lastPartialText = text;
-    if (delta) emit("assistant.delta", { delta, text });
+    if (!delta) return;
+    emit("assistant.delta", { delta, text });
+    await publish(mapOpenClawMessageDelta(state, { kind: "text", value: delta }));
   };
-  const reasoningPayload = (payload: unknown) => {
+  const reasoningPayload = async (payload: unknown) => {
     const text = stringValue(recordValue(payload)?.text);
     if (!text) return;
     const explicitDelta = stringValue(recordValue(payload)?.delta);
     const delta = explicitDelta ?? (text.startsWith(lastReasoningText) ? text.slice(lastReasoningText.length) : text);
     lastReasoningText = text;
-    if (delta) emit("thinking.delta", { delta, text });
+    if (!delta) return;
+    emit("thinking.delta", { delta, text });
+    await publish(mapOpenClawMessageDelta(state, { kind: "thinking", value: delta }));
   };
   const toolIdFor = (payload: Record<string, unknown>, fallback: string) =>
     stringValue(payload.toolCallId) ?? stringValue(payload.itemId) ?? stringValue(payload.approvalId) ?? fallback;
@@ -1002,87 +1080,178 @@ function createBeeperReplyEventEmitter(localEvents: LocalEventBus, base: {
       lastPartialText = "";
       emit("assistant.message.start", {});
     },
-    reasoningEnd: () => emit("thinking.end", {}),
+    reasoningEnd: async () => {
+      emit("thinking.end", {});
+      await publish(closeReasoningPart(state));
+    },
     reasoningPayload,
     textPayload,
-    toolStart: (payload: unknown) => {
+    toolStart: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
+      const toolCallId = toolIdFor(data, `tool:${stringValue(data.name) ?? "tool"}`);
+      const toolName = stringValue(data.name) ?? stringValue(data.toolName);
       emit("tool.call.started", {
         args: data.args,
         input: data.args,
         phase: stringValue(data.phase),
-        toolCallId: toolIdFor(data, `tool:${stringValue(data.name) ?? "tool"}`),
-        toolName: stringValue(data.name),
+        toolCallId,
+        toolName,
       });
+      await publish(mapOpenClawToolInput(stripUndefined({
+        input: data.args ?? data.input,
+        providerExecuted: booleanValue(data.providerExecuted),
+        toolCallId,
+        toolName,
+      })));
     },
-    toolResult: (payload: unknown) => {
+    toolResult: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
+      const toolCallId = toolIdFor(data, "tool_result");
+      const toolName = stringValue(data.toolName) ?? stringValue(data.name);
       emit("tool.call.completed", {
         output: data.text ?? data.content ?? payload,
-        toolCallId: toolIdFor(data, "tool_result"),
-        toolName: stringValue(data.toolName) ?? stringValue(data.name),
+        toolCallId,
+        toolName,
       });
+      await publish(mapOpenClawToolOutput(stripUndefined({
+        error: data.error,
+        output: data.text ?? data.content ?? data.output ?? payload,
+        providerExecuted: booleanValue(data.providerExecuted),
+        toolCallId,
+        toolName,
+      })));
     },
-    itemEvent: (payload: unknown) => {
+    itemEvent: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
-      const toolCallId = stringValue(data.toolCallId);
-      const output = stringValue(data.progressText) ?? stringValue(data.summary);
-      if (!toolCallId || !output) return;
+      const toolCallId = toolIdFor(data, stringValue(data.kind) ?? "item");
+      const output = stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.title);
+      if (!output) return;
+      const preliminary = stringValue(data.phase) !== "complete" && stringValue(data.status) !== "complete";
       emit("tool.call.completed", {
         output,
-        preliminary: stringValue(data.phase) !== "complete" && stringValue(data.status) !== "complete",
+        preliminary,
         toolCallId,
         toolName: stringValue(data.name) ?? stringValue(data.kind),
       });
+      await publish(mapOpenClawToolOutput(stripUndefined({
+        output,
+        preliminary,
+        toolCallId,
+        toolName: stringValue(data.name) ?? stringValue(data.kind),
+      })));
     },
-    planUpdate: (payload: unknown) => {
+    planUpdate: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
       const output = stringValue(data.explanation) ?? stringValue(data.title);
       if (!output) return;
+      const preliminary = stringValue(data.phase) !== "complete";
       emit("tool.call.completed", {
         output,
-        preliminary: stringValue(data.phase) !== "complete",
+        preliminary,
         toolCallId: "plan",
         toolName: "plan",
       });
+      await publish(mapOpenClawToolOutput({
+        output,
+        preliminary,
+        toolCallId: "plan",
+        toolName: "plan",
+      }));
     },
-    approvalEvent: (payload: unknown) => {
+    approvalEvent: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
       const phase = stringValue(data.phase);
       if (phase === "requested") {
+        const approvalId = stringValue(data.approvalId) ?? stringValue(data.approvalSlug);
+        const toolCallId = stringValue(data.toolCallId) ?? stringValue(data.itemId);
+        const toolName = stringValue(data.kind) ?? stringValue(data.command);
+        const message = stringValue(data.message) ?? stringValue(data.reason) ?? stringValue(data.title);
         emit("approval.requested", {
-          approvalId: stringValue(data.approvalId) ?? stringValue(data.approvalSlug),
-          message: stringValue(data.message) ?? stringValue(data.reason) ?? stringValue(data.title),
-          toolCallId: stringValue(data.toolCallId) ?? stringValue(data.itemId),
-          toolName: stringValue(data.kind) ?? stringValue(data.command),
+          approvalId,
+          message,
+          toolCallId,
+          toolName,
         });
+        await publish([mapOpenClawApprovalRequest(state, stripUndefined({ approvalId, message, toolCallId, toolName }))]);
         return;
       }
       if (phase === "resolved" || phase === "complete" || stringValue(data.status)) {
+        const approvalId = stringValue(data.approvalId) ?? stringValue(data.approvalSlug);
+        const status = stringValue(data.status);
+        const approved = status === "approved" || status === "allow" || status === "approve";
+        if (!approvalId) return;
         emit("approval.resolved", {
-          approvalId: stringValue(data.approvalId) ?? stringValue(data.approvalSlug),
-          approved: stringValue(data.status) === "approved" || stringValue(data.status) === "allow",
-          decision: stringValue(data.status),
+          approvalId,
+          approved,
+          decision: status,
           toolCallId: stringValue(data.toolCallId) ?? stringValue(data.itemId),
         });
+        await publish([mapOpenClawApprovalResponse(stripUndefined({
+          approvalId,
+          approved,
+          approvedAlways: booleanValue(data.always) ?? booleanValue(data.approvedAlways),
+          toolCallId: stringValue(data.toolCallId) ?? stringValue(data.itemId),
+        }))]);
       }
     },
-    commandOutput: (payload: unknown) => {
+    commandOutput: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
       const complete = stringValue(data.phase) === "complete" || stringValue(data.status) === "complete";
+      const toolCallId = toolIdFor(data, `command:${stringValue(data.name) ?? "output"}`);
+      const toolName = stringValue(data.name) ?? stringValue(data.title) ?? "command";
+      const output = stringValue(data.output) ?? data;
       emit("tool.call.completed", {
-        output: stringValue(data.output) ?? data,
+        output,
         preliminary: !complete,
-        toolCallId: toolIdFor(data, `command:${stringValue(data.name) ?? "output"}`),
-        toolName: stringValue(data.name) ?? stringValue(data.title) ?? "command",
+        toolCallId,
+        toolName,
       });
+      await publish(mapOpenClawToolOutput({
+        output,
+        preliminary: !complete,
+        toolCallId,
+        toolName,
+      }));
     },
-    patchSummary: (payload: unknown) => {
+    patchSummary: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
+      const toolCallId = toolIdFor(data, "patch");
+      const toolName = stringValue(data.name) ?? "patch";
+      const output = data.summary ?? data;
       emit("tool.call.completed", {
-        output: data.summary ?? data,
-        toolCallId: toolIdFor(data, "patch"),
-        toolName: stringValue(data.name) ?? "patch",
+        output,
+        toolCallId,
+        toolName,
+      });
+      await publish(mapOpenClawToolOutput({ output, toolCallId, toolName }));
+    },
+    finish: async (payload?: unknown) => {
+      if (payload !== undefined) await textPayload(payload);
+      if (!hasPublished || finalized) return;
+      const events = finishRunEvents(state, "stop", {
+        agent_id: base.agentId,
+        run_id: base.runId,
+        session_id: base.sessionId,
+        session_key: base.sessionKey,
+      });
+      const terminal = events.at(-1);
+      const preTerminal = events.slice(0, -1);
+      if (preTerminal.length > 0) await publisher.publishMany(preTerminal);
+      finalized = true;
+      await publisher.finalize(stripUndefined({ terminalPart: terminal, finishReason: "stop" }));
+    },
+    fail: async (error: unknown) => {
+      if (finalized) return;
+      finalized = true;
+      await publisher.finalize({
+        body: errorText(error),
+        terminalPart: {
+          error: { message: errorText(error) },
+          message: errorText(error),
+          runId: base.runId,
+          threadId: base.runId,
+          type: AGUIEventType.RUN_ERROR,
+        },
       });
     },
   };

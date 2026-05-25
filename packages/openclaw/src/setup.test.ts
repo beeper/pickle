@@ -204,8 +204,8 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(beeperChannelPlugin.actions).toEqual(expect.any(Object));
     expect(beeperChannelPlugin.actions.describeMessageTool()).toMatchObject({
-      actions: ["send", "edit", "delete", "react"],
-      capabilities: ["media", "replyTo", "reactions"],
+      actions: ["send", "edit", "delete", "react", "read", "mark_unread"],
+      capabilities: ["media", "replyTo", "reactions", "readReceipts", "markedUnread"],
     });
     expect(beeperChannelPlugin.actions.extractToolSend({
       args: { action: "send", threadId: "$thread", to: "beeper:!room" },
@@ -572,6 +572,7 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       enabled: true,
       accessToken: "at",
+      appserviceId: "sh-openclaw-dev",
       asToken: "as",
       bridgeId: "sh-openclaw-dev",
       homeserver: "https://matrix.example",
@@ -756,6 +757,14 @@ describe("OpenClaw Beeper setup surface", () => {
 
 	    await beeperChannelPlugin.heartbeat.sendTyping({ to: "!room" });
 	    expect(client.typing.set).not.toHaveBeenCalled();
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "read",
+	      params: { eventId: sentMessageId, to: "!room" },
+	    });
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "mark_unread",
+	      params: { eventId: sentMessageId, to: "!room" },
+	    });
 	    expect(queued.map((event) => (event as { getType: () => string }).getType())).toEqual([
 	      "message",
 	      "message",
@@ -763,6 +772,8 @@ describe("OpenClaw Beeper setup surface", () => {
 	      "reaction",
 	      "message_remove",
 	      "typing",
+	      "read_receipt",
+	      "mark_unread",
 	    ]);
 
     await expect(beeperChannelPlugin.directory.listPeersLive({

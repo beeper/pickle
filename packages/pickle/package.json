@@ -63,7 +63,8 @@
     "build": "npm run generate:types && tsdown && npm run build:wasm",
     "build:wasm": "mkdir -p dist && cd native && GOOS=js GOARCH=wasm CGO_ENABLED=0 go build -tags goolm -ldflags='-s -w' -o ../dist/pickle.wasm ./cmd/matrix-wasm && cp \"$(go env GOROOT)/lib/wasm/wasm_exec.js\" ../dist/wasm_exec.js",
     "clean": "rm -rf dist",
-    "generate:types": "cd native && go run ./cmd/matrix-ts-types",
+    "generate:types": "cd native && go run -tags goolm ./cmd/matrix-ts-types",
+    "test:go": "cd native && go test -tags goolm ./...",
     "test": "vitest run --coverage",
     "typecheck": "npm run generate:types && tsc --noEmit"
   },

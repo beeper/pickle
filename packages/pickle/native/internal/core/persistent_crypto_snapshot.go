@@ -102,7 +102,6 @@ func (store *persistentCryptoStore) snapshot() (persistedCryptoSnapshot, error) 
 	store.auxLock.Lock()
 	for key, value := range store.messageIndices {
 		snapshot.MessageIndices = append(snapshot.MessageIndices, persistedMessageIndex{
-			SenderKey: key.SenderKey,
 			SessionID: key.SessionID,
 			Index:     key.Index,
 			EventID:   value.EventID,

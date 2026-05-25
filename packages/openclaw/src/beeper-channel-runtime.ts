@@ -5,13 +5,17 @@ import {
   createRemoteMessage,
   type PickleBridge,
   type PortalKey,
+  type RemoteDeliveryReceipt,
   type RemoteEdit,
+  type RemoteMarkUnread,
   type RemoteMessageRemove,
+  type RemoteReadReceipt,
   type RemoteReaction,
   type RemoteReactionRemove,
   type RemoteTyping,
   type UserLogin,
 } from "@beeper/pickle-bridge";
+import { BeeperStreamPublisher } from "./beeper-stream";
 import type { OpenClawAgentContact, OpenClawSessionBinding } from "./types";
 
 export interface BeeperChannelRuntimeOptions {
@@ -19,6 +23,7 @@ export interface BeeperChannelRuntimeOptions {
   client: MatrixClient;
   getAgents?: () => readonly OpenClawAgentContact[];
   getBindingByRoom?: (roomId: string) => OpenClawSessionBinding | undefined;
+  getBindingBySessionKey?: (sessionKey: string) => OpenClawSessionBinding | undefined;
   login?: UserLogin;
   log?: (level: "debug" | "info" | "warn" | "error", message: string, data?: unknown) => void;
   userId?: string;
@@ -39,6 +44,7 @@ export class BeeperChannelRuntime {
   #bridge: PickleBridge | undefined;
   #getAgents: () => readonly OpenClawAgentContact[];
   #getBindingByRoom: (roomId: string) => OpenClawSessionBinding | undefined;
+  #getBindingBySessionKey: (sessionKey: string) => OpenClawSessionBinding | undefined;
   #login: UserLogin | undefined;
   #log: BeeperChannelRuntimeOptions["log"];
 
@@ -47,6 +53,7 @@ export class BeeperChannelRuntime {
     this.client = options.client;
     this.#getAgents = options.getAgents ?? (() => []);
     this.#getBindingByRoom = options.getBindingByRoom ?? (() => undefined);
+    this.#getBindingBySessionKey = options.getBindingBySessionKey ?? (() => undefined);
     this.#login = options.login;
     this.#log = options.log;
     this.userId = options.userId;
@@ -111,6 +118,39 @@ export class BeeperChannelRuntime {
 
   async typing(options: { roomId: string; timeoutMs?: number; typing?: boolean }): Promise<void> {
     await this.#queueRemoteTyping(options.roomId, options.typing ?? true, options.timeoutMs);
+  }
+
+  async readReceipt(options: { eventId: string; roomId: string }): Promise<void> {
+    await this.#queueRemoteReceipt(options.roomId, options.eventId, "read_receipt");
+  }
+
+  async deliveryReceipt(options: { eventId: string; roomId: string }): Promise<void> {
+    await this.#queueRemoteReceipt(options.roomId, options.eventId, "delivery_receipt");
+  }
+
+  async markUnread(options: { eventId: string; roomId: string; unread: boolean }): Promise<void> {
+    await this.#queueRemoteMarkUnread(options.roomId, options.eventId, options.unread);
+  }
+
+  createStreamPublisher(options: {
+    agentId?: string;
+    roomId: string;
+    runId: string;
+    sessionKey: string;
+    threadRoot?: string;
+  }): BeeperStreamPublisher {
+    return new BeeperStreamPublisher({
+      client: this.client,
+      initialMessageMetadata: {
+        agent_id: options.agentId,
+        session_key: options.sessionKey,
+      },
+      roomId: options.roomId,
+      turnId: options.runId,
+      ...(options.agentId ? { agentId: options.agentId } : {}),
+      ...(options.threadRoot ? { threadRoot: options.threadRoot } : {}),
+      ...(this.userId ? { userId: this.userId } : {}),
+    });
   }
 
   debug(message: string, data?: unknown): void {
@@ -223,19 +263,58 @@ export class BeeperChannelRuntime {
     await route.bridge.flushRemoteEvents();
   }
 
-  #bridgeRoute(roomId: string): { bridge: PickleBridge; login: UserLogin; portalKey: PortalKey } {
+  async #queueRemoteReceipt(roomId: string, targetMessageId: string, type: "read_receipt" | "delivery_receipt"): Promise<void> {
+    const targetId = openClawTargetId(targetMessageId);
+    const route = this.#bridgeRoute(roomId);
+    const event: RemoteReadReceipt | RemoteDeliveryReceipt = {
+      getPortalKey: () => route.portalKey,
+      getSender: () => this.#eventSender(roomId),
+      getTargetMessage: () => targetId,
+      getType: () => type,
+    };
+    route.bridge.queueRemoteEvent(route.login, event);
+    await route.bridge.flushRemoteEvents();
+  }
+
+  async #queueRemoteMarkUnread(roomId: string, targetMessageId: string, unread: boolean): Promise<void> {
+    const targetId = openClawTargetId(targetMessageId);
+    const route = this.#bridgeRoute(roomId);
+    const event: RemoteMarkUnread = {
+      getPortalKey: () => route.portalKey,
+      getSender: () => this.#eventSender(roomId),
+      getTargetMessage: () => targetId,
+      getType: () => "mark_unread",
+      getUnread: () => unread,
+    };
+    route.bridge.queueRemoteEvent(route.login, event);
+    await route.bridge.flushRemoteEvents();
+  }
+
+  #bridgeRoute(roomId: string): { bridge: PickleBridge; login: UserLogin; portalKey: PortalKey; targetRoomId: string } {
     if (!this.#bridge || !this.#login) throw new Error("Beeper channel runtime requires a Pickle bridge and user login for outbound actions.");
-    const portal = this.#bridge.getPortalByMXID(roomId);
+    const binding = this.#resolveBinding(roomId);
+    const targetRoomId = binding?.roomId ?? roomId;
+    const portal = this.#bridge.getPortalByMXID(targetRoomId);
     if (!portal?.portalKey) throw new Error(`Beeper outbound target ${roomId} is not a bound bridge portal.`);
-    return { bridge: this.#bridge, login: this.#login, portalKey: portal.portalKey };
+    return { bridge: this.#bridge, login: this.#login, portalKey: portal.portalKey, targetRoomId };
   }
 
   #eventSender(roomId: string): { isFromMe: boolean; sender: string } {
-    const binding = this.#getBindingByRoom(roomId);
+    const binding = this.#resolveBinding(roomId);
     return {
       isFromMe: true,
       sender: binding?.ghostUserId ?? this.userId ?? "openclaw",
     };
+  }
+
+  #resolveBinding(target: string): OpenClawSessionBinding | undefined {
+    const direct = this.#getBindingByRoom(target);
+    if (direct) return direct;
+    for (const sessionKey of beeperSessionKeyCandidates(target)) {
+      const binding = this.#getBindingBySessionKey(sessionKey);
+      if (binding) return binding;
+    }
+    return undefined;
   }
 }
 
@@ -277,6 +356,17 @@ function openClawTargetId(eventId: string): string {
     throw new Error(`Beeper bridge actions can only target OpenClaw bridge message ids, got ${eventId}.`);
   }
   return eventId;
+}
+
+function beeperSessionKeyCandidates(target: string): string[] {
+  const trimmed = target.trim();
+  if (!trimmed) return [];
+  const candidates = new Set<string>([trimmed]);
+  const parts = trimmed.split(":");
+  if (parts[0] !== "agent" && parts.length >= 3) {
+    candidates.add(["agent", ...parts].join(":"));
+  }
+  return [...candidates];
 }
 
 function mediaMessageContent(kind: NonNullable<BeeperOutboundMedia["kind"]>, contentUri: string, filename: string | undefined, caption: string | undefined): Record<string, unknown> {

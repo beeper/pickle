@@ -67,10 +67,6 @@
       "types": "./dist/matrix-parser.d.mts",
       "import": "./dist/matrix-parser.mjs"
     },
-    "./openclaw-event-map": {
-      "types": "./dist/openclaw-event-map.d.mts",
-      "import": "./dist/openclaw-event-map.mjs"
-    },
     "./openclaw-extension": {
       "types": "./dist/openclaw-extension.d.mts",
       "import": "./dist/openclaw-extension.mjs"

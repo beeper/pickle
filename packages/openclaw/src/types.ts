@@ -43,7 +43,7 @@ export interface OpenClawBridgeConfig {
   allowedUserIds?: string[];
   asToken?: string;
   appserviceId: string;
-  approvalBehavior?: "native" | "reactions" | "slash" | "disabled";
+  approvalBehavior?: "native" | "disabled";
   backfillLimit?: number;
   baseDomain?: string;
   beeperEnv?: "production" | "staging" | "dev" | "local";

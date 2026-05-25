@@ -75,7 +75,6 @@ describe("OpenClaw Beeper setup", () => {
 
     expect(seen).toEqual([
       expect.objectContaining({
-        address: "http://127.0.0.1:29391",
         bridge: "sh-openclaw-dev",
         bridgeType: "openclaw",
         selfHosted: true,

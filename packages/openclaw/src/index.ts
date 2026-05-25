@@ -9,7 +9,6 @@ export * from "./cli";
 export * from "./config";
 export * from "./connector";
 export * from "./matrix-parser";
-export * from "./openclaw-event-map";
 export * from "./openclaw-extension";
 export * from "./openclaw-runtime";
 export * from "./plugin-entry";

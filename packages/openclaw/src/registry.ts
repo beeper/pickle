@@ -97,6 +97,14 @@ export class OpenClawBridgeRegistry {
     return updated;
   }
 
+  removeBindingByRoom(roomId: string): OpenClawSessionBinding | undefined {
+    const index = this.#data.bindings.findIndex((binding) => binding.roomId === roomId);
+    const existing = this.#data.bindings[index];
+    if (index === -1 || !existing) return undefined;
+    this.#data.bindings.splice(index, 1);
+    return existing;
+  }
+
   markDedupe(key: string, timestamp = Date.now()): void {
     this.#data.dedupe[key] = timestamp;
   }

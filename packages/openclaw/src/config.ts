@@ -8,7 +8,7 @@ import type { OpenClawBridgeConfig } from "./types";
 
 export const DEFAULT_APPSERVICE_ID = "sh-openclaw";
 export const DEFAULT_GHOST_LOCALPART_PREFIX = "openclaw_agent_";
-export const DEFAULT_REGISTRATION_URL = "http://127.0.0.1:29391";
+export const DEFAULT_REGISTRATION_URL = "websocket";
 export const DEFAULT_SENDER_LOCALPART = "openclawbot";
 export const DEFAULT_SERVICE_BOT_LOCALPART = "openclawbot";
 export const DEFAULT_USER_LOCALPART_PREFIX = "openclaw_user_";
@@ -152,7 +152,7 @@ function envStreamFinalization(value: string | undefined): OpenClawBridgeConfig[
 }
 
 function envApprovalBehavior(value: string | undefined): OpenClawBridgeConfig["approvalBehavior"] | undefined {
-  if (value === "native" || value === "reactions" || value === "slash" || value === "disabled") return value;
+  if (value === "native" || value === "disabled") return value;
   return undefined;
 }
 

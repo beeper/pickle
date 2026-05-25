@@ -65,7 +65,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const registerGhost = vi.fn();
     await api.connect({ bridge: { registerGhost }, queue: vi.fn(), queueRemoteEvent: vi.fn() } as unknown as Parameters<typeof api.connect>[0]);
@@ -94,7 +93,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const registerGhost = vi.fn();
     await api.connect({ bridge: { registerGhost }, queue: vi.fn(), queueRemoteEvent: vi.fn() } as unknown as Parameters<typeof api.connect>[0]);
@@ -107,7 +105,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime: hidden,
-      streams: { publish: vi.fn() },
     });
     const hiddenRegisterGhost = vi.fn();
     await hiddenApi.connect({ bridge: { registerGhost: hiddenRegisterGhost }, queue: vi.fn(), queueRemoteEvent: vi.fn() } as unknown as Parameters<typeof hiddenApi.connect>[0]);
@@ -122,7 +119,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime: runtimeWith({ responses: { "sessions.create": { key: "agent:codex:session_1" } } }),
-      streams: { publish: vi.fn() },
     });
     await expect(api.resolveIdentifier({ bridge: { createPortal: vi.fn() } } as unknown as BridgeRequestContext, {
       createDM: false,
@@ -224,7 +220,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry: new OpenClawBridgeRegistry("/tmp/openclaw-connector-unknown-agent-test.json"),
       runtime,
-      streams: { publish: vi.fn() },
     });
     const createPortal = vi.fn();
 
@@ -256,7 +251,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime: runtimeWith({ responses: { "sessions.create": { key: "agent:codex:session_2" } } }),
-      streams: { publish: vi.fn() },
     });
     const createPortal = vi.fn(async (loginArg, options) => ({
       id: options.id,
@@ -299,7 +293,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
 
     await expect(api.listContacts({} as BridgeRequestContext, { query: "code" })).resolves.toEqual({
@@ -342,7 +335,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
 
     await expect(api.listContacts({} as BridgeRequestContext, { query: "telegram" })).resolves.toEqual({
@@ -385,7 +377,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const portal = {
       id: "agent:codex",
@@ -432,7 +423,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const sessionKey = "agent:main:main";
     const roomId = `!session:${Buffer.from(sessionKey).toString("base64url")}.openclaw:plugin:beeper.local`;
@@ -454,7 +444,7 @@ describe("OpenClawBridgeConnector", () => {
     }), { expectFinal: false });
   });
 
-  it("dispatches Matrix text and approval reactions to OpenClaw", async () => {
+  it("dispatches Matrix text and native approval responses to OpenClaw", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     const runtime = runtimeWith({
       events: [{ event: "run.completed", payload: { runId: "run_1", type: "run.completed" } }],
@@ -469,7 +459,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const portal = {
       id: "agent:codex",
@@ -517,10 +506,11 @@ describe("OpenClawBridgeConnector", () => {
             approvedAlways: false,
             decision: "deny",
           },
+          ignored: "approval-reactions-disabled",
         },
       },
     });
-    expect(runtime.transport.request).toHaveBeenCalledWith("exec.approval.resolve", {
+    expect(runtime.transport.request).not.toHaveBeenCalledWith("exec.approval.resolve", {
       approvalId: "approval_1",
       decision: "deny",
     });
@@ -655,7 +645,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const portal = {
       id: "agent:codex",
@@ -720,7 +709,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
 
     await api.handleMatrixMessage({} as BridgeRequestContext, {
@@ -793,7 +781,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
 
     await expect(api.handleMatrixMessage({} as BridgeRequestContext, {
@@ -846,7 +833,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const portal = {
       id: "agent:codex",
@@ -999,7 +985,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const queueRemoteEvent = vi.fn();
     const createPortal = vi.fn(async (_login: UserLogin, options: { id: string }) => ({
@@ -1029,7 +1014,7 @@ describe("OpenClawBridgeConnector", () => {
       parts: [{ content: { body: expect.stringContaining("Import sources: dashboard") } }],
     });
     await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: expect.stringContaining("Approvals: native Beeper UI with slash/reaction escape hatches") } }],
+      parts: [{ content: { body: expect.stringContaining("Approvals: native Beeper UI") } }],
     });
 
     await api.handleMatrixMessage(ctx, {
@@ -1102,10 +1087,11 @@ describe("OpenClawBridgeConnector", () => {
       sender: { userId: "@alice:example.com" },
       text: "/new fresh",
     } as MatrixMessage);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", {
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
       agentId: "codex",
+      key: expect.stringMatching(/^agent:codex:beeper:/u),
       label: "fresh",
-    });
+    }));
     expect(createPortal).toHaveBeenCalledWith(login(), {
       creationContent: { "m.federate": false },
       id: "session:YWdlbnQ6Y29kZXg6bmV3",
@@ -1128,9 +1114,21 @@ describe("OpenClawBridgeConnector", () => {
       parts: [{ content: { body: "Created a new OpenClaw session room: !new-room:example.com" } }],
     });
     expect(runtime.transport.request).not.toHaveBeenCalledWith("sessions.send", expect.anything(), expect.anything());
+
+    await api.handleMatrixMessage(ctx, {
+      event: { eventId: "$new-default" },
+      portal,
+      sender: { userId: "@alice:example.com" },
+      text: "/new",
+    } as MatrixMessage);
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
+      agentId: "codex",
+      key: expect.stringMatching(/^agent:codex:beeper:/u),
+      label: "New OpenClaw Session",
+    }));
   });
 
-  it("creates a new agent session room from slash commands in unbound rooms", async () => {
+  it("binds unbound rooms to new OpenClaw sessions from slash commands", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     registry.upsertAgent({ agentId: "codex", displayName: "Codex", ghostUserId: "@codex:example.com" });
     const runtime = runtimeWith({
@@ -1143,16 +1141,10 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const queueRemoteEvent = vi.fn();
-    const createPortal = vi.fn(async () => ({
-      id: "session:YWdlbnQ6Y29kZXg6bmV3LWZyb20tbWFuYWdlbWVudA",
-      mxid: "!new-management-room:example.com",
-      portalKey: { id: "session:YWdlbnQ6Y29kZXg6bmV3LWZyb20tbWFuYWdlbWVudA", receiver: "login" },
-      receiver: "login",
-    }));
-    const ctx = { bridge: { createPortal }, queueRemoteEvent } as unknown as BridgeRequestContext;
+    const registerPortal = vi.fn();
+    const ctx = { bridge: { registerPortal }, queueRemoteEvent } as unknown as BridgeRequestContext;
     const portal = {
       id: "management",
       mxid: "!management:example.com",
@@ -1167,54 +1159,132 @@ describe("OpenClawBridgeConnector", () => {
       text: "/new codex Deep work",
     } as MatrixMessage);
 
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", {
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
       agentId: "codex",
+      key: expect.stringMatching(/^agent:codex:beeper:/u),
       label: "Deep work",
-    });
-    expect(createPortal).toHaveBeenCalledWith(login(), {
-      creationContent: { "m.federate": false },
-      id: "session:YWdlbnQ6Y29kZXg6bmV3LWZyb20tbWFuYWdlbWVudA",
-      metadata: {
-        openclaw: {
-          agentId: "codex",
-          ghostUserId: "@codex:example.com",
-          sessionKey: "agent:codex:new-from-management",
-        },
-      },
-      name: "Deep work",
-      roomType: "dm",
-    });
-    expect(registry.getBindingByRoom("!new-management-room:example.com")).toMatchObject({
+    }));
+    expect(registry.getBindingByRoom("!management:example.com")).toMatchObject({
       agentId: "codex",
       label: "Deep work",
       sessionKey: "agent:codex:new-from-management",
     });
+    expect(registerPortal).toHaveBeenCalledWith(expect.objectContaining({
+      id: "session:YWdlbnQ6Y29kZXg6bmV3LWZyb20tbWFuYWdlbWVudA",
+      mxid: "!management:example.com",
+      portalKey: {
+        id: "session:YWdlbnQ6Y29kZXg6bmV3LWZyb20tbWFuYWdlbWVudA",
+        receiver: "openclaw:plugin",
+      },
+      receiver: "openclaw:plugin",
+    }));
+    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
+      parts: [{ content: { body: expect.stringContaining("Created a new OpenClaw session in this room") } }],
+    });
 
     await api.handleMatrixMessage(ctx, {
       event: { eventId: "$new-missing-agent" },
-      portal,
+      portal: {
+        id: "fresh-management",
+        mxid: "!fresh-management:example.com",
+        portalKey: { id: "fresh-management", receiver: "login" },
+        receiver: "login",
+      },
       sender: { userId: "@alice:example.com" },
       text: "/new",
     } as MatrixMessage);
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: expect.stringContaining("Usage: /new [agent-id]") } }],
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
+      agentId: "main",
+      key: expect.stringMatching(/^agent:main:beeper:/u),
+      label: "New OpenClaw Session",
+    }));
+    expect(registry.getBindingByRoom("!fresh-management:example.com")).toMatchObject({
+      agentId: "main",
+      label: "New OpenClaw Session",
     });
   });
 
-  it("honors configured approval behavior for reactions and slash commands", async () => {
+  it("auto-binds unbound Beeper rooms before forwarding chat turns", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
+    const runtime = runtimeWith({
+      responses: {
+        "sessions.create": { key: "agent:main:auto" },
+        "sessions.send": { runId: "run_auto", sessionKey: "agent:main:auto" },
+      },
+    });
+    const api = new OpenClawNetworkAPI({
+      config: runtime.config,
+      login: login(),
+      registry,
+      runtime,
+    });
+    const log = vi.fn();
+    const registerPortal = vi.fn();
+    const ctx = { bridge: { registerPortal }, log, queueRemoteEvent: vi.fn() } as unknown as BridgeRequestContext;
+    const portal = {
+      id: "!cloud-room:example.com",
+      mxid: "!cloud-room:example.com",
+      portalKey: { id: "!cloud-room:example.com", receiver: "login" },
+      receiver: "login",
+    };
+
+    await api.handleMatrixMessage(ctx, {
+      event: { eventId: "$hello" },
+      portal,
+      sender: { userId: "@alice:example.com" },
+      text: "hey",
+    } as MatrixMessage);
+
+    expect(log).toHaveBeenCalledWith("warn", "openclaw_matrix_message_unbound_room", expect.objectContaining({
+      roomId: "!cloud-room:example.com",
+    }));
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
+      agentId: "main",
+      key: expect.stringMatching(/^agent:main:beeper:/u),
+      label: "New OpenClaw Session",
+    }));
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+      idempotencyKey: "$hello",
+      key: "agent:main:auto",
+      message: "hey",
+    }), { expectFinal: false });
+    expect(registry.getBindingByRoom("!cloud-room:example.com")).toMatchObject({
+      agentId: "main",
+      label: "New OpenClaw Session",
+      sessionKey: "agent:main:auto",
+    });
+    expect(registerPortal).toHaveBeenCalledWith(expect.objectContaining({
+      id: "session:YWdlbnQ6bWFpbjphdXRv",
+      metadata: {
+        openclaw: {
+          agentId: "main",
+          ghostUserId: "@openclaw_agent_main:localhost",
+          label: "New OpenClaw Session",
+          sessionKey: "agent:main:auto",
+        },
+      },
+      mxid: "!cloud-room:example.com",
+      portalKey: {
+        id: "session:YWdlbnQ6bWFpbjphdXRv",
+        receiver: "openclaw:plugin",
+      },
+      receiver: "openclaw:plugin",
+    }));
+  });
+
+  it("rejects reaction and slash approval fallbacks", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     const runtime = runtimeWith({
       responses: {
         "exec.approval.resolve": { ok: true },
       },
     });
-    runtime.config.approvalBehavior = "slash";
+    runtime.config.approvalBehavior = "native";
     const api = new OpenClawNetworkAPI({
       config: runtime.config,
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const portal = {
       id: "agent:codex",
@@ -1234,6 +1304,7 @@ describe("OpenClawBridgeConnector", () => {
     });
     expect(runtime.transport.request).not.toHaveBeenCalledWith("exec.approval.resolve", expect.anything());
 
+    runtime.config.approvalBehavior = "disabled";
     await api.handleMatrixMessage({} as BridgeRequestContext, {
       content: {
         approvalId: "approval_native_disabled",
@@ -1260,9 +1331,12 @@ describe("OpenClawBridgeConnector", () => {
       sender: { userId: "@alice:example.com" },
       text: "/approve approval_1",
     } as MatrixMessage);
-    expect(runtime.transport.request).toHaveBeenCalledWith("exec.approval.resolve", {
+    expect(runtime.transport.request).not.toHaveBeenCalledWith("exec.approval.resolve", {
       approvalId: "approval_1",
       decision: "approve",
+    });
+    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
+      parts: [{ content: { body: "Approval slash commands are disabled for this bridge." } }],
     });
 
     await api.handleMatrixMessage({ queueRemoteEvent } as unknown as BridgeRequestContext, {
@@ -1277,7 +1351,7 @@ describe("OpenClawBridgeConnector", () => {
       sender: { userId: "@alice:example.com" },
       text: "/deny",
     } as MatrixMessage);
-    expect(runtime.transport.request).toHaveBeenCalledWith("exec.approval.resolve", {
+    expect(runtime.transport.request).not.toHaveBeenCalledWith("exec.approval.resolve", {
       approvalId: "approval_1_reply",
       decision: "deny",
     });
@@ -1293,62 +1367,6 @@ describe("OpenClawBridgeConnector", () => {
       parts: [{ content: { body: "Approval slash commands are disabled for this bridge." } }],
     });
 
-    runtime.config.approvalBehavior = "slash";
-    await api.handleMatrixMessage({ queueRemoteEvent } as unknown as BridgeRequestContext, {
-      event: { eventId: "$approve-missing" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/approve",
-    } as MatrixMessage);
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: "Usage: /approve <approval-id> or reply to an approval message with /approve" } }],
-    });
-  });
-
-  it("keeps slash and reaction approval escape hatches enabled in native approval mode", async () => {
-    const runtime = runtimeWith({
-      responses: {
-        "exec.approval.resolve": { ok: true },
-      },
-    });
-    runtime.config.approvalBehavior = "native";
-    const api = new OpenClawNetworkAPI({
-      config: runtime.config,
-      login: login(),
-      registry: new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json"),
-      runtime,
-      streams: { publish: vi.fn() },
-    });
-    const portal = {
-      id: "agent:codex",
-      metadata: { openclaw: { agentId: "codex", ghostUserId: "@codex:example.com", sessionKey: "agent:codex:session_1" } },
-      mxid: "!room:example.com",
-      portalKey: { id: "agent:codex", receiver: "login" },
-      receiver: "login",
-    };
-    const queueRemoteEvent = vi.fn();
-
-    await api.handleMatrixMessage({ queueRemoteEvent } as unknown as BridgeRequestContext, {
-      event: { eventId: "$approve-native" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/approve approval_slash",
-    } as MatrixMessage);
-    await api.handleMatrixReaction({} as BridgeRequestContext, {
-      content: { "m.relates_to": { event_id: "approval_reaction", key: "approval.deny" } },
-      event: { eventId: "$reaction-native" },
-      portal,
-      targetMessage: { id: "approval_reaction" },
-    } as MatrixReaction);
-
-    expect(runtime.transport.request).toHaveBeenCalledWith("exec.approval.resolve", {
-      approvalId: "approval_slash",
-      decision: "approve",
-    });
-    expect(runtime.transport.request).toHaveBeenCalledWith("exec.approval.resolve", {
-      approvalId: "approval_reaction",
-      decision: "deny",
-    });
   });
 
   it("rebuilds an OpenClaw room binding from a persisted Pickle session portal without metadata", async () => {
@@ -1365,7 +1383,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const sessionKey = "agent:codex:dashboard:one";
     const portal = {
@@ -1408,7 +1425,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const sessionKey = "agent:main:dashboard:abc";
     const roomId = `!session:${Buffer.from(sessionKey).toString("base64url")}.openclaw:plugin:beeper.local`;
@@ -1455,7 +1471,6 @@ describe("OpenClawBridgeConnector", () => {
       login: login(),
       registry,
       runtime,
-      streams: { publish: vi.fn() },
     });
     const portal = {
       id: "agent:codex",

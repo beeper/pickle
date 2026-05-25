@@ -71,9 +71,8 @@ func (store *persistentCryptoStore) MarkOutboundGroupSessionShared(ctx context.C
 	return store.save(ctx)
 }
 
-func (store *persistentCryptoStore) ValidateMessageIndex(ctx context.Context, senderKey id.SenderKey, sessionID id.SessionID, eventID id.EventID, index uint, timestamp int64) (bool, error) {
+func (store *persistentCryptoStore) ValidateMessageIndex(ctx context.Context, sessionID id.SessionID, eventID id.EventID, index uint, timestamp int64) (bool, error) {
 	key := storedMessageIndexKey{
-		SenderKey: senderKey,
 		SessionID: sessionID,
 		Index:     index,
 	}

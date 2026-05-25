@@ -23,7 +23,7 @@ describe("OpenClaw bridge config", () => {
       dataDir: "/tmp/openclaw-bridge",
       ghostLocalpartPrefix: "openclaw_agent_",
       nonFederatedRooms: true,
-      registrationUrl: "http://127.0.0.1:29391",
+      registrationUrl: "websocket",
       senderLocalpart: "openclawbot",
       serviceBotLocalpart: "openclawbot",
       storePath: "/tmp/openclaw-bridge/matrix-store",

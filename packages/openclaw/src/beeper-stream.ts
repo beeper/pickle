@@ -7,10 +7,9 @@ import {
   getFinalMessageText,
   type BeeperFinalMessageAccumulator,
 } from "@beeper/pickle/streams/beeper-message";
-import type { OpenClawBridgeStreamPublisher, OpenClawStreamPublishResult } from "./bridge-agent";
 import { SerialQueue } from "./serial";
 import { AGUIEventType, createTurnId, type AGUIEvent } from "./stream-map";
-import type { OpenClawBridgeConfig, OpenClawSessionBinding } from "./types";
+import type { OpenClawBridgeConfig } from "./types";
 
 type FinishReason = "stop" | "length" | "content_filter" | "tool_calls" | null;
 
@@ -249,79 +248,6 @@ export class BeeperStreamPublisher {
       user_id: this.#userId,
     });
   }
-}
-
-export interface OpenClawBeeperStreamPublisherOptions {
-  client: BeeperStreamPublisherClient;
-  config?: Pick<OpenClawBridgeConfig, "streamFinalization">;
-  userId?: string;
-}
-
-export class OpenClawBeeperStreamPublisher implements OpenClawBridgeStreamPublisher {
-  #client: BeeperStreamPublisherClient;
-  #config: Pick<OpenClawBridgeConfig, "streamFinalization">;
-  #publishers = new Map<string, BeeperStreamPublisher>();
-  #userId: string | undefined;
-
-  constructor(options: OpenClawBeeperStreamPublisherOptions) {
-    this.#client = options.client;
-    this.#config = options.config ?? {};
-    this.#userId = options.userId;
-  }
-
-  async publish(binding: OpenClawSessionBinding, events: AGUIEvent[]): Promise<OpenClawStreamPublishResult | undefined> {
-    if (!events.length) return undefined;
-    const key = streamKey(binding, events);
-    let publisher = this.#publishers.get(key);
-    if (!publisher) {
-      publisher = new BeeperStreamPublisher({
-        agentId: binding.agentId,
-        client: this.#client,
-        initialMessageMetadata: {
-          agent_id: binding.agentId,
-          session_key: binding.sessionKey,
-        },
-        roomId: binding.roomId,
-        turnId: firstRunId(events) ?? binding.lastStreamRunId ?? binding.lastRunId ?? createTurnId(),
-        ...(this.#userId ? { userId: this.#userId } : {}),
-      });
-      this.#publishers.set(key, publisher);
-    }
-
-    const terminal = events.find(isTerminalEvent);
-    const nonTerminal = terminal ? events.filter((event) => event !== terminal) : events;
-    await publisher.publishMany(nonTerminal);
-    if (terminal) {
-      try {
-        const finalized = await publisher.finalize({
-          finalization: this.#config.streamFinalization,
-          terminalPart: terminal,
-        });
-        const raw = recordValue(finalized.raw);
-        return { targetEventId: stringValue(raw?.logicalEventId) ?? finalized.eventId };
-      } finally {
-        this.#publishers.delete(key);
-      }
-    }
-    return publisher.targetEventId ? { targetEventId: publisher.targetEventId } : undefined;
-  }
-}
-
-function streamKey(binding: OpenClawSessionBinding, events: AGUIEvent[]): string {
-  return `${binding.roomId}:${firstRunId(events) ?? binding.lastStreamRunId ?? binding.lastRunId ?? binding.sessionKey}`;
-}
-
-function firstRunId(events: AGUIEvent[]): string | undefined {
-  for (const event of events) {
-    const record = event as Record<string, unknown>;
-    const runId = stringValue(record.runId) ?? stringValue(record.threadId) ?? stringValue(record.messageId);
-    if (runId) return runId;
-  }
-  return undefined;
-}
-
-function isTerminalEvent(event: AGUIEvent): boolean {
-  return event.type === AGUIEventType.RUN_FINISHED || event.type === AGUIEventType.RUN_ERROR;
 }
 
 function terminalFallbackText(event: AGUIEvent | undefined): string {

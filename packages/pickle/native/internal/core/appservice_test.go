@@ -40,11 +40,14 @@ func TestMakePortalCreateRoomRequestBuildsBridgeV2Room(t *testing.T) {
 	}
 	createReq := appservice.makePortalCreateRoomRequest(req, id.UserID("@test_bob:example"))
 
-	if createReq.BeeperLocalRoomID != id.RoomID("!remote-room.login:a:example") {
-		t.Fatalf("unexpected local room ID: %s", createReq.BeeperLocalRoomID)
+	if createReq.BeeperLocalRoomID != "" {
+		t.Fatalf("expected homeserver-assigned room ID, got local room ID: %s", createReq.BeeperLocalRoomID)
 	}
-	if createReq.MeowRoomID != createReq.BeeperLocalRoomID {
-		t.Fatalf("expected fi.mau room ID to match local room ID, got %s", createReq.MeowRoomID)
+	if createReq.MeowRoomID != "" {
+		t.Fatalf("expected no fi.mau room ID override, got %s", createReq.MeowRoomID)
+	}
+	if createReq.BeeperBridgeName != "" || createReq.BeeperBridgeAccountID != "" {
+		t.Fatalf("expected bridge details to stay in bridge state events for homeserver-assigned rooms, got name=%q account=%q", createReq.BeeperBridgeName, createReq.BeeperBridgeAccountID)
 	}
 	assertHasUserID(t, createReq.Invite, "@alice:example")
 	assertHasUserID(t, createReq.BeeperInitialMembers, "@alice:example")
@@ -101,6 +104,67 @@ func TestAppserviceTransactionParsesBeeperStreamSubscribe(t *testing.T) {
 	if got.RoomID != id.RoomID("!room:example") || got.EventID != id.EventID("$event") || got.DeviceID != id.DeviceID("DESKTOP") {
 		t.Fatalf("unexpected parsed subscribe content: %#v", got)
 	}
+}
+
+func TestAppserviceTransactionEmitsMautrixClassifiedEvents(t *testing.T) {
+	var emitted []OutboundEvent
+	core := New(func(evt OutboundEvent) {
+		emitted = append(emitted, evt)
+	})
+	core.appserviceProcessor = newBeeperStreamEventProcessor()
+
+	rawTxn := map[string]any{
+		"events": []any{
+			map[string]any{
+				"content":   map[string]any{"name": "Project room"},
+				"event_id":  "$name",
+				"room_id":   "!room:example",
+				"sender":    "@alice:example",
+				"state_key": "",
+				"type":      "m.room.name",
+			},
+			map[string]any{
+				"content":   map[string]any{"membership": "invite"},
+				"event_id":  "$member",
+				"room_id":   "!room:example",
+				"sender":    "@alice:example",
+				"state_key": "@bob:example",
+				"type":      "m.room.member",
+			},
+		},
+		"ephemeral": []any{
+			map[string]any{
+				"content": map[string]any{
+					"$message": map[string]any{
+						"m.read": map[string]any{
+							"@alice:example": map[string]any{"ts": 1},
+						},
+					},
+				},
+				"room_id": "!room:example",
+				"type":    "m.receipt",
+			},
+		},
+		"room_account_data": []any{
+			map[string]any{
+				"content": map[string]any{"unread": true},
+				"room_id": "!room:example",
+				"type":    "m.marked_unread",
+			},
+		},
+	}
+	payload, err := json.Marshal(MatrixAppserviceTransactionOptions{Transaction: mustJSON(t, rawTxn)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.handleAppserviceApplyTransaction(context.Background(), payload); err != nil {
+		t.Fatal(err)
+	}
+
+	assertEmittedSyncEvent(t, emitted, "room_state", "m.room.name", "!room:example")
+	assertEmittedSyncEvent(t, emitted, "membership", "m.room.member", "!room:example")
+	assertEmittedSyncEvent(t, emitted, "receipt", "m.receipt", "!room:example")
+	assertEmittedSyncEvent(t, emitted, "account_data", "m.marked_unread", "!room:example")
 }
 
 func TestBeeperStreamClientUsesAppserviceBotDevice(t *testing.T) {
@@ -390,4 +454,21 @@ func assertHasBridgeState(t *testing.T, req *mautrix.ReqCreateRoom, eventType st
 		}
 	}
 	t.Fatalf("missing %s initial state", eventType)
+}
+
+func assertEmittedSyncEvent(t *testing.T, events []OutboundEvent, eventType string, matrixType string, roomID string) {
+	t.Helper()
+	for _, outbound := range events {
+		if outbound["type"] != eventType {
+			continue
+		}
+		rawEvent, ok := outbound["event"].(MatrixSyncEvent)
+		if !ok {
+			t.Fatalf("expected MatrixSyncEvent for %s, got %#v", eventType, outbound["event"])
+		}
+		if rawEvent.Type == matrixType && stringValue(rawEvent.RoomID) == roomID {
+			return
+		}
+	}
+	t.Fatalf("missing emitted %s event for %s in %v", eventType, matrixType, events)
 }

@@ -116,12 +116,12 @@ export async function createOpenClawBeeperAppService(
   const bridge = options.bridge ?? (options.matrixDeviceId ? openClawBeeperBridgeId(options.matrixDeviceId) : undefined);
   if (!bridge) throw new Error("OpenClaw Beeper appservice registration requires a bridge id or device id");
   const request: CreateOpenClawBeeperAppServiceRequest = {
-    address: options.address ?? DEFAULT_REGISTRATION_URL,
     bridge,
     bridgeType: options.bridgeType ?? DEFAULT_BEEPER_BRIDGE_TYPE,
     selfHosted: options.selfHosted ?? true,
     token: options.accessToken,
   };
+  if (options.address && options.address !== DEFAULT_REGISTRATION_URL) request.address = options.address;
   if (options.baseDomain !== undefined) request.baseDomain = options.baseDomain;
   if (options.bridgeManagerToken !== undefined) request.hungryToken = options.bridgeManagerToken;
   if (options.fetch !== undefined) request.fetch = options.fetch;
@@ -139,7 +139,7 @@ export async function createOpenClawBeeperAppService(
       ghostLocalpartPrefix: `${bridge}_agent_`,
       homeserver: init.homeserver,
       hsToken: init.registration.hsToken,
-      registrationUrl: options.address ?? init.registration.url ?? DEFAULT_REGISTRATION_URL,
+      registrationUrl: init.registration.url || options.address || DEFAULT_REGISTRATION_URL,
       senderLocalpart: init.registration.senderLocalpart,
       serviceBotLocalpart: init.registration.senderLocalpart,
       userLocalpartPrefix: `${bridge}_user_`,

@@ -1041,7 +1041,9 @@ export interface MatrixRedaction {
 
 export interface MatrixReadReceipt {
   portal: Portal;
+  receiptType?: string;
   targetMessage: Message;
+  userId?: string;
 }
 
 export interface MatrixTyping {
@@ -1097,6 +1099,7 @@ export interface MatrixTag {
 export interface MatrixMarkedUnread {
   portal: Portal;
   unread: boolean;
+  userId?: string;
 }
 
 export interface MatrixDeleteChat {

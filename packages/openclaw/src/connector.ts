@@ -1,4 +1,7 @@
 import {
+  randomUUID,
+} from "node:crypto";
+import {
   createRemoteMessage,
   type BackfillingNetworkAPI,
   BridgeConnector,
@@ -23,23 +26,39 @@ import {
   MatrixReaction,
   MatrixReactionRemove,
   MatrixRedaction,
+  MatrixReadReceipt,
+  MatrixMarkedUnread,
+  MatrixDeleteChat,
+  MatrixMembership,
+  MatrixRoomAvatar,
+  MatrixRoomName,
+  MatrixRoomTopic,
+  MatrixTyping,
   MessageHandlingNetworkAPI,
+  type DeleteChatHandlingNetworkAPI,
+  type MarkedUnreadHandlingNetworkAPI,
+  type MembershipHandlingNetworkAPI,
   NetworkAPI,
   NetworkGeneralCapabilities,
   Portal,
+  type PortalKey,
   ReactionHandlingNetworkAPI,
+  type ReadReceiptHandlingNetworkAPI,
   type ReactionRemoveHandlingNetworkAPI,
   type RedactionHandlingNetworkAPI,
+  type RoomAvatarHandlingNetworkAPI,
+  type RoomNameHandlingNetworkAPI,
+  type RoomTopicHandlingNetworkAPI,
+  type TypingHandlingNetworkAPI,
   Reaction,
   ResolveIdentifierParams,
   ResolveIdentifierResponse,
   UserLogin,
 } from "@beeper/pickle-bridge";
 import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions } from "./backfill";
-import { parseApprovalResponseContent } from "./approval";
+import { parseApprovalReactionContent, parseApprovalResponseContent } from "./approval";
 import { BeeperChannelRuntime, setBeeperChannelRuntime } from "./beeper-channel-runtime";
-import { OpenClawBeeperStreamPublisher } from "./beeper-stream";
-import { agentPortalSessionKey, OpenClawMatrixBridgeAgent, type OpenClawBridgeStreamPublisher } from "./bridge-agent";
+import { agentPortalSessionKey, OpenClawMatrixBridgeAgent } from "./bridge-agent";
 import { createDefaultConfig } from "./config";
 import { parseMatrixTextMessage, type ParsedMatrixTextMessage } from "./matrix-parser";
 import { createOpenClawHostTransport, OpenClawGatewayRuntime, type OpenClawHostRuntime, type OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
@@ -47,12 +66,13 @@ import { OpenClawBridgeRegistry } from "./registry";
 import { agentContactFromOpenClawAgent, agentGhostUserId, serviceBotUserId } from "./rooms";
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
 
+const DEFAULT_NEW_SESSION_LABEL = "New OpenClaw Session";
+
 export interface OpenClawConnectorOptions {
   config?: OpenClawBridgeConfig;
   registry?: OpenClawBridgeRegistry;
   runtime?: OpenClawGatewayRuntime | OpenClawHostRuntime;
   runtimeFactory?: (config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
-  streams?: OpenClawBridgeStreamPublisher;
 }
 
 export function createOpenClawConnector(options: OpenClawConnectorOptions = {}): OpenClawBridgeConnector {
@@ -64,12 +84,10 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
   readonly registry: OpenClawBridgeRegistry;
   readonly runtime: OpenClawGatewayRuntime | undefined;
   #runtimeFactory: (config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
-  #streams: OpenClawBridgeStreamPublisher | undefined;
 
   constructor(options: OpenClawConnectorOptions = {}) {
     this.config = options.config ?? createDefaultConfig();
     this.registry = options.registry ?? new OpenClawBridgeRegistry();
-    this.#streams = options.streams;
     const runtime = options.runtime instanceof OpenClawGatewayRuntime
       ? options.runtime
       : options.runtime
@@ -129,19 +147,14 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
 
   async init(ctx: BridgeContext): Promise<void> {
     await this.registry.load();
-    const streamOptions: ConstructorParameters<typeof OpenClawBeeperStreamPublisher>[0] = {
-      client: ctx.client,
-      config: this.config,
-    };
     const ownUserId = ctx.bridge.getOwnUserId();
-    if (ownUserId) streamOptions.userId = ownUserId;
-    this.#streams ??= new OpenClawBeeperStreamPublisher(streamOptions);
     const login = userLoginFromOpenClawConfig(this.config);
     setBeeperChannelRuntime(new BeeperChannelRuntime({
       bridge: ctx.bridge,
       client: ctx.client,
       getAgents: () => this.registry.data.agents,
       getBindingByRoom: (roomId) => this.registry.getBindingByRoom(roomId),
+      getBindingBySessionKey: (sessionKey) => this.registry.getBindingBySessionKey(sessionKey),
       login,
       log: (level, message, data) => ctx.log(level, message, data),
       ...(ownUserId ? { userId: ownUserId } : {}),
@@ -168,12 +181,11 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       login,
       registry: this.registry,
       runtime: this.#runtimeFactory(this.config),
-      streams: this.#streams ?? { publish: () => undefined },
     });
   }
 }
 
-export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, ReactionRemoveHandlingNetworkAPI, RedactionHandlingNetworkAPI, BackfillingNetworkAPI {
+export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, ReactionRemoveHandlingNetworkAPI, RedactionHandlingNetworkAPI, ReadReceiptHandlingNetworkAPI, MarkedUnreadHandlingNetworkAPI, TypingHandlingNetworkAPI, RoomNameHandlingNetworkAPI, RoomTopicHandlingNetworkAPI, RoomAvatarHandlingNetworkAPI, MembershipHandlingNetworkAPI, DeleteChatHandlingNetworkAPI, BackfillingNetworkAPI {
   readonly #agent: OpenClawMatrixBridgeAgent;
   readonly #config: OpenClawBridgeConfig;
   readonly #login: UserLogin;
@@ -185,17 +197,14 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     login: UserLogin;
     registry: OpenClawBridgeRegistry;
     runtime: OpenClawGatewayRuntime;
-    streams: OpenClawBridgeStreamPublisher;
   }) {
     this.#config = options.config;
     this.#login = options.login;
     this.#registry = options.registry;
     this.#runtime = options.runtime;
     this.#agent = new OpenClawMatrixBridgeAgent({
-      backgroundStreaming: true,
       registry: options.registry,
       runtime: options.runtime,
-      streams: options.streams,
     });
   }
 
@@ -290,7 +299,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     }
     const binding = bindingFromPortal(msg.portal, this.#runtime.config);
     if (binding && !this.#registry.getBindingByRoom(msg.portal.mxid ?? "")) this.#registry.upsertBinding(binding);
-    const currentBinding = msg.portal.mxid ? this.#registry.getBindingByRoom(msg.portal.mxid) ?? binding : binding;
+    let currentBinding = msg.portal.mxid ? this.#registry.getBindingByRoom(msg.portal.mxid) ?? binding : binding;
     const approval = parseApprovalResponseContent(msg.content);
     if (approval) {
       if (approvalNativeEnabled(this.#runtime.config)) {
@@ -307,6 +316,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         await this.#runtime.abortSession(abortOptions);
         return { pending: false };
       }
+      if (currentBinding) this.registerCanonicalPortalForBinding(ctx, msg.portal, currentBinding);
       if (parsed.command) {
         return await this.handleSlashCommand(ctx, parsed.command, currentBinding, msg);
       }
@@ -316,7 +326,9 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
           portalKey: msg.portal.portalKey,
           roomId: msg.portal.mxid,
         });
+        currentBinding = await this.createBindingForMatrixRoom(msg.portal.mxid, DEFAULT_NEW_SESSION_LABEL);
       }
+      this.registerCanonicalPortalForBinding(ctx, msg.portal, currentBinding);
       await this.#agent.handleMatrixText({
         ...(parsed.attachments.length > 0 ? { attachments: parsed.attachments } : {}),
         eventId: msg.event.eventId,
@@ -363,6 +375,10 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
       }
       await this.#agent.handleApprovalContent(msg.content, approval.approvalId ?? msg.targetMessage.id);
       return { id: msg.event.eventId, metadata: { openclaw: { approval } } };
+    }
+    const approvalReaction = parseApprovalReactionContent(msg.content);
+    if (approvalReaction) {
+      return { id: msg.event.eventId, metadata: { openclaw: { approval: approvalReaction, ignored: "approval-reactions-disabled" } } };
     }
     const reactionKey = matrixReactionKey(msg.content);
     if (!reactionKey || !msg.portal.mxid) return null;
@@ -436,6 +452,84 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     });
   }
 
+  async handleMatrixReadReceipt(_ctx: BridgeRequestContext, msg: MatrixReadReceipt): Promise<void> {
+    if (!msg.portal.mxid) return;
+    if (!this.isAllowedRoom(msg.portal.mxid)) return;
+    this.upsertPortalBinding(msg.portal);
+    const binding = this.#registry.getBindingByRoom(msg.portal.mxid);
+    await this.#agent.handleMatrixText({
+      eventId: `${msg.targetMessage.id}:read:${msg.userId ?? "unknown"}`,
+      matrix: {
+        relation: {
+          kind: "read_receipt",
+          ...(msg.receiptType ? { receiptType: msg.receiptType } : {}),
+          targetEventId: msg.targetMessage.id,
+          ...streamTargetRelationPatch(binding, msg.targetMessage.id),
+        },
+        sender: msg.userId ?? "receipt",
+      },
+      roomId: msg.portal.mxid,
+      replyToEventId: msg.targetMessage.id,
+      sender: msg.userId ?? "receipt",
+      text: `Read receipt for ${msg.targetMessage.id}`,
+    });
+  }
+
+  async handleMatrixMarkedUnread(_ctx: BridgeRequestContext, msg: MatrixMarkedUnread): Promise<void> {
+    if (!msg.portal.mxid) return;
+    if (!this.isAllowedRoom(msg.portal.mxid)) return;
+    this.upsertPortalBinding(msg.portal);
+    const eventId = `${msg.portal.mxid}:marked-unread:${msg.unread ? "1" : "0"}:${Date.now()}`;
+    await this.#agent.handleMatrixText({
+      eventId,
+      matrix: {
+        relation: {
+          kind: "marked_unread",
+          unread: msg.unread,
+        },
+        sender: msg.userId ?? "marked_unread",
+      },
+      roomId: msg.portal.mxid,
+      sender: msg.userId ?? "marked_unread",
+      text: msg.unread ? "Marked room unread" : "Unmarked room unread",
+    });
+  }
+
+  async handleMatrixTyping(_ctx: BridgeRequestContext, msg: MatrixTyping): Promise<void> {
+    if (!msg.portal.mxid) return;
+    if (!this.isAllowedMatrixIngress(msg.portal.mxid, msg.userId)) return;
+    this.upsertPortalBinding(msg.portal);
+  }
+
+  async handleMatrixRoomName(_ctx: BridgeRequestContext, msg: MatrixRoomName): Promise<void> {
+    const roomId = msg.portal.mxid;
+    const binding = roomId ? this.#registry.getBindingByRoom(roomId) ?? bindingFromPortal(msg.portal, this.#runtime.config) : undefined;
+    if (!roomId || !binding || !msg.name) return;
+    this.#registry.upsertBinding({ ...binding, label: msg.name, updatedAt: Date.now() });
+    await this.#registry.save();
+  }
+
+  async handleMatrixRoomTopic(_ctx: BridgeRequestContext, msg: MatrixRoomTopic): Promise<void> {
+    if (!msg.portal.mxid || !this.isAllowedRoom(msg.portal.mxid)) return;
+    this.upsertPortalBinding(msg.portal);
+  }
+
+  async handleMatrixRoomAvatar(_ctx: BridgeRequestContext, msg: MatrixRoomAvatar): Promise<void> {
+    if (!msg.portal.mxid || !this.isAllowedRoom(msg.portal.mxid)) return;
+    this.upsertPortalBinding(msg.portal);
+  }
+
+  async handleMatrixMembership(_ctx: BridgeRequestContext, msg: MatrixMembership): Promise<void> {
+    if (!msg.portal.mxid || !this.isAllowedRoom(msg.portal.mxid)) return;
+    this.upsertPortalBinding(msg.portal);
+  }
+
+  async handleMatrixDeleteChat(_ctx: BridgeRequestContext, msg: MatrixDeleteChat): Promise<void> {
+    if (!msg.portal.mxid || !this.isAllowedRoom(msg.portal.mxid)) return;
+    this.#registry.removeBindingByRoom(msg.portal.mxid);
+    await this.#registry.save();
+  }
+
   async fetchMessages(_ctx: BridgeRequestContext, params: FetchMessagesParams): Promise<FetchMessagesResponse> {
     const binding = bindingFromPortal(params.portal, this.#runtime.config);
     if (!this.isAllowedRoom(binding?.roomId ?? params.portal.mxid)) return { hasMore: false, messages: [] };
@@ -485,20 +579,22 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     binding: OpenClawSessionBinding | undefined,
     msg: MatrixMessage,
   ): Promise<MatrixMessageResponse> {
+    const notice = (text: string, noticeBinding = binding) =>
+      commandNotice(ctx, this.#login, msg, text, canonicalPortalKeyForBinding(noticeBinding, this.#login.id) ?? msg.portal.portalKey);
     switch (command.name) {
       case "status":
-        return commandNotice(ctx, this.#login, msg, bridgeStatusText(this.#runtime.config, this.#registry.data.bindings.length));
+        return notice(bridgeStatusText(this.#runtime.config, this.#registry.data.bindings.length));
       case "settings":
-        return commandNotice(ctx, this.#login, msg, bridgeSettingsText(this.#runtime.config, this.#registry.data.bindings.length));
+        return notice(bridgeSettingsText(this.#runtime.config, this.#registry.data.bindings.length));
       case "sessions": {
         const options: Parameters<typeof discoverOneToOneSessions>[1] = {};
         if (this.#runtime.config.importSources !== undefined) options.importSources = this.#runtime.config.importSources;
         const sessions = await discoverOneToOneSessions(this.#runtime, options);
-        return commandNotice(ctx, this.#login, msg, sessionsSummaryText(sessions));
+        return notice(sessionsSummaryText(sessions));
       }
       case "backfill":
         const count = await this.backfillCurrentRoom(ctx, binding, msg);
-        return commandNotice(ctx, this.#login, msg, `Queued backfill for ${count} message${count === 1 ? "" : "s"}.`);
+        return notice(`Queued backfill for ${count} message${count === 1 ? "" : "s"}.`);
       case "import": {
         const importOptions: Parameters<typeof backfillAllOpenClawSessions>[0] = {
           bridge: ctx.bridge,
@@ -509,14 +605,23 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         if (this.#runtime.config.importSources !== undefined) importOptions.importSources = this.#runtime.config.importSources;
         if (this.#runtime.config.backfillLimit !== undefined) importOptions.limit = this.#runtime.config.backfillLimit;
         const result = await backfillAllOpenClawSessions(importOptions);
-        return commandNotice(ctx, this.#login, msg, importSummaryText(result));
+        return notice(importSummaryText(result));
       }
       case "new": {
         const request = this.resolveNewSessionCommand(command.args, binding);
         if (!request) {
-          return commandNotice(ctx, this.#login, msg, "Usage: /new [agent-id] [session label]. In an agent DM, /new [session label] is enough.");
+          return notice("Usage: /new [agent-id] [session label]. In an agent DM, /new [session label] is enough.");
         }
-        const session = await this.#runtime.createSession({ agentId: request.agentId, label: request.label });
+        if (!binding && msg.portal.mxid) {
+          const created = await this.createBindingForMatrixRoom(msg.portal.mxid, request.label, request.agentId, request.ghostUserId);
+          this.registerCanonicalPortalForBinding(ctx, msg.portal, created);
+          return notice(`Created a new OpenClaw session in this room: ${created.sessionKey}`, created);
+        }
+        const session = await this.#runtime.createSession({
+          agentId: request.agentId,
+          key: newBeeperSessionKey(request.agentId),
+          label: request.label,
+        });
         const portalOptions: Parameters<typeof ctx.bridge.createPortal>[1] = {
           id: portalIdForSession(session.key),
           metadata: {
@@ -547,29 +652,29 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
           });
         }
         await this.#registry.save();
-        return commandNotice(ctx, this.#login, msg, portal.mxid
+        return notice(portal.mxid
           ? `Created a new OpenClaw session room: ${portal.mxid}`
           : `Created a new OpenClaw session: ${session.key}`);
       }
       case "approve":
       case "deny": {
         if (!approvalSlashEnabled(this.#runtime.config)) {
-          return commandNotice(ctx, this.#login, msg, "Approval slash commands are disabled for this bridge.");
+          return notice("Approval slash commands are disabled for this bridge.");
         }
         const approvalId = command.args.trim() || approvalIdFromMatrixReply(msg);
-        if (!approvalId) return commandNotice(ctx, this.#login, msg, `Usage: /${command.name} <approval-id> or reply to an approval message with /${command.name}`);
+        if (!approvalId) return notice(`Usage: /${command.name} <approval-id> or reply to an approval message with /${command.name}`);
         await this.#agent.handleApprovalContent({
           approvalId,
           approved: command.name === "approve",
           approvedAlways: false,
           type: "tool-approval-response",
         }, approvalId);
-        return commandNotice(ctx, this.#login, msg, `${command.name === "approve" ? "Approved" : "Denied"} ${approvalId}.`);
+        return notice(`${command.name === "approve" ? "Approved" : "Denied"} ${approvalId}.`);
       }
       case "agent":
-        return commandNotice(ctx, this.#login, msg, binding ? `Agent: ${binding.agentId}` : "This room is not bound to an OpenClaw agent yet.");
+        return notice(binding ? `Agent: ${binding.agentId}` : "This room is not bound to an OpenClaw agent yet.");
       default:
-        return commandNotice(ctx, this.#login, msg, `Unknown OpenClaw command: /${command.name}`);
+        return notice(`Unknown OpenClaw command: /${command.name}`);
     }
   }
 
@@ -631,6 +736,16 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     if (binding && !this.#registry.getBindingByRoom(portal.mxid ?? "")) this.#registry.upsertBinding(binding);
   }
 
+  private registerCanonicalPortalForBinding(
+    ctx: BridgeRequestContext,
+    portal: Portal,
+    binding: OpenClawSessionBinding,
+  ): Portal {
+    const canonical = canonicalPortalForBinding(portal, binding, this.#login.id);
+    ctx.bridge?.registerPortal?.(canonical);
+    return canonical;
+  }
+
   private resolveNewSessionCommand(
     args: string,
     binding: OpenClawSessionBinding | undefined,
@@ -640,17 +755,49 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
       return {
         agentId: binding.agentId,
         ghostUserId: binding.ghostUserId,
-        label: trimmed || binding.label || "Beeper",
+        label: trimmed || DEFAULT_NEW_SESSION_LABEL,
       };
     }
     const [agentId, ...labelParts] = trimmed.split(/\s+/u).filter(Boolean);
-    if (!agentId) return undefined;
-    const contact = this.#registry.getAgent(agentId) ?? agentContactFromOpenClawAgent(this.#runtime.config, { id: agentId });
+    const contact = agentId
+      ? this.#registry.getAgent(agentId) ?? agentContactFromOpenClawAgent(this.#runtime.config, { id: agentId })
+      : this.#registry.getAgent("main") ?? agentContactFromOpenClawAgent(this.#runtime.config, { id: "main" });
     return {
       agentId: contact.agentId,
       ghostUserId: contact.ghostUserId,
-      label: labelParts.join(" ") || "Beeper",
+      label: labelParts.join(" ") || DEFAULT_NEW_SESSION_LABEL,
     };
+  }
+
+  private async createBindingForMatrixRoom(
+    roomId: string,
+    label: string,
+    agentId = "main",
+    ghostUserId = (this.#registry.getAgent(agentId) ?? agentContactFromOpenClawAgent(this.#runtime.config, { id: agentId })).ghostUserId,
+  ): Promise<OpenClawSessionBinding> {
+    const existing = this.#registry.getBindingByRoom(roomId);
+    if (existing) return existing;
+    const session = await this.#runtime.createSession({
+      agentId,
+      key: newBeeperSessionKey(agentId),
+      label,
+    });
+    const now = Date.now();
+    const binding: OpenClawSessionBinding = {
+      agentId,
+      createdAt: now,
+      ghostUserId,
+      id: Buffer.from(roomId).toString("base64url"),
+      kind: "session",
+      label,
+      owner: "bridge",
+      roomId,
+      sessionKey: session.key,
+      updatedAt: now,
+    };
+    this.#registry.upsertBinding(binding);
+    await this.#registry.save();
+    return binding;
   }
 
   private async createSessionPortalForAgent(
@@ -658,19 +805,27 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     contact: OpenClawAgentContact,
     label = contact.displayName,
   ): Promise<Portal> {
-    const session = await this.#runtime.createSession({ agentId: contact.agentId, label });
+    const session = await this.#runtime.createSession({
+      agentId: contact.agentId,
+      key: newBeeperSessionKey(contact.agentId),
+      label,
+    });
     return portalForAgentSession(contact, this.#login.id, session.key, label);
   }
 }
 
-function commandNotice(ctx: BridgeRequestContext, login: UserLogin, msg: MatrixMessage, text: string): MatrixMessageResponse {
+function newBeeperSessionKey(agentId: string): string {
+  return `agent:${agentId}:beeper:${randomUUID()}`;
+}
+
+function commandNotice(ctx: BridgeRequestContext, login: UserLogin, msg: MatrixMessage, text: string, portalKey = msg.portal.portalKey): MatrixMessageResponse {
   ctx.queueRemoteEvent(login, createRemoteMessage({
     convert: () => ({
       parts: [{ content: { body: text, msgtype: "m.notice" }, id: "body", type: "m.text" }],
     }),
     data: { text },
     id: `${msg.event.eventId}:openclaw-command`,
-    portalKey: msg.portal.portalKey,
+    portalKey,
     sender: {
       isFromMe: true,
       sender: "openclawbot",
@@ -678,6 +833,33 @@ function commandNotice(ctx: BridgeRequestContext, login: UserLogin, msg: MatrixM
     timestamp: new Date(),
   }));
   return { pending: false };
+}
+
+function canonicalPortalForBinding(portal: Portal, binding: OpenClawSessionBinding, receiver: string): Portal {
+  const id = portalIdForSession(binding.sessionKey);
+  return {
+    ...portal,
+    id,
+    metadata: {
+      ...(recordValue(portal.metadata) ?? {}),
+      openclaw: stripUndefined({
+        ...(recordValue(recordValue(portal.metadata)?.openclaw) ?? {}),
+        agentId: binding.agentId,
+        ghostUserId: binding.ghostUserId,
+        ...(binding.label ? { label: binding.label } : {}),
+        sessionKey: binding.sessionKey,
+      }),
+    },
+    mxid: binding.roomId,
+    portalKey: { id, receiver },
+    receiver,
+    roomType: portal.roomType ?? "dm",
+  };
+}
+
+function canonicalPortalKeyForBinding(binding: OpenClawSessionBinding | undefined, receiver: string): PortalKey | undefined {
+  if (!binding) return undefined;
+  return { id: portalIdForSession(binding.sessionKey), receiver };
 }
 
 function bridgeStatusText(config: OpenClawBridgeConfig, boundRooms: number): string {
@@ -716,22 +898,18 @@ function bridgeSettingsText(config: OpenClawBridgeConfig, boundRooms: number): s
 function describeApprovalBehavior(behavior: OpenClawBridgeConfig["approvalBehavior"]): string {
   switch (behavior ?? "native") {
     case "native":
-      return "native Beeper UI with slash/reaction escape hatches";
-    case "reactions":
-      return "reaction fallback only";
-    case "slash":
-      return "slash command fallback only";
+      return "native Beeper UI";
     case "disabled":
       return "disabled";
   }
 }
 
-function approvalReactionsEnabled(config: OpenClawBridgeConfig): boolean {
-  return config.approvalBehavior === undefined || config.approvalBehavior === "native" || config.approvalBehavior === "reactions";
+function approvalReactionsEnabled(_config: OpenClawBridgeConfig): boolean {
+  return false;
 }
 
-function approvalSlashEnabled(config: OpenClawBridgeConfig): boolean {
-  return config.approvalBehavior === undefined || config.approvalBehavior === "native" || config.approvalBehavior === "slash";
+function approvalSlashEnabled(_config: OpenClawBridgeConfig): boolean {
+  return false;
 }
 
 function approvalNativeEnabled(config: OpenClawBridgeConfig): boolean {

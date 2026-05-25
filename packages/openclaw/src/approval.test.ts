@@ -37,7 +37,7 @@ describe("OpenClaw approval response parsing", () => {
       approvalKind: "plugin",
       "m.relates_to": {
         event_id: "plugin:approval_1",
-        key: "✅",
+        key: "approval.allow_once",
         rel_type: "m.annotation",
       },
     });
@@ -68,42 +68,27 @@ describe("OpenClaw approval response parsing", () => {
     });
   });
 
-  it("also accepts ai-bridge/OpenClaw Matrix approval choice keys and emoji as fallback reactions", () => {
+  it("does not accept legacy ai-bridge/OpenClaw approval choice keys as reactions", () => {
     expect(parseApprovalReactionContent({
       "m.relates_to": {
         event_id: "approval_ai_1",
         key: "✅",
       },
-    })).toMatchObject({
-      approvalId: "approval_ai_1",
-      approved: true,
-      approvedAlways: false,
-      decision: "allow_once",
-    });
+    })).toBeUndefined();
 
     expect(parseApprovalReactionContent({
       "m.relates_to": {
         event_id: "approval_ai_2",
         key: "always_approve",
       },
-    })).toMatchObject({
-      approvalId: "approval_ai_2",
-      approved: true,
-      approvedAlways: true,
-      decision: "allow_always",
-    });
+    })).toBeUndefined();
 
     expect(parseApprovalReactionContent({
       "m.relates_to": {
         event_id: "approval_ai_3",
         key: "❌",
       },
-    })).toMatchObject({
-      approvalId: "approval_ai_3",
-      approved: false,
-      approvedAlways: false,
-      decision: "deny",
-    });
+    })).toBeUndefined();
   });
 
   it("builds the same approval notice shape as ai-bridge matrix content", () => {

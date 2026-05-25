@@ -112,6 +112,9 @@ describe("BeeperChannelRuntime", () => {
     await runtime.removeReaction({ emoji: "+1", eventId: sent.eventId, roomId: "!room" });
     await runtime.redact({ eventId: sent.eventId, roomId: "!room" });
     await runtime.typing({ roomId: "!room", timeoutMs: 5000 });
+    await runtime.readReceipt({ eventId: sent.eventId, roomId: "!room" });
+    await runtime.deliveryReceipt({ eventId: sent.eventId, roomId: "!room" });
+    await runtime.markUnread({ eventId: sent.eventId, roomId: "!room", unread: true });
 
     expect(queued.slice(1).map((event) => (event as { getType: () => string }).getType())).toEqual([
       "message",
@@ -120,11 +123,56 @@ describe("BeeperChannelRuntime", () => {
       "reaction_remove",
       "message_remove",
       "typing",
+      "read_receipt",
+      "delivery_receipt",
+      "mark_unread",
     ]);
     expect(client.messages.edit).not.toHaveBeenCalled();
     expect(client.reactions.send).not.toHaveBeenCalled();
     expect(client.messages.redact).not.toHaveBeenCalled();
     expect(client.typing.set).not.toHaveBeenCalled();
+  });
+
+  it("routes OpenClaw session targets through their bound Beeper portal", async () => {
+    const client = createClient();
+    const queued: unknown[] = [];
+    const bridge = {
+      flushRemoteEvents: vi.fn(async () => undefined),
+      getPortalByMXID: vi.fn((roomId: string) =>
+        roomId === "!room"
+          ? { portalKey: { id: "session:one", receiver: "openclaw:plugin" } }
+          : undefined
+      ),
+      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
+    };
+    const runtime = new BeeperChannelRuntime({
+      bridge: bridge as never,
+      client: client as never,
+      getBindingBySessionKey: (sessionKey) =>
+        sessionKey === "agent:main:beeper:abc"
+          ? {
+              agentId: "main",
+              createdAt: 1,
+              ghostUserId: "@main:example",
+              id: "binding",
+              kind: "session",
+              owner: "bridge",
+              roomId: "!room",
+              sessionKey,
+              updatedAt: 1,
+            }
+          : undefined,
+      login: { id: "openclaw:plugin" },
+      userId: "@bot:example",
+    });
+
+    await runtime.sendText({ roomId: "main:beeper:abc", text: "from message tool" });
+
+    expect(bridge.getPortalByMXID).toHaveBeenCalledWith("!room");
+    const messageEvent = queued[0] as {
+      getSender: () => { sender: string };
+    };
+    expect(messageEvent.getSender()).toEqual({ isFromMe: true, sender: "@main:example" });
   });
 
   it("stores the active runtime for channel adapters", () => {

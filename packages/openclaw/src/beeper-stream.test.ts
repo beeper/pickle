@@ -1,7 +1,6 @@
 import type { MatrixClient } from "@beeper/pickle";
 import { describe, expect, it, vi } from "vitest";
-import { BeeperStreamPublisher, OpenClawBeeperStreamPublisher } from "./beeper-stream";
-import type { OpenClawSessionBinding } from "./types";
+import { BeeperStreamPublisher } from "./beeper-stream";
 
 describe("OpenClaw Beeper native stream publisher", () => {
   it("starts one native Beeper stream, publishes AG-UI events, and finalizes replacement content", async () => {
@@ -78,77 +77,23 @@ describe("OpenClaw Beeper native stream publisher", () => {
     }));
   });
 
-  it("keeps one room/run publisher open until a terminal event arrives", async () => {
-    const { client, finalizeMessage, publishPart, startMessage } = createClient();
-    const publisher = new OpenClawBeeperStreamPublisher({ client, userId: "@bot:example.com" });
-    const binding = sessionBinding();
-
-    const startResult = await publisher.publish(binding, [
-      { runId: "turn_2", threadId: "turn_2", type: "RUN_STARTED" },
-      { messageId: "turn_2", role: "assistant", type: "TEXT_MESSAGE_START" },
-    ]);
-    const finishResult = await publisher.publish(binding, [
-      { delta: "hi", messageId: "turn_2", type: "TEXT_MESSAGE_CONTENT" },
-      { finishReason: "stop", runId: "turn_2", threadId: "turn_2", type: "RUN_FINISHED" },
-    ]);
-
-    expect(startResult).toEqual({ targetEventId: "$target" });
-    expect(finishResult).toEqual({ targetEventId: "$target" });
-    expect(startMessage).toHaveBeenCalledTimes(1);
-    expect(publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
-      "RUN_STARTED",
-      "TEXT_MESSAGE_START",
-      "TEXT_MESSAGE_CONTENT",
-      "RUN_FINISHED",
-    ]);
-    expect(finalizeMessage).toHaveBeenCalledTimes(1);
-  });
-
-  it("uses the active binding run id when the first live chunk has no AG-UI run id", async () => {
-    const { client, finalizeMessage, publishPart, startMessage } = createClient();
-    const publisher = new OpenClawBeeperStreamPublisher({ client, userId: "@bot:example.com" });
-    const binding = { ...sessionBinding(), lastRunId: "beeper:run_1", lastStreamRunId: "beeper:run_1" };
-
-    await publisher.publish(binding, [
-      { args: "{}", delta: "{}", toolCallId: "tool_1", type: "TOOL_CALL_ARGS" },
-    ]);
-    await publisher.publish(binding, [
-      { delta: "answer", messageId: "beeper:run_1", type: "TEXT_MESSAGE_CONTENT" },
-      { finishReason: "stop", runId: "beeper:run_1", threadId: "beeper:run_1", type: "RUN_FINISHED" },
-    ]);
-
-    expect(startMessage).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.objectContaining({
-        "com.beeper.ai": expect.objectContaining({ id: "beeper:run_1" }),
-        "com.beeper.ai.metadata": expect.objectContaining({ runId: "beeper:run_1" }),
-      }),
-    }));
-    expect(publishPart.mock.calls.every(([options]) => options.turnId === "beeper:run_1")).toBe(true);
-    expect(finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
-      body: "answer",
-      content: expect.objectContaining({
-        "com.beeper.ai": expect.objectContaining({ id: "beeper:run_1" }),
-      }),
-    }));
-  });
-
   it("honors native-only stream finalization without sending a replacement edit", async () => {
     const { client, finalizeMessage, publishPart, startMessage } = createClient();
-    const publisher = new OpenClawBeeperStreamPublisher({
+    const publisher = new BeeperStreamPublisher({
       client,
-      config: { streamFinalization: "native-only" },
+      roomId: "!room:example.com",
+      turnId: "turn_3",
       userId: "@bot:example.com",
     });
 
-    await publisher.publish(sessionBinding(), [
-      { runId: "turn_3", threadId: "turn_3", type: "RUN_STARTED" },
-      { delta: "native", messageId: "turn_3", type: "TEXT_MESSAGE_CONTENT" },
-      { finishReason: "stop", runId: "turn_3", threadId: "turn_3", type: "RUN_FINISHED" },
-    ]);
+    await publisher.publish({ delta: "native", messageId: "turn_3", type: "TEXT_MESSAGE_CONTENT" });
+    await publisher.finalize({
+      finalization: "native-only",
+      terminalPart: { finishReason: "stop", runId: "turn_3", threadId: "turn_3", type: "RUN_FINISHED" },
+    });
 
     expect(startMessage).toHaveBeenCalledTimes(1);
     expect(publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
-      "RUN_STARTED",
       "TEXT_MESSAGE_CONTENT",
       "RUN_FINISHED",
     ]);
@@ -157,18 +102,20 @@ describe("OpenClaw Beeper native stream publisher", () => {
 
   it("honors append stream finalization without suppressing the streamed event", async () => {
     const { client, finalizeMessage } = createClient();
-    const publisher = new OpenClawBeeperStreamPublisher({
+    const publisher = new BeeperStreamPublisher({
       client,
-      config: { streamFinalization: "append" },
+      roomId: "!room:example.com",
+      turnId: "turn_append",
       userId: "@bot:example.com",
     });
 
-    const result = await publisher.publish(sessionBinding(), [
-      { delta: "append me", messageId: "turn_append", type: "TEXT_MESSAGE_CONTENT" },
-      { finishReason: "stop", runId: "turn_append", threadId: "turn_append", type: "RUN_FINISHED" },
-    ]);
+    await publisher.publish({ delta: "append me", messageId: "turn_append", type: "TEXT_MESSAGE_CONTENT" });
+    const result = await publisher.finalize({
+      finalization: "append",
+      terminalPart: { finishReason: "stop", runId: "turn_append", threadId: "turn_append", type: "RUN_FINISHED" },
+    });
 
-    expect(result).toEqual({ targetEventId: "$target" });
+    expect(result).toEqual(expect.objectContaining({ eventId: "$target" }));
     expect(finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       body: "append me",
       eventId: "$target",
@@ -180,35 +127,22 @@ describe("OpenClaw Beeper native stream publisher", () => {
 
   it("suppresses the streamed event when finalizing replacement content by default", async () => {
     const { client, finalizeMessage } = createClient();
-    const publisher = new OpenClawBeeperStreamPublisher({ client, userId: "@bot:example.com" });
+    const publisher = new BeeperStreamPublisher({
+      client,
+      roomId: "!room:example.com",
+      turnId: "turn_replace",
+      userId: "@bot:example.com",
+    });
 
-    await publisher.publish(sessionBinding(), [
-      { delta: "replace me", messageId: "turn_replace", type: "TEXT_MESSAGE_CONTENT" },
-      { finishReason: "stop", runId: "turn_replace", threadId: "turn_replace", type: "RUN_FINISHED" },
-    ]);
+    await publisher.publish({ delta: "replace me", messageId: "turn_replace", type: "TEXT_MESSAGE_CONTENT" });
+    await publisher.finalize({
+      terminalPart: { finishReason: "stop", runId: "turn_replace", threadId: "turn_replace", type: "RUN_FINISHED" },
+    });
 
     expect(finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       body: "replace me",
       topLevelContent: { "com.beeper.dont_render_edited": true },
     }));
-  });
-
-  it("drops a terminal run publisher even when Beeper finalization fails", async () => {
-    const { client, finalizeMessage, startMessage } = createClient();
-    finalizeMessage.mockRejectedValueOnce(new Error("finalize failed"));
-    const publisher = new OpenClawBeeperStreamPublisher({ client, userId: "@bot:example.com" });
-    const binding = sessionBinding();
-
-    await expect(publisher.publish(binding, [
-      { delta: "first", messageId: "turn_4", type: "TEXT_MESSAGE_CONTENT" },
-      { error: "boom", message: "boom", runId: "turn_4", type: "RUN_ERROR" },
-    ])).rejects.toThrow("finalize failed");
-
-    await publisher.publish(binding, [
-      { delta: "second", messageId: "turn_4", type: "TEXT_MESSAGE_CONTENT" },
-    ]);
-
-    expect(startMessage).toHaveBeenCalledTimes(2);
   });
 
   it("finalizes run errors with a readable fallback body", async () => {
@@ -316,20 +250,6 @@ describe("OpenClaw Beeper native stream publisher", () => {
     ]));
   });
 });
-
-function sessionBinding(): OpenClawSessionBinding {
-  return {
-    agentId: "codex",
-    createdAt: 1,
-    ghostUserId: "@openclaw_agent_codex:example.com",
-    id: "binding",
-    kind: "session",
-    owner: "bridge",
-    roomId: "!room:example.com",
-    sessionKey: "agent:codex:session",
-    updatedAt: 1,
-  };
-}
 
 function createClient() {
   const startMessage = vi.fn(async () => ({

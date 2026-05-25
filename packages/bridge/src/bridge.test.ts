@@ -33,7 +33,7 @@ describe("RuntimeBridge", () => {
     expect(connector.init).toHaveBeenCalledOnce();
     expect(connector.start).toHaveBeenCalledOnce();
     expect(client.subscribe).toHaveBeenCalledWith(
-      { kind: ["message", "reaction", "redaction", "typing", "toDevice"] },
+      { kind: ["message", "reaction", "redaction", "typing", "receipt", "accountData", "membership", "roomState", "toDevice"] },
       expect.any(Function),
       { live: true }
     );
@@ -309,7 +309,7 @@ describe("RuntimeBridge", () => {
     });
   });
 
-  it("handles queued remote edits, reactions, deletes, and typing through Matrix transport", async () => {
+  it("handles queued remote edits, reactions, deletes, receipts, unread, and typing through Matrix transport", async () => {
     const client = createFakeMatrixClient();
     const connector = createFakeConnector(createFakeNetworkAPI());
     const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
@@ -369,6 +369,32 @@ describe("RuntimeBridge", () => {
     bridge.queueRemoteEvent(login, {
       getPortalKey: () => portalKey,
       getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTargetMessage: () => "remote-message",
+      getType: () => "read_receipt",
+    });
+    bridge.queueRemoteEvent(login, {
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTargetMessage: () => "remote-message",
+      getType: () => "delivery_receipt",
+    });
+    bridge.queueRemoteEvent(login, {
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTargetMessage: () => "remote-message",
+      getType: () => "mark_unread",
+      getUnread: () => true,
+    });
+    bridge.queueRemoteEvent(login, {
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTargetMessage: () => "remote-message",
+      getType: () => "mark_unread",
+      getUnread: () => false,
+    });
+    bridge.queueRemoteEvent(login, {
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
       getTimeoutMs: () => 5000,
       getType: () => "typing",
       isTyping: () => true,
@@ -384,7 +410,141 @@ describe("RuntimeBridge", () => {
     expect(client.reactions.send).toHaveBeenCalledWith({ eventId: "$edit", key: "+1", roomId: "!room:example" });
     expect(client.reactions.redact).toHaveBeenCalledWith({ eventId: "$edit", key: "+1", roomId: "!room:example" });
     expect(client.messages.redact).toHaveBeenCalledWith({ eventId: "$edit", roomId: "!room:example" });
+    expect(client.receipts.send).toHaveBeenCalledWith({ eventId: "$edit", receiptType: "m.read", roomId: "!room:example" });
+    expect(client.receipts.send).toHaveBeenCalledWith({ eventId: "$edit", receiptType: "m.read.private", roomId: "!room:example" });
+    expect(client.messages.markRead).toHaveBeenCalledWith({ eventId: "$edit", roomId: "!room:example" });
+    expect(bridge.getPortal(portalKey)?.metadata).toMatchObject({ unread: false });
     expect(client.typing.set).toHaveBeenCalledWith({ roomId: "!room:example", timeoutMs: 5000, typing: true });
+  });
+
+  it("dispatches Matrix read receipts and marked-unread account data to network clients", async () => {
+    const client = createFakeMatrixClient();
+    const network = createFakeNetworkAPI();
+    const connector = createFakeConnector(network);
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+    const login: UserLogin = { id: "login:a" };
+    const portalKey = { id: "remote-room", receiver: login.id };
+
+    await bridge.start();
+    await bridge.loadUserLogin(login);
+    bridge.registerPortal({ id: "remote-room", mxid: "!room:example", portalKey });
+
+    await expect(bridge.dispatchMatrixEvent({
+      class: "ephemeral",
+      content: {
+        "$event": {
+          "m.read": {
+            "@alice:example": { ts: 1 },
+            "@bridge:example": { ts: 2 },
+          },
+        },
+      },
+      kind: "receipt",
+      raw: {},
+      roomId: "!room:example",
+      type: "m.receipt",
+    } as MatrixClientEvent)).resolves.toEqual({
+      dispatched: true,
+      handlers: 1,
+      kind: "receipt",
+      roomId: "!room:example",
+    });
+    expect(network.handleMatrixReadReceipt).toHaveBeenCalledWith(expect.any(Object), {
+      portal: expect.objectContaining({ mxid: "!room:example", portalKey }),
+      receiptType: "m.read",
+      targetMessage: { id: "$event", mxid: "$event" },
+      userId: "@alice:example",
+    });
+
+    await expect(bridge.dispatchMatrixEvent({
+      class: "accountData",
+      content: { unread: true },
+      kind: "accountData",
+      raw: {},
+      roomId: "!room:example",
+      sender: { isMe: false, userId: "@alice:example" },
+      type: "m.marked_unread",
+    } as MatrixClientEvent)).resolves.toEqual({
+      dispatched: true,
+      handlers: 1,
+      kind: "accountData",
+      roomId: "!room:example",
+    });
+    expect(network.handleMatrixMarkedUnread).toHaveBeenCalledWith(expect.any(Object), {
+      portal: expect.objectContaining({ mxid: "!room:example", portalKey }),
+      unread: true,
+      userId: "@alice:example",
+    });
+  });
+
+  it("dispatches Matrix room metadata, membership, and delete-chat events to network clients", async () => {
+    const client = createFakeMatrixClient();
+    const network = createFakeNetworkAPI();
+    const connector = createFakeConnector(network);
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+    const login: UserLogin = { id: "login:a" };
+    const portalKey = { id: "remote-room", receiver: login.id };
+
+    await bridge.start();
+    await bridge.loadUserLogin(login);
+    bridge.registerPortal({ id: "remote-room", mxid: "!room:example", portalKey });
+
+    await expect(bridge.dispatchMatrixEvent(genericEvent({
+      content: { name: "Project room" },
+      kind: "roomState",
+      roomId: "!room:example",
+      type: "m.room.name",
+    }))).resolves.toMatchObject({ dispatched: true, handlers: 1, kind: "roomState", roomId: "!room:example" });
+    expect(network.handleMatrixRoomName).toHaveBeenCalledWith(expect.any(Object), {
+      name: "Project room",
+      portal: expect.objectContaining({ mxid: "!room:example", portalKey }),
+    });
+
+    await bridge.dispatchMatrixEvent(genericEvent({
+      content: { topic: "Planning" },
+      kind: "roomState",
+      roomId: "!room:example",
+      type: "m.room.topic",
+    }));
+    expect(network.handleMatrixRoomTopic).toHaveBeenCalledWith(expect.any(Object), {
+      portal: expect.objectContaining({ mxid: "!room:example", portalKey }),
+      topic: "Planning",
+    });
+
+    await bridge.dispatchMatrixEvent(genericEvent({
+      content: { url: "mxc://example/avatar" },
+      kind: "roomState",
+      roomId: "!room:example",
+      type: "m.room.avatar",
+    }));
+    expect(network.handleMatrixRoomAvatar).toHaveBeenCalledWith(expect.any(Object), {
+      avatarUrl: "mxc://example/avatar",
+      portal: expect.objectContaining({ mxid: "!room:example", portalKey }),
+    });
+
+    await bridge.dispatchMatrixEvent(genericEvent({
+      content: { membership: "invite" },
+      kind: "membership",
+      roomId: "!room:example",
+      stateKey: "@bob:example",
+      type: "m.room.member",
+    }));
+    expect(network.handleMatrixMembership).toHaveBeenCalledWith(expect.any(Object), {
+      action: "invite",
+      portal: expect.objectContaining({ mxid: "!room:example", portalKey }),
+      userId: "@bob:example",
+    });
+
+    await bridge.dispatchMatrixEvent(genericEvent({
+      content: { only_for_me: true },
+      kind: "accountData",
+      roomId: "!room:example",
+      type: "com.beeper.delete_chat",
+    }));
+    expect(network.handleMatrixDeleteChat).toHaveBeenCalledWith(expect.any(Object), {
+      onlyForMe: true,
+      portal: expect.objectContaining({ mxid: "!room:example", portalKey }),
+    });
   });
 
   it("initializes appservice and creates/backfills portal rooms", async () => {
@@ -1089,19 +1249,35 @@ type FakeNetworkAPI = NetworkAPI & {
   connect: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
   handleMatrixEdit: ReturnType<typeof vi.fn>;
+  handleMatrixDeleteChat: ReturnType<typeof vi.fn>;
+  handleMatrixMarkedUnread: ReturnType<typeof vi.fn>;
   handleMatrixMessage: ReturnType<typeof vi.fn>;
+  handleMatrixMembership: ReturnType<typeof vi.fn>;
   handleMatrixReaction: ReturnType<typeof vi.fn>;
   handleMatrixReactionRemove: ReturnType<typeof vi.fn>;
+  handleMatrixReadReceipt: ReturnType<typeof vi.fn>;
+  handleMatrixRoomAvatar: ReturnType<typeof vi.fn>;
+  handleMatrixRoomName: ReturnType<typeof vi.fn>;
+  handleMatrixRoomTopic: ReturnType<typeof vi.fn>;
+  handleMatrixTyping: ReturnType<typeof vi.fn>;
 };
 
 function createFakeNetworkAPI(): FakeNetworkAPI {
   return {
     connect: vi.fn(),
     disconnect: vi.fn(),
+    handleMatrixDeleteChat: vi.fn(),
     handleMatrixEdit: vi.fn(),
+    handleMatrixMarkedUnread: vi.fn(),
     handleMatrixMessage: vi.fn(),
+    handleMatrixMembership: vi.fn(),
     handleMatrixReaction: vi.fn(),
     handleMatrixReactionRemove: vi.fn(),
+    handleMatrixReadReceipt: vi.fn(),
+    handleMatrixRoomAvatar: vi.fn(),
+    handleMatrixRoomName: vi.fn(),
+    handleMatrixRoomTopic: vi.fn(),
+    handleMatrixTyping: vi.fn(),
   };
 }
 
@@ -1132,6 +1308,28 @@ function messageEvent(options: { body: string; eventId: string; roomId: string; 
     text: options.body,
     type: "m.room.message",
   };
+}
+
+function genericEvent(options: {
+  content: Record<string, unknown>;
+  kind: "accountData" | "membership" | "roomState";
+  roomId: string;
+  sender?: string;
+  stateKey?: string;
+  type: string;
+  unsigned?: Record<string, unknown>;
+}): MatrixClientEvent {
+  return {
+    class: options.kind === "accountData" ? "accountData" : "state",
+    content: options.content,
+    kind: options.kind,
+    raw: {},
+    roomId: options.roomId,
+    ...(options.sender ? { sender: { isMe: false, userId: options.sender } } : {}),
+    ...(options.stateKey ? { stateKey: options.stateKey } : {}),
+    type: options.type,
+    ...(options.unsigned ? { unsigned: options.unsigned } : {}),
+  } as MatrixClientEvent;
 }
 
 function commandReplyBody(client: ReturnType<typeof createFakeMatrixClient>, index: number): string {
@@ -1211,7 +1409,9 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
       redact: vi.fn(async () => undefined),
       send: vi.fn(async (options) => ({ eventId: "$reaction", raw: {}, roomId: options.roomId })),
     },
-    receipts: {} as MatrixClient["receipts"],
+    receipts: {
+      send: vi.fn(async () => undefined),
+    },
     rooms: {} as MatrixClient["rooms"],
     streams: {} as MatrixClient["streams"],
     subscribe: vi.fn(async (_filter, _handler: (event: MatrixClientEvent) => void | Promise<void>) => subscription),

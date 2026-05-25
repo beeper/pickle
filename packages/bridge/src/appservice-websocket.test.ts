@@ -16,13 +16,13 @@ afterEach(async () => {
 });
 
 describe("AppserviceWebsocket", () => {
-  it("connects to as_sync, dispatches transactions, and acknowledges them", async () => {
+  it("connects to as_sync, forwards transactions, and acknowledges them", async () => {
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer });
     servers.push(wsServer, httpServer);
     await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
     const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
-    const dispatch = vi.fn(async () => {});
+    const handleTransaction = vi.fn(async () => {});
     const connected = new Promise<void>((resolve, reject) => {
       wsServer.on("connection", (socket, request) => {
         try {
@@ -55,7 +55,7 @@ describe("AppserviceWebsocket", () => {
       });
     });
     const websocket = createWebsocket(homeserver, {
-      dispatch,
+      handleTransaction,
       log: (() => {}) as BridgeLogger,
     });
     websockets.push(websocket);
@@ -63,213 +63,13 @@ describe("AppserviceWebsocket", () => {
     websocket.start();
     await connected;
 
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      eventId: "$event",
-      kind: "message",
-      roomId: "!room:example",
-      text: "hi",
-    }));
-  });
-
-  it("preserves Matrix edit, reply, thread, mention, and formatted body metadata from appservice transactions", async () => {
-    const httpServer = createServer();
-    const wsServer = new WebSocketServer({ server: httpServer });
-    servers.push(wsServer, httpServer);
-    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
-    const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
-    const dispatch = vi.fn(async () => {});
-    const connected = new Promise<void>((resolve, reject) => {
-      wsServer.on("connection", (socket) => {
-        socket.once("message", () => resolve());
-        socket.send(JSON.stringify({
-          command: "transaction",
-          events: [
-            {
-              content: {
-                body: "* old",
-                "m.new_content": {
-                  body: "corrected",
-                  formatted_body: "<strong>corrected</strong>",
-                  "m.mentions": { room: true, user_ids: ["@bob:example"] },
-                  msgtype: "m.text",
-                },
-                "m.relates_to": { event_id: "$old", rel_type: "m.replace" },
-                msgtype: "m.text",
-              },
-              event_id: "$edit",
-              room_id: "!room:example",
-              sender: "@alice:example",
-              type: "m.room.message",
-            },
-            {
-              content: {
-                body: "thread reply",
-                "m.relates_to": {
-                  event_id: "$thread",
-                  is_falling_back: false,
-                  "m.in_reply_to": { event_id: "$parent" },
-                  rel_type: "m.thread",
-                },
-                msgtype: "m.text",
-              },
-              event_id: "$thread-reply",
-              room_id: "!room:example",
-              sender: "@alice:example",
-              type: "m.room.message",
-            },
-          ],
-          id: 11,
-          txn_id: "txn-relations",
-        }));
-      });
-    });
-    const websocket = createWebsocket(homeserver, {
-      dispatch,
-      log: (() => {}) as BridgeLogger,
-    });
-    websockets.push(websocket);
-
-    websocket.start();
-    await connected;
-
-    expect(dispatch).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      edited: true,
-      eventId: "$edit",
-      html: "<strong>corrected</strong>",
-      mentions: { room: true, userIds: ["@bob:example"] },
-      relation: { eventId: "$old", type: "m.replace" },
-      replaces: "$old",
-      text: "corrected",
-    }));
-    expect(dispatch).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      edited: false,
-      eventId: "$thread-reply",
-      relation: { eventId: "$thread", isFallback: false, replyTo: "$parent", type: "m.thread" },
-      replyTo: "$parent",
-      text: "thread reply",
-      threadRoot: "$thread",
-    }));
-  });
-
-  it("converts appservice Matrix media messages into attachments", async () => {
-    const httpServer = createServer();
-    const wsServer = new WebSocketServer({ server: httpServer });
-    servers.push(wsServer, httpServer);
-    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
-    const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
-    const dispatch = vi.fn(async () => {});
-    const connected = new Promise<void>((resolve) => {
-      wsServer.on("connection", (socket) => {
-        socket.once("message", () => resolve());
-        socket.send(JSON.stringify({
-          command: "transaction",
-          events: [{
-            content: {
-              body: "photo.png",
-              info: {
-                h: 480,
-                mimetype: "image/png",
-                size: 12345,
-                w: 640,
-              },
-              msgtype: "m.image",
-              url: "mxc://example/photo",
-            },
-            event_id: "$image",
-            room_id: "!room:example",
-            sender: "@alice:example",
-            type: "m.room.message",
-          }],
-          id: 12,
-          txn_id: "txn-media",
-        }));
-      });
-    });
-    const websocket = createWebsocket(homeserver, {
-      dispatch,
-      log: (() => {}) as BridgeLogger,
-    });
-    websockets.push(websocket);
-
-    websocket.start();
-    await connected;
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      attachments: [{
-        contentType: "image/png",
-        contentUri: "mxc://example/photo",
-        filename: "photo.png",
-        height: 480,
-        kind: "image",
-        size: 12345,
-        width: 640,
-      }],
-      eventId: "$image",
-      messageType: "m.image",
-      text: "photo.png",
-    }));
-  });
-
-  it("converts encrypted appservice Matrix media into encrypted attachments", async () => {
-    const httpServer = createServer();
-    const wsServer = new WebSocketServer({ server: httpServer });
-    servers.push(wsServer, httpServer);
-    await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
-    const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
-    const dispatch = vi.fn(async () => {});
-    const encryptedFile = {
-      hashes: { sha256: "hash" },
-      iv: "iv",
-      key: { alg: "A256CTR", ext: true, k: "key", key_ops: ["encrypt", "decrypt"], kty: "oct" },
-      url: "mxc://example/encrypted",
-      v: "v2",
-    };
-    const connected = new Promise<void>((resolve) => {
-      wsServer.on("connection", (socket) => {
-        socket.once("message", () => resolve());
-        socket.send(JSON.stringify({
-          command: "transaction",
-          events: [{
-            content: {
-              body: "secret.pdf",
-              file: encryptedFile,
-              filename: "secret.pdf",
-              info: {
-                mimetype: "application/pdf",
-                size: 777,
-              },
-              msgtype: "m.file",
-            },
-            event_id: "$encrypted-file",
-            room_id: "!room:example",
-            sender: "@alice:example",
-            type: "m.room.message",
-          }],
-          id: 13,
-          txn_id: "txn-encrypted-media",
-        }));
-      });
-    });
-    const websocket = createWebsocket(homeserver, {
-      dispatch,
-      log: (() => {}) as BridgeLogger,
-    });
-    websockets.push(websocket);
-
-    websocket.start();
-    await connected;
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      attachments: [{
-        contentType: "application/pdf",
-        encryptedFile,
-        filename: "secret.pdf",
-        kind: "file",
-        size: 777,
-      }],
-      eventId: "$encrypted-file",
-      messageType: "m.file",
-      text: "secret.pdf",
+    expect(handleTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      events: [expect.objectContaining({
+        event_id: "$event",
+        room_id: "!room:example",
+        type: "m.room.message",
+      })],
+      txn_id: "txn-1",
     }));
   });
 
@@ -349,7 +149,6 @@ describe("AppserviceWebsocket", () => {
     servers.push(wsServer, httpServer);
     await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
     const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
-    const dispatch = vi.fn(async () => {});
     const handleTransaction = vi.fn(async () => {});
     const connected = new Promise<void>((resolve, reject) => {
       wsServer.on("connection", (socket) => {
@@ -385,7 +184,6 @@ describe("AppserviceWebsocket", () => {
       });
     });
     const websocket = createWebsocket(homeserver, {
-      dispatch,
       handleTransaction,
       log: (() => {}) as BridgeLogger,
     });
@@ -394,11 +192,6 @@ describe("AppserviceWebsocket", () => {
     websocket.start();
     await connected;
 
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      eventId: "$proxied",
-      kind: "message",
-      text: "proxied",
-    }));
     expect(handleTransaction).toHaveBeenCalledWith(expect.objectContaining({
       events: [expect.objectContaining({ event_id: "$proxied" })],
       txn_id: "txn-2",
@@ -529,7 +322,6 @@ function createWebsocket(
         url: "",
       },
     },
-    dispatch: vi.fn(async () => {}),
     log: (() => {}) as BridgeLogger,
     ...overrides,
   });

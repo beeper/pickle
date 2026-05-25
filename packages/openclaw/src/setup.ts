@@ -1,3 +1,4 @@
+import type { BridgeLogger } from "@beeper/pickle-bridge";
 import { createConfigFromOpenClawSetup, DEFAULT_REGISTRATION_URL, defaultDataDir } from "./config";
 import type { setupOpenClawBeeperBridge, SetupOpenClawBeeperBridgeOptions } from "./beeper-setup";
 import { createBeeperApprovalNotice } from "./approval";
@@ -19,7 +20,7 @@ export interface BeeperChannelSettings {
   allowedUserIds?: string[];
   appserviceId?: string;
   asToken?: string;
-  approvalBehavior?: "native" | "reactions" | "slash" | "disabled";
+  approvalBehavior?: "native" | "disabled";
   backfillLimit?: number;
   baseDomain?: string;
   beeperEnv?: "production" | "staging" | "dev" | "local";
@@ -160,7 +161,7 @@ export const BeeperChannelConfigSchema = {
     contactVisibility: { type: "string", enum: ["agents", "agents-and-users", "none"] },
     homeserverDomain: { type: "string" },
     streamFinalization: { type: "string", enum: ["replace", "append", "native-only"] },
-    approvalBehavior: { type: "string", enum: ["native", "reactions", "slash", "disabled"] },
+    approvalBehavior: { type: "string", enum: ["native", "disabled"] },
     userLocalpartPrefix: { type: "string" },
   },
 } as const;
@@ -209,7 +210,7 @@ export const beeperMessageAdapter = {
     finalizer: {
       capabilities: {
         finalEdit: true,
-        normalFallback: true,
+        normalFallback: false,
         previewReceipt: true,
         retainOnAmbiguousFailure: true,
       },
@@ -531,11 +532,11 @@ export const beeperApprovalCapability = {
 export const beeperMessageActions = {
   resolveExecutionMode: () => "gateway",
   describeMessageTool: () => ({
-    actions: ["send", "edit", "delete", "react"],
-    capabilities: ["media", "replyTo", "reactions"],
+    actions: ["send", "edit", "delete", "react", "read", "mark_unread"],
+    capabilities: ["media", "replyTo", "reactions", "readReceipts", "markedUnread"],
   }),
   supportsAction: ({ action }: { action: string }) =>
-    action === "send" || action === "edit" || action === "delete" || action === "react",
+    action === "send" || action === "edit" || action === "delete" || action === "react" || action === "read" || action === "mark_unread",
   extractToolSend: ({ args }: { args: Record<string, unknown> }) => {
     const action = stringValue(args.action)?.trim();
     if (action !== "send" && action !== "sendMessage") return null;
@@ -598,6 +599,17 @@ export const beeperMessageActions = {
       }
       const sent = await runtime.react({ emoji, eventId, roomId });
       return { content: [{ type: "text", text: `Sent Beeper reaction ${sent.eventId}` }] };
+    }
+    if (ctx.action === "read") {
+      const eventId = readRequiredString(params, "messageId", "eventId");
+      await runtime.readReceipt({ eventId, roomId });
+      return { content: [{ type: "text", text: `Marked Beeper message read ${eventId}` }] };
+    }
+    if (ctx.action === "mark_unread") {
+      const eventId = readRequiredString(params, "messageId", "eventId");
+      const unread = params.unread !== false;
+      await runtime.markUnread({ eventId, roomId, unread });
+      return { content: [{ type: "text", text: `${unread ? "Marked" : "Unmarked"} Beeper room unread` }] };
     }
     throw new Error(`Unsupported Beeper message action: ${ctx.action}`);
   },
@@ -750,8 +762,6 @@ export const beeperSetupWizard = {
       initialValue: current.approvalBehavior ?? "native",
       options: [
         { value: "native", label: "Native" },
-        { value: "reactions", label: "Reactions" },
-        { value: "slash", label: "Slash commands" },
         { value: "disabled", label: "Disabled" },
       ],
     });
@@ -888,6 +898,7 @@ export async function applyBeeperSetupConfig(params: {
   };
   if (result.config.homeserver) setupSettings.homeserver = result.config.homeserver;
   if (result.config.accessToken) setupSettings.accessToken = result.config.accessToken;
+  if (result.config.appserviceId) setupSettings.appserviceId = result.config.appserviceId;
   if (result.config.asToken) setupSettings.asToken = result.config.asToken;
   if (result.config.bridgeId) setupSettings.bridgeId = result.config.bridgeId;
   if (result.config.ghostLocalpartPrefix) setupSettings.ghostLocalpartPrefix = result.config.ghostLocalpartPrefix;
@@ -1112,45 +1123,75 @@ function stringValue(value: unknown): string | undefined {
 }
 
 export async function startBeeperGatewayAccount(ctx: BeeperGatewayContext): Promise<void> {
-  const settings = getBeeperChannelSettings(ctx.cfg);
-  if (settings.enabled === false) {
-    ctx.log?.info?.("Beeper bridge is disabled; skipping startup.");
-    return;
-  }
-  if (!isBeeperChannelConfigured(ctx.cfg)) {
-    throw new Error("Beeper bridge is not fully configured; run Beeper channel setup first.");
-  }
-  const { accountFromOpenClawConfig, startOpenClawBeeperBridge } = await import("./appservice");
-  const config = createConfigFromOpenClawSetup(ctx.cfg);
-  const hostRuntime = resolveBeeperHostRuntime(ctx);
-  const bridge = await startOpenClawBeeperBridge({
-    account: accountFromOpenClawConfig(config),
-    backfill: Boolean(config.importSources?.length),
-    ...(config.backfillLimit !== undefined ? { backfillLimit: config.backfillLimit } : {}),
-    config,
-    dataDir: config.dataDir,
-    ...(hostRuntime ? { runtime: hostRuntime } : {}),
-  });
-  const key = gatewayAccountKey(ctx.accountId);
-  startedBridges.set(key, bridge as StartedBeeperBridge);
-  ctx.setStatus?.({
-    accountId: ctx.accountId,
-    configured: true,
-    enabled: true,
-    running: true,
-  });
-  ctx.log?.info?.("Beeper bridge started.");
   try {
-    await waitForAbort(ctx.abortSignal);
-  } finally {
-    startedBridges.delete(key);
-    await bridge.stop?.();
+    ctx.log?.info?.("Beeper bridge startup beginning.");
+    const settings = getBeeperChannelSettings(ctx.cfg);
+    if (settings.enabled === false) {
+      ctx.log?.info?.("Beeper bridge is disabled; skipping startup.");
+      return;
+    }
+    if (!isBeeperChannelConfigured(ctx.cfg)) {
+      throw new Error("Beeper bridge is not fully configured; run Beeper channel setup first.");
+    }
+    const { accountFromOpenClawConfig, startOpenClawBeeperBridge } = await import("./appservice");
+    const config = createConfigFromOpenClawSetup(ctx.cfg);
+    const hostRuntime = resolveBeeperHostRuntime(ctx);
+    const bridge = await startOpenClawBeeperBridge({
+      account: accountFromOpenClawConfig(config),
+      backfill: Boolean(config.importSources?.length),
+      ...(config.backfillLimit !== undefined ? { backfillLimit: config.backfillLimit } : {}),
+      config,
+      dataDir: config.dataDir,
+      log: bridgeLoggerFromChannelContext(ctx),
+      ...(hostRuntime ? { runtime: hostRuntime } : {}),
+    });
+    const key = gatewayAccountKey(ctx.accountId);
+    startedBridges.set(key, bridge as StartedBeeperBridge);
     ctx.setStatus?.({
       accountId: ctx.accountId,
-      running: false,
+      configured: true,
+      enabled: true,
+      running: true,
     });
-    ctx.log?.info?.("Beeper bridge stopped.");
+    ctx.log?.info?.("Beeper bridge started.");
+    try {
+      await waitForAbort(ctx.abortSignal);
+    } finally {
+      startedBridges.delete(key);
+      await bridge.stop?.();
+      ctx.setStatus?.({
+        accountId: ctx.accountId,
+        running: false,
+      });
+      ctx.log?.info?.("Beeper bridge stopped.");
+    }
+  } catch (error) {
+    ctx.log?.error?.(`Beeper bridge startup failed: ${formatStartupError(error)}`);
+    throw error;
   }
+}
+
+function bridgeLoggerFromChannelContext(ctx: BeeperGatewayContext): BridgeLogger {
+  return (level, message, data) => {
+    const logger = level === "error" ? ctx.log?.error
+      : level === "warn" ? ctx.log?.warn
+        : ctx.log?.info;
+    logger?.(data === undefined ? `[pickle-bridge] ${message}` : `[pickle-bridge] ${message} ${formatBridgeLogData(data)}`);
+  };
+}
+
+function formatBridgeLogData(data: unknown): string {
+  if (typeof data === "string") return data;
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return String(data);
+  }
+}
+
+function formatStartupError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.stack ?? error.message;
 }
 
 function resolveBeeperHostRuntime(ctx: BeeperGatewayContext): OpenClawHostRuntime | undefined {
@@ -1251,7 +1292,7 @@ export function validateBeeperSetupInput(input: BeeperSetupInput): string | null
   if (input.beeperEnv !== undefined && normalizeBeeperEnv(input.beeperEnv) === undefined) return "Beeper environment must be production, staging, dev, or local.";
   if (input.contactVisibility !== undefined && normalizeContactVisibility(input.contactVisibility) === undefined) return "Contact visibility must be agents, agents-and-users, or none.";
   if (input.streamFinalization !== undefined && normalizeStreamFinalization(input.streamFinalization) === undefined) return "Stream finalization must be replace, append, or native-only.";
-  if (input.approvalBehavior !== undefined && normalizeApprovalBehavior(input.approvalBehavior) === undefined) return "Approval behavior must be native, reactions, slash, or disabled.";
+  if (input.approvalBehavior !== undefined && normalizeApprovalBehavior(input.approvalBehavior) === undefined) return "Approval behavior must be native or disabled.";
   const backfillLimit = normalizeOptionalNumber(input.backfillLimit);
   if (backfillLimit !== undefined && (!Number.isInteger(backfillLimit) || backfillLimit < 0)) return "Backfill limit must be a non-negative integer.";
   return null;
@@ -1374,7 +1415,7 @@ function normalizeStreamFinalization(value: string | undefined): BeeperChannelSe
 }
 
 function normalizeApprovalBehavior(value: string | undefined): BeeperChannelSettings["approvalBehavior"] | undefined {
-  if (value === "native" || value === "reactions" || value === "slash" || value === "disabled") return value;
+  if (value === "native" || value === "disabled") return value;
   return undefined;
 }
 

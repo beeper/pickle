@@ -68,10 +68,6 @@ export function defaultBeeperApprovalActions(decisions: readonly ApprovalDecisio
 }
 
 export function parseApprovalReactionKey(key: unknown): ParsedApprovalResponse | undefined {
-  const aiBridgeChoice = resolveBeeperApprovalChoiceKey(key);
-  if (aiBridgeChoice) {
-    return approvalResponseForChoice(aiBridgeChoice);
-  }
   switch (key) {
     case APPROVAL_ALLOW_ONCE_REACTION:
       return { approved: true, approvedAlways: false, decision: "allow_once" };
@@ -124,8 +120,7 @@ export function parseToolApprovalResponseChunk(chunk: unknown): ParsedApprovalRe
 export function parseApprovalResponseContent(content: unknown): ParsedApprovalResponse | undefined {
   return parseToolApprovalResponseChunk(content)
     ?? parseApprovalResponseFromDeltas(content)
-    ?? parseApprovalResponseFromAIMessage(content)
-    ?? parseApprovalReactionContent(content);
+    ?? parseApprovalResponseFromAIMessage(content);
 }
 
 export function toOpenClawApprovalResolvePayload(
@@ -292,19 +287,6 @@ function approvalDecisionValue(value: unknown): ApprovalDecision | undefined {
   }
 }
 
-function approvalResponseForChoice(choiceKey: string): ParsedApprovalResponse | undefined {
-  switch (choiceKey) {
-    case AI_BRIDGE_APPROVAL_CHOICE_APPROVE:
-      return { approved: true, approvedAlways: false, decision: "allow_once" };
-    case AI_BRIDGE_APPROVAL_CHOICE_ALWAYS_APPROVE:
-      return { approved: true, approvedAlways: true, decision: "allow_always" };
-    case AI_BRIDGE_APPROVAL_CHOICE_DENY:
-      return { approved: false, approvedAlways: false, decision: "deny" };
-    default:
-      return undefined;
-  }
-}
-
 function approvalReactionKey(decision: ApprovalDecision): string {
   switch (decision) {
     case "allow_once":
@@ -346,23 +328,6 @@ function approvalKindValue(value: unknown): OpenClawApprovalKind | undefined {
   if (value === "plugin" || value === "plugin-approval" || value === "plugin.approval") return "plugin";
   if (value === "exec" || value === "execution" || value === "exec-approval" || value === "exec.approval") return "exec";
   return undefined;
-}
-
-function resolveBeeperApprovalChoiceKey(key: unknown): string | undefined {
-  if (typeof key !== "string") return undefined;
-  const normalized = normalizeReactionKey(key);
-  if (!normalized) return undefined;
-  for (const choice of defaultBeeperApprovalChoices()) {
-    if (normalizeReactionKey(choice.key) === normalized || normalizeReactionKey(choice.alias) === normalized) {
-      return choice.key;
-    }
-  }
-  if (normalized === "♾") return AI_BRIDGE_APPROVAL_CHOICE_ALWAYS_APPROVE;
-  return undefined;
-}
-
-function normalizeReactionKey(key: string): string {
-  return key.trim().replace(/\ufe0f/gu, "").toLowerCase();
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

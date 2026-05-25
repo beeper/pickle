@@ -4,19 +4,9 @@ import {
   toOpenClawApprovalResolvePayload,
   type ParsedApprovalResponse,
 } from "./approval";
-import { createOpenClawStreamState, mapOpenClawEventToBeeperChunks } from "./openclaw-event-map";
-import type { OpenClawGatewayRuntime, OpenClawGatewayEvent, OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
+import type { OpenClawGatewayRuntime, OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
 import type { OpenClawBridgeRegistry } from "./registry";
-import { AGUIEventType, type AGUIEvent } from "./stream-map";
 import type { OpenClawSessionBinding } from "./types";
-
-export interface OpenClawBridgeStreamPublisher {
-  publish(binding: OpenClawSessionBinding, events: AGUIEvent[]): Promise<OpenClawStreamPublishResult | undefined> | OpenClawStreamPublishResult | undefined;
-}
-
-export interface OpenClawStreamPublishResult {
-  targetEventId?: string;
-}
 
 export interface MatrixTextTurn {
   attachments?: unknown[];
@@ -31,19 +21,13 @@ export interface MatrixTextTurn {
 export class OpenClawMatrixBridgeAgent {
   readonly registry: OpenClawBridgeRegistry;
   readonly runtime: OpenClawGatewayRuntime;
-  readonly streams: OpenClawBridgeStreamPublisher;
-  readonly backgroundStreaming: boolean;
 
   constructor(options: {
-    backgroundStreaming?: boolean;
     registry: OpenClawBridgeRegistry;
     runtime: OpenClawGatewayRuntime;
-    streams: OpenClawBridgeStreamPublisher;
   }) {
-    this.backgroundStreaming = options.backgroundStreaming ?? false;
     this.registry = options.registry;
     this.runtime = options.runtime;
-    this.streams = options.streams;
   }
 
   async syncAgentContacts(): Promise<void> {
@@ -79,14 +63,6 @@ export class OpenClawMatrixBridgeAgent {
     }));
     this.registry.markDedupe(turn.eventId);
     await this.registry.save();
-    const stream = this.streamRun({ ...binding, sessionKey: run.sessionKey }, run.runId);
-    if (this.backgroundStreaming) {
-      void stream.catch((error) => {
-        console.error("[openclaw-beeper] failed to stream OpenClaw run to Beeper", error);
-      });
-    } else {
-      await stream;
-    }
   }
 
   async handleApprovalContent(content: unknown, approvalId?: string): Promise<ParsedApprovalResponse | undefined> {
@@ -97,30 +73,6 @@ export class OpenClawMatrixBridgeAgent {
     if (!response.approvalKind && inferredApprovalKind) response.approvalKind = inferredApprovalKind;
     await this.runtime.resolveApproval(toOpenClawApprovalResolvePayload(resolvedApprovalId, response));
     return response;
-  }
-
-  async streamRun(binding: OpenClawSessionBinding, runId: string): Promise<void> {
-    const state = createOpenClawStreamState(runId);
-    for await (const gatewayEvent of this.runtime.eventsForRun(runId)) {
-      const chunks = mapOpenClawEventToBeeperChunks(state, openClawEventFromGateway(gatewayEvent));
-      if (chunks.length > 0) {
-        const result = await this.streams.publish({
-          ...binding,
-          lastRunId: runId,
-          lastStreamRunId: runId,
-        }, chunks);
-        const targetEventId = result?.targetEventId;
-        if (targetEventId) {
-          this.registry.updateBinding(binding.id, (current) => ({
-            ...current,
-            lastStreamRunId: runId,
-            lastStreamTargetEventId: targetEventId,
-            updatedAt: Date.now(),
-          }));
-        }
-        if (chunks.some(isTerminalStreamEvent)) break;
-      }
-    }
   }
 
   async ensureSession(binding: OpenClawSessionBinding): Promise<string> {
@@ -141,19 +93,4 @@ export class OpenClawMatrixBridgeAgent {
 
 export function agentPortalSessionKey(agentId: string): string {
   return `agent:${agentId}`;
-}
-
-function openClawEventFromGateway(event: OpenClawGatewayEvent): unknown {
-  if (event.event && event.payload && typeof event.payload === "object") {
-    return { ...(event.payload as Record<string, unknown>), payload: event.payload, type: event.event };
-  }
-  if (event.payload && typeof event.payload === "object") {
-    return event.payload;
-  }
-  if (event.event) return { type: event.event, data: event.payload };
-  return event;
-}
-
-function isTerminalStreamEvent(event: AGUIEvent): boolean {
-  return event.type === AGUIEventType.RUN_FINISHED || event.type === AGUIEventType.RUN_ERROR;
 }

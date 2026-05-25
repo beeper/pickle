@@ -1,10 +1,9 @@
 import WebSocket from "ws";
-import type { MatrixAppserviceInitOptions, MatrixClientEvent } from "@beeper/pickle";
+import type { MatrixAppserviceInitOptions } from "@beeper/pickle";
 import type { BridgeLogger } from "./types";
 
 export interface AppserviceWebsocketOptions {
   appservice: MatrixAppserviceInitOptions;
-  dispatch(event: MatrixClientEvent): Promise<unknown>;
   handleHTTPProxy?(request: HTTPProxyRequest): Promise<HTTPProxyResponse | null>;
   handleTransaction?(transaction: Record<string, unknown>): Promise<unknown>;
   log: BridgeLogger;
@@ -40,7 +39,6 @@ export class AppserviceWebsocket {
   };
 
   readonly #appservice: MatrixAppserviceInitOptions;
-  readonly #dispatch: (event: MatrixClientEvent) => Promise<unknown>;
   readonly #handleProxy: ((request: HTTPProxyRequest) => Promise<HTTPProxyResponse | null>) | undefined;
   readonly #handleTransaction: ((transaction: Record<string, unknown>) => Promise<unknown>) | undefined;
   readonly #log: BridgeLogger;
@@ -61,7 +59,6 @@ export class AppserviceWebsocket {
 
   constructor(options: AppserviceWebsocketOptions) {
     this.#appservice = options.appservice;
-    this.#dispatch = options.dispatch;
     this.#handleProxy = options.handleHTTPProxy;
     this.#handleTransaction = options.handleTransaction;
     this.#log = options.log;
@@ -201,7 +198,19 @@ export class AppserviceWebsocket {
   }
 
   async #handleMessage(data: WebSocket.RawData): Promise<void> {
-    const message = JSON.parse(data.toString()) as WebsocketMessage;
+    const raw = data.toString();
+    if (!raw.trim()) {
+      this.#log("warn", "appservice_websocket_empty_message");
+      return;
+    }
+    let message: WebsocketMessage;
+    try {
+      message = JSON.parse(raw) as WebsocketMessage;
+    } catch (error: unknown) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      this.#log("error", "appservice_websocket_invalid_json", { error: messageText, size: raw.length });
+      return;
+    }
     this.#log("debug", "appservice_websocket_message", {
       command: message.command ?? "transaction",
       eventCount: message.events?.length,
@@ -220,16 +229,6 @@ export class AppserviceWebsocket {
       if (message.command === "response" || message.command === "error") return;
       if (!message.command || message.command === "transaction") {
         await this.#handleTransaction?.(message as Record<string, unknown>);
-        for (const raw of message.events ?? []) {
-          const event = rawMatrixEvent(raw);
-          this.#log("debug", "appservice_websocket_transaction_event", {
-            eventId: raw.event_id,
-            roomId: raw.room_id,
-            sender: raw.sender,
-            type: raw.type,
-          });
-          if (event) await this.#dispatch(event);
-        }
         this.#send(messageResponse(message, true, { txn_id: message.txn_id }));
         return;
       }
@@ -270,10 +269,6 @@ export class AppserviceWebsocket {
         txnId: transactionMatch[1],
       });
       await this.#handleTransaction?.(transaction);
-      for (const raw of events) {
-        const event = rawMatrixEvent(raw as RawMatrixEvent);
-        if (event) await this.#dispatch(event);
-      }
       return jsonHTTPResponse(200, {});
     }
     if (method === "GET" && /^\/?_matrix\/app\/v1\/users\//.test(path)) {
@@ -324,7 +319,7 @@ interface WebsocketRequest {
 interface WebsocketMessage {
   command?: string;
   data?: unknown;
-  events?: RawMatrixEvent[];
+  events?: unknown[];
   id?: number;
   status?: string;
   to_device?: unknown;
@@ -344,19 +339,6 @@ export interface HTTPProxyResponse {
   body?: unknown;
   headers: Record<string, string[]>;
   status: number;
-}
-
-interface RawMatrixEvent {
-  [key: string]: unknown;
-  content?: Record<string, unknown>;
-  event_id?: string;
-  origin_server_ts?: number;
-  redacts?: string;
-  room_id?: string;
-  sender?: string;
-  state_key?: string;
-  type?: string;
-  unsigned?: Record<string, unknown>;
 }
 
 function messageResponse(message: WebsocketMessage, ok: boolean, data: unknown): WebsocketRequest | null {
@@ -400,166 +382,10 @@ function eventCount(events: unknown): number | undefined {
   return Array.isArray(events) && events.length > 0 ? events.length : undefined;
 }
 
-function rawMatrixEvent(raw: RawMatrixEvent): MatrixClientEvent | null {
-  const type = raw.type ?? "";
-  const content = raw.content ?? {};
-  const roomId = raw.room_id;
-  const eventId = raw.event_id;
-  const senderId = raw.sender;
-  const sender = senderId ? { isMe: false, userId: senderId } : undefined;
-  if (type === "m.room.message" && roomId && eventId && sender) {
-    const relates = objectValue(content["m.relates_to"]);
-    const newContent = objectValue(content["m.new_content"]);
-    const messageContent = newContent ?? content;
-    const relation = matrixRelation(relates);
-    const replyTo = matrixReplyTo(relates);
-    const threadRoot = relation?.type === "m.thread" ? relation.eventId : undefined;
-    const mentions = matrixMentions(messageContent);
-    return stripUndefined({
-      attachments: matrixAttachments(messageContent),
-      class: "message",
-      content,
-      edited: Boolean(newContent && relation?.type === "m.replace"),
-      encrypted: false,
-      eventId,
-      html: stringValue(messageContent.formatted_body),
-      kind: "message",
-      mentions,
-      messageType: stringValue(messageContent.msgtype) ?? "m.text",
-      raw,
-      relation,
-      replaces: relation?.type === "m.replace" ? relation.eventId : undefined,
-      replyTo,
-      roomId,
-      sender,
-      text: stringValue(messageContent.body) ?? "",
-      threadRoot,
-      timestamp: raw.origin_server_ts,
-      type,
-      unsigned: raw.unsigned,
-    }) as MatrixClientEvent;
-  }
-  if (type === "m.reaction" && roomId && eventId && sender) {
-    const relates = objectValue(content["m.relates_to"]);
-    return stripUndefined({
-      added: true,
-      class: "message",
-      content,
-      eventId,
-      key: stringValue(relates?.key) ?? "",
-      kind: "reaction",
-      raw,
-      relatesTo: stringValue(relates?.event_id) ?? "",
-      roomId,
-      sender,
-      timestamp: raw.origin_server_ts,
-      type,
-      unsigned: raw.unsigned,
-    }) as MatrixClientEvent;
-  }
-  if (type === "m.room.redaction" && roomId) {
-    return genericEvent("redaction", raw, content);
-  }
-  if (type === "m.typing") {
-    return genericEvent("typing", raw, content);
-  }
-  return genericEvent("raw", raw, content);
-}
-
-function genericEvent(kind: "raw" | "redaction" | "typing", raw: RawMatrixEvent, content: Record<string, unknown>): MatrixClientEvent {
-  const event = {
-    class: kind === "typing" ? "ephemeral" : "unknown",
-    content,
-    eventId: raw.event_id,
-    kind,
-    raw,
-    roomId: raw.room_id,
-    sender: raw.sender ? { isMe: false, userId: raw.sender } : undefined,
-    timestamp: raw.origin_server_ts,
-    type: raw.type ?? "",
-    unsigned: raw.unsigned,
-  };
-  return stripUndefined(event) as MatrixClientEvent;
-}
-
 function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
-}
-
-function matrixRelation(relates: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  const eventId = stringValue(relates?.event_id);
-  const type = stringValue(relates?.rel_type);
-  if (!eventId || !type) return undefined;
-  if (type === "m.annotation") {
-    const key = stringValue(relates?.key);
-    return key ? { eventId, key, type } : undefined;
-  }
-  if (type === "m.thread") {
-    return {
-      eventId,
-      ...(typeof relates?.is_falling_back === "boolean" ? { isFallback: relates.is_falling_back } : {}),
-      ...(stringValue(objectValue(relates?.["m.in_reply_to"])?.event_id) ? { replyTo: stringValue(objectValue(relates?.["m.in_reply_to"])?.event_id) } : {}),
-      type,
-    };
-  }
-  if (type === "m.replace" || type === "m.reference") return { eventId, type };
-  return { eventId, type };
-}
-
-function matrixReplyTo(relates: Record<string, unknown> | undefined): string | undefined {
-  return stringValue(objectValue(relates?.["m.in_reply_to"])?.event_id)
-    ?? (relates?.rel_type === "m.thread" ? stringValue(relates.event_id) : undefined);
-}
-
-function matrixMentions(content: Record<string, unknown>): Record<string, unknown> | undefined {
-  const raw = objectValue(content["m.mentions"]);
-  if (!raw) return undefined;
-  const userIds = Array.isArray(raw.user_ids) ? raw.user_ids.filter((userId): userId is string => typeof userId === "string") : undefined;
-  return stripUndefined({
-    room: typeof raw.room === "boolean" ? raw.room : undefined,
-    userIds,
-  });
-}
-
-function matrixAttachments(content: Record<string, unknown>): Record<string, unknown>[] {
-  const msgtype = stringValue(content.msgtype);
-  const kind = matrixAttachmentKind(msgtype);
-  if (!kind) return [];
-  const info = objectValue(content.info);
-  const encryptedFile = objectValue(content.file);
-  const attachment = stripUndefined({
-    contentType: stringValue(info?.mimetype) ?? stringValue(content.info_mimetype),
-    contentUri: stringValue(content.url),
-    duration: numberValue(info?.duration),
-    encryptedFile,
-    filename: stringValue(content.filename) ?? stringValue(content.body),
-    height: numberValue(info?.h),
-    kind,
-    size: numberValue(info?.size),
-    width: numberValue(info?.w),
-  });
-  return attachment.contentUri || attachment.encryptedFile ? [attachment] : [];
-}
-
-function matrixAttachmentKind(msgtype: string | undefined): "image" | "video" | "audio" | "file" | undefined {
-  if (msgtype === "m.image") return "image";
-  if (msgtype === "m.video") return "video";
-  if (msgtype === "m.audio") return "audio";
-  if (msgtype === "m.file") return "file";
-  return undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function stripUndefined<T extends Record<string, unknown>>(value: T): T {
-  for (const key of Object.keys(value)) {
-    if (value[key] === undefined) delete value[key];
-  }
-  return value;
 }
