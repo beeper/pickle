@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultBeeperApprovalChoices } from "./approval";
+import { defaultBeeperApprovalActions, defaultBeeperApprovalChoices } from "./approval";
 import { createOpenClawStreamState, mapOpenClawEventToBeeperChunks } from "./openclaw-event-map";
 
 describe("OpenClaw event to Beeper stream mapping", () => {
@@ -153,6 +153,7 @@ describe("OpenClaw event to Beeper stream mapping", () => {
             needsApproval: true,
           },
           approvalMessageId: "approval_1",
+          approvalActions: defaultBeeperApprovalActions(),
           choices: defaultBeeperApprovalChoices(),
           message: "Allow shell?",
           toolCallId: "call_1",
@@ -300,6 +301,7 @@ describe("OpenClaw event to Beeper stream mapping", () => {
             needsApproval: true,
           },
           approvalMessageId: "approval_1",
+          approvalActions: defaultBeeperApprovalActions(),
           choices: defaultBeeperApprovalChoices(),
           message: "Run command?",
           toolCallId: "tool_1",

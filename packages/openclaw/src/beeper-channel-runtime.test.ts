@@ -6,6 +6,9 @@ function createClient() {
     appservice: {
       sendMessage: vi.fn(async () => ({ eventId: "$as" })),
     },
+    media: {
+      upload: vi.fn(async () => ({ contentUri: "mxc://example/media", raw: {} })),
+    },
     messages: {
       edit: vi.fn(async () => ({ eventId: "$edit" })),
       redact: vi.fn(async () => undefined),
@@ -27,7 +30,7 @@ describe("BeeperChannelRuntime", () => {
     setBeeperChannelRuntime(undefined);
   });
 
-  it("wraps Pickle message, reaction, redaction, and typing primitives", async () => {
+  it("requires bridge portal routing for outbound message operations", async () => {
     const client = createClient();
     const runtime = new BeeperChannelRuntime({
       client: client as never,
@@ -35,61 +38,93 @@ describe("BeeperChannelRuntime", () => {
     });
 
     expect(runtime.listAgents()).toEqual([{ id: "codex", name: "Codex" }]);
-    await expect(runtime.sendText({ replyToId: "$parent", roomId: "!room", text: "hi", threadRoot: "$thread" }))
-      .resolves.toEqual({ eventId: "$send" });
-    expect(client.messages.send).toHaveBeenCalledWith({
-      content: { body: "hi", msgtype: "m.text" },
-      replyTo: "$parent",
-      roomId: "!room",
-      text: "hi",
-      threadRoot: "$thread",
-    });
-
-    await runtime.sendMedia({ bytes: new Uint8Array([1]), caption: "cap", filename: "a.txt", roomId: "!room" });
-    expect(client.messages.sendMedia).toHaveBeenCalledWith({
-      bytes: new Uint8Array([1]),
-      caption: "cap",
-      filename: "a.txt",
-      kind: "file",
-      roomId: "!room",
-    });
-
-    await runtime.edit({ eventId: "$event", roomId: "!room", text: "edited" });
-    expect(client.messages.edit).toHaveBeenCalledWith({ eventId: "$event", roomId: "!room", text: "edited" });
-
-    await runtime.redact({ eventId: "$event", reason: "oops", roomId: "!room" });
-    expect(client.messages.redact).toHaveBeenCalledWith({ eventId: "$event", reason: "oops", roomId: "!room" });
-
-    await runtime.react({ emoji: "+1", eventId: "$event", roomId: "!room" });
-    expect(client.reactions.send).toHaveBeenCalledWith({ eventId: "$event", key: "+1", roomId: "!room" });
-
-    await runtime.removeReaction({ emoji: "+1", eventId: "$event", roomId: "!room" });
-    expect(client.reactions.redact).toHaveBeenCalledWith({ eventId: "$event", key: "+1", roomId: "!room" });
-
-    await runtime.typing({ roomId: "!room", timeoutMs: 1000 });
-    expect(client.typing.set).toHaveBeenCalledWith({ roomId: "!room", timeoutMs: 1000, typing: true });
+    await expect(runtime.sendText({ roomId: "!room", text: "hi" })).rejects.toThrow("requires a Pickle bridge");
+    expect(client.messages.send).not.toHaveBeenCalled();
   });
 
-  it("uses the appservice ghost sender when a user id is available", async () => {
+  it("rejects non-OpenClaw message ids for bridge mutation actions", async () => {
     const client = createClient();
+    const bridge = {
+      flushRemoteEvents: vi.fn(async () => undefined),
+      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+      queueRemoteEvent: vi.fn(),
+    };
     const runtime = new BeeperChannelRuntime({
+      bridge: bridge as never,
       client: client as never,
-      userId: "@agent:example",
+      login: { id: "openclaw:plugin" },
     });
 
-    await runtime.sendText({ replyToId: "$parent", roomId: "!room", text: "from ghost" });
-    expect(client.appservice.sendMessage).toHaveBeenCalledWith({
-      content: {
-        body: "from ghost",
-        msgtype: "m.text",
-        "m.relates_to": {
-          "m.in_reply_to": { event_id: "$parent" },
-        },
-      },
-      roomId: "!room",
-      userId: "@agent:example",
+    await expect(runtime.edit({ eventId: "$matrix", roomId: "!room", text: "edit" }))
+      .rejects.toThrow("can only target OpenClaw bridge message ids");
+    expect(client.messages.edit).not.toHaveBeenCalled();
+  });
+
+  it("prefers bridge remote events for bound portal message operations", async () => {
+    const client = createClient();
+    const queued: unknown[] = [];
+    const bridge = {
+      flushRemoteEvents: vi.fn(async () => undefined),
+      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
+    };
+    const runtime = new BeeperChannelRuntime({
+      bridge: bridge as never,
+      client: client as never,
+      getBindingByRoom: () => ({
+        agentId: "codex",
+        createdAt: 1,
+        ghostUserId: "@codex:example",
+        id: "binding",
+        kind: "session",
+        owner: "bridge",
+        roomId: "!room",
+        sessionKey: "session_1",
+        updatedAt: 1,
+      }),
+      login: { id: "openclaw:plugin" },
+      userId: "@bot:example",
     });
-    expect(client.messages.send).not.toHaveBeenCalled();
+
+    const sent = await runtime.sendText({ roomId: "!room", text: "from agent" });
+    expect(sent.eventId).toMatch(/^openclaw:message:/u);
+    expect(client.appservice.sendMessage).not.toHaveBeenCalled();
+    expect(bridge.queueRemoteEvent).toHaveBeenCalledOnce();
+    expect(bridge.flushRemoteEvents).toHaveBeenCalledOnce();
+    const messageEvent = queued[0] as {
+      convertMessage: () => Promise<{ parts: Array<{ content: Record<string, unknown> }> }>;
+      getID: () => string;
+      getSender: () => { sender: string };
+      getType: () => string;
+    };
+    expect(messageEvent.getType()).toBe("message");
+    expect(messageEvent.getSender()).toEqual({ isFromMe: true, sender: "@codex:example" });
+    expect((await messageEvent.convertMessage()).parts[0]?.content).toEqual({ body: "from agent", msgtype: "m.text" });
+
+    await runtime.sendMedia({ bytes: new Uint8Array([1]), caption: "cap", filename: "a.txt", roomId: "!room" });
+    expect(client.media.upload).toHaveBeenCalledWith({
+      bytes: new Uint8Array([1]),
+      filename: "a.txt",
+    });
+
+    await runtime.edit({ eventId: sent.eventId, roomId: "!room", text: "edited" });
+    await runtime.react({ emoji: "+1", eventId: sent.eventId, roomId: "!room" });
+    await runtime.removeReaction({ emoji: "+1", eventId: sent.eventId, roomId: "!room" });
+    await runtime.redact({ eventId: sent.eventId, roomId: "!room" });
+    await runtime.typing({ roomId: "!room", timeoutMs: 5000 });
+
+    expect(queued.slice(1).map((event) => (event as { getType: () => string }).getType())).toEqual([
+      "message",
+      "edit",
+      "reaction",
+      "reaction_remove",
+      "message_remove",
+      "typing",
+    ]);
+    expect(client.messages.edit).not.toHaveBeenCalled();
+    expect(client.reactions.send).not.toHaveBeenCalled();
+    expect(client.messages.redact).not.toHaveBeenCalled();
+    expect(client.typing.set).not.toHaveBeenCalled();
   });
 
   it("stores the active runtime for channel adapters", () => {

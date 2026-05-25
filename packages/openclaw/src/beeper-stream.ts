@@ -282,7 +282,7 @@ export class OpenClawBeeperStreamPublisher implements OpenClawBridgeStreamPublis
           session_key: binding.sessionKey,
         },
         roomId: binding.roomId,
-        turnId: firstRunId(events) ?? createTurnId(),
+        turnId: firstRunId(events) ?? binding.lastStreamRunId ?? binding.lastRunId ?? createTurnId(),
         ...(this.#userId ? { userId: this.#userId } : {}),
       });
       this.#publishers.set(key, publisher);
@@ -386,7 +386,17 @@ function customEventToFinalMessageParts(event: AGUIEvent): Record<string, unknow
     const approval = recordValue(value.approval);
     const approvalId = stringValue(value.approvalId) ?? stringValue(value.approvalMessageId) ?? stringValue(approval?.id);
     if (!approvalId) return [];
-    return [{ approvalId, message: value.message, toolCallId: stringValue(value.toolCallId), toolName: stringValue(value.toolName), type: "tool-approval-request" }];
+    return [{
+      approval: stripUndefined({
+        actions: Array.isArray(value.approvalActions) ? value.approvalActions : undefined,
+        id: approvalId,
+      }),
+      approvalId,
+      message: value.message,
+      toolCallId: stringValue(value.toolCallId),
+      toolName: stringValue(value.toolName),
+      type: "tool-approval-request",
+    }];
   }
   if (event.name === "approval-responded" && value) {
     const approval = recordValue(value.approval);

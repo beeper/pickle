@@ -3,7 +3,7 @@ export type { AGUIEvent } from "@beeper/pickle-ag-ui";
 
 import { EventType as AGUIEventType, type AGUIEvent } from "@beeper/pickle-ag-ui";
 import type { RunFinishedEvent } from "@beeper/pickle-ag-ui";
-import { defaultBeeperApprovalChoices } from "./approval";
+import { defaultBeeperApprovalActions, defaultBeeperApprovalChoices } from "./approval";
 
 type FinishReason = NonNullable<RunFinishedEvent["finishReason"]>;
 
@@ -246,6 +246,7 @@ export function mapOpenClawApprovalRequest(
         needsApproval: true,
       },
       approvalMessageId: approvalId,
+      approvalActions: defaultBeeperApprovalActions(),
       choices: defaultBeeperApprovalChoices(),
       message: event.message,
       toolCallId,

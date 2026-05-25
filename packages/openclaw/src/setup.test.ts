@@ -171,6 +171,37 @@ describe("OpenClaw Beeper setup surface", () => {
       sendTyping: expect.any(Function),
     }));
     expect(beeperChannelPlugin.approvalCapability).toEqual(expect.any(Object));
+    expect(beeperChannelPlugin.approvalCapability.render.exec.buildPendingPayload({
+      nowMs: 123,
+      request: {
+        approvalId: "approval_1",
+        command: "shell date",
+        toolCallId: "tool_1",
+        toolName: "shell",
+      },
+    })).toMatchObject({
+      body: "Approval requested: shell date",
+      content: {
+        body: "Approval requested: shell date",
+        msgtype: "m.notice",
+        "com.beeper.ai": {
+          parts: [{
+            approval: {
+              actions: expect.arrayContaining([
+                expect.objectContaining({ id: "allow-once", reactionKey: "approval.allow_once" }),
+                expect.objectContaining({ id: "deny", reactionKey: "approval.deny" }),
+              ]),
+              id: "approval_1",
+            },
+            state: "approval-requested",
+            toolCallId: "tool_1",
+            toolName: "shell",
+            type: "dynamic-tool",
+          }],
+          role: "assistant",
+        },
+      },
+    });
     expect(beeperChannelPlugin.actions).toEqual(expect.any(Object));
     expect(beeperChannelPlugin.actions.describeMessageTool()).toMatchObject({
       actions: ["send", "edit", "delete", "react"],
@@ -640,9 +671,10 @@ describe("OpenClaw Beeper setup surface", () => {
   });
 
   it("routes OpenClaw message actions through the active Beeper runtime", async () => {
-    const client = {
-      appservice: { sendMessage: vi.fn(async () => ({ eventId: "$as" })) },
-      messages: {
+	    const client = {
+	      appservice: { sendMessage: vi.fn(async () => ({ eventId: "$as" })) },
+	      media: { upload: vi.fn(async () => ({ contentUri: "mxc://example/file", raw: {} })) },
+	      messages: {
         edit: vi.fn(async () => ({ eventId: "$edit" })),
         redact: vi.fn(async () => undefined),
         send: vi.fn(async () => ({ eventId: "$send" })),
@@ -652,63 +684,86 @@ describe("OpenClaw Beeper setup surface", () => {
         redact: vi.fn(async () => undefined),
         send: vi.fn(async () => ({ eventId: "$reaction" })),
       },
-      typing: { set: vi.fn(async () => undefined) },
-    };
-    setBeeperChannelRuntime(new BeeperChannelRuntime({
-      client: client as never,
+	      typing: { set: vi.fn(async () => undefined) },
+	    };
+	    const queued: unknown[] = [];
+	    const bridge = {
+	      flushRemoteEvents: vi.fn(async () => undefined),
+	      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+	      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
+	    };
+	    setBeeperChannelRuntime(new BeeperChannelRuntime({
+	      bridge: bridge as never,
+	      client: client as never,
       getAgents: () => [{
         avatarMxc: "mxc://avatar",
         description: "Helpful coding agent",
         agentId: "codex",
         displayName: "Codex",
-        ghostUserId: "@codex:example",
-      }],
-    }));
+	        ghostUserId: "@codex:example",
+	      }],
+	      getBindingByRoom: () => ({
+	        agentId: "codex",
+	        createdAt: 1,
+	        ghostUserId: "@codex:example",
+	        id: "binding",
+	        kind: "session",
+	        owner: "bridge",
+	        roomId: "!room",
+	        sessionKey: "session_1",
+	        updatedAt: 1,
+	      }),
+	      login: { id: "openclaw:plugin" },
+	    }));
 
-    await expect(beeperChannelPlugin.actions.handleAction({
-      action: "send",
-      params: { message: "hello", replyTo: "$parent", to: "!room" },
-    })).resolves.toEqual({ content: [{ type: "text", text: "Sent Beeper message $send" }] });
-    expect(client.messages.send).toHaveBeenCalledWith({
-      content: { body: "hello", msgtype: "m.text" },
-      replyTo: "$parent",
-      roomId: "!room",
-      text: "hello",
-    });
+	    const sendResult = await beeperChannelPlugin.actions.handleAction({
+	      action: "send",
+	      params: { message: "hello", replyTo: "$parent", to: "!room" },
+	    });
+	    const sentMessageId = String(sendResult.content[0]?.text).replace("Sent Beeper message ", "");
+	    expect(sentMessageId).toMatch(/^openclaw:message:/u);
+	    expect(client.messages.send).not.toHaveBeenCalled();
+	    expect((queued[0] as { getSender: () => unknown }).getSender()).toEqual({ isFromMe: true, sender: "@codex:example" });
 
-    await beeperChannelPlugin.actions.handleAction({
-      action: "send",
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "send",
       mediaReadFile: async () => Buffer.from("file"),
-      params: { mediaUrl: "/tmp/a.txt", text: "caption", to: "!room" },
-    });
-    expect(client.messages.sendMedia).toHaveBeenCalledWith({
-      bytes: Buffer.from("file"),
-      caption: "caption",
-      filename: "a.txt",
-      kind: "file",
-      roomId: "!room",
-    });
+	      params: { mediaUrl: "/tmp/a.txt", text: "caption", to: "!room" },
+	    });
+	    expect(client.media.upload).toHaveBeenCalledWith({
+	      bytes: Buffer.from("file"),
+	      filename: "a.txt",
+	    });
+	    expect(client.messages.sendMedia).not.toHaveBeenCalled();
 
-    await beeperChannelPlugin.actions.handleAction({
-      action: "edit",
-      params: { eventId: "$event", text: "updated", to: "!room" },
-    });
-    expect(client.messages.edit).toHaveBeenCalledWith({ eventId: "$event", roomId: "!room", text: "updated" });
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "edit",
+	      params: { eventId: sentMessageId, text: "updated", to: "!room" },
+	    });
+	    expect(client.messages.edit).not.toHaveBeenCalled();
 
-    await beeperChannelPlugin.actions.handleAction({
-      action: "react",
-      params: { eventId: "$event", key: "+1", to: "!room" },
-    });
-    expect(client.reactions.send).toHaveBeenCalledWith({ eventId: "$event", key: "+1", roomId: "!room" });
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "react",
+	      params: { eventId: sentMessageId, key: "+1", to: "!room" },
+	    });
+	    expect(client.reactions.send).not.toHaveBeenCalled();
 
-    await beeperChannelPlugin.actions.handleAction({
-      action: "delete",
-      params: { eventId: "$event", reason: "cleanup", to: "!room" },
-    });
-    expect(client.messages.redact).toHaveBeenCalledWith({ eventId: "$event", reason: "cleanup", roomId: "!room" });
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "delete",
+	      params: { eventId: sentMessageId, reason: "cleanup", to: "!room" },
+	    });
+	    expect(client.messages.redact).not.toHaveBeenCalled();
 
-    await beeperChannelPlugin.heartbeat.sendTyping({ to: "!room" });
-    expect(client.typing.set).toHaveBeenCalledWith({ roomId: "!room", typing: true });
+	    await beeperChannelPlugin.heartbeat.sendTyping({ to: "!room" });
+	    expect(client.typing.set).not.toHaveBeenCalled();
+	    expect(queued.map((event) => (event as { getType: () => string }).getType())).toEqual([
+	      "message",
+	      "message",
+	      "edit",
+	      "reaction",
+	      "message_remove",
+	      "typing",
+	    ]);
 
     await expect(beeperChannelPlugin.directory.listPeersLive({
       cfg: {} as OpenClawSetupConfig,

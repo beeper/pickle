@@ -76,13 +76,13 @@ describe("OpenClaw bridge integration", () => {
       matrix: { sender: "@alice:example" },
       message: "hello",
     }, { expectFinal: false });
-    expect(streams.publish).toHaveBeenCalledWith(
+    await vi.waitFor(() => expect(streams.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         roomId: "!codex:example",
         sessionKey: "session_1",
       }),
       expect.arrayContaining([expect.objectContaining({ type: "TEXT_MESSAGE_CONTENT" })]),
-    );
+    ));
     expect(registry.getBindingByRoom("!codex:example")).toMatchObject({
       lastMatrixEventId: "$hello",
       lastRunId: "run_1",
@@ -313,7 +313,7 @@ describe("OpenClaw bridge integration", () => {
       roomId: "!created:example",
     });
 
-    expect(client.beeper.streams.startMessage).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(client.beeper.streams.startMessage).toHaveBeenCalledWith(expect.objectContaining({
       content: expect.objectContaining({
         "com.beeper.ai": expect.objectContaining({ id: "run_1" }),
         "com.beeper.ai.metadata": expect.objectContaining({ protocol: "ag-ui", runId: "run_1" }),
@@ -322,13 +322,13 @@ describe("OpenClaw bridge integration", () => {
       roomId: "!created:example",
       streamType: "com.beeper.llm",
       userId: "@openclawbot:example",
-    }));
+    })));
     await vi.waitFor(() => expect(client.beeper.streams.publishPart).toHaveBeenCalledWith(expect.objectContaining({
       part: expect.objectContaining({ type: "CUSTOM" }),
       roomId: "!created:example",
       turnId: expect.any(String),
     })));
-    expect(client.beeper.streams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(client.beeper.streams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       content: expect.objectContaining({
         "com.beeper.ai": expect.objectContaining({
           parts: expect.arrayContaining([
@@ -339,7 +339,7 @@ describe("OpenClaw bridge integration", () => {
       }),
       eventId: "$stream-root",
       roomId: "!created:example",
-    }));
+    })));
 
     await expect(bridge.dispatchMatrixEvent(reactionEvent({
       eventId: "$approve",

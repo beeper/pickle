@@ -54,6 +54,7 @@ import type {
   RemoteBackfill,
   RemoteChatDelete,
   RemoteChatInfoChange,
+  RemoteEdit,
   UserProfile,
   UserProfileUpdate,
   ResolveIdentifierParams,
@@ -80,6 +81,13 @@ import type {
   MessageCheckpointStep,
   HTTPProxyHandlingBridgeConnector,
   LoginStep,
+  Message,
+  RemoteMessageRemove,
+  RemoteReaction,
+  RemoteReactionRemove,
+  RemoteTyping,
+  RemoteEventWithBundledParts,
+  RemoteEventWithTargetPart,
 } from "./types";
 
 type GenericMatrixEvent = Extract<MatrixClientEvent, { content: Record<string, unknown>; kind: string }>;
@@ -1262,6 +1270,26 @@ export class RuntimeBridge implements PickleBridge {
       await this.#handleRemoteMessage(event as RemoteMessage);
       return;
     }
+    if (type === "edit") {
+      await this.#handleRemoteEdit(event as RemoteEdit);
+      return;
+    }
+    if (type === "reaction") {
+      await this.#handleRemoteReaction(event as RemoteReaction);
+      return;
+    }
+    if (type === "reaction_remove") {
+      await this.#handleRemoteReactionRemove(event as RemoteReactionRemove);
+      return;
+    }
+    if (type === "message_remove") {
+      await this.#handleRemoteMessageRemove(event as RemoteMessageRemove);
+      return;
+    }
+    if (type === "typing") {
+      await this.#handleRemoteTyping(event as RemoteTyping);
+      return;
+    }
     if (type === "backfill") {
       await this.#handleRemoteBackfill(event as RemoteBackfill);
       return;
@@ -1305,6 +1333,94 @@ export class RuntimeBridge implements PickleBridge {
     const response = await event.getBackfillData(this.#requestContext(), portal);
     const events = await this.#convertBackfillMessages(portal, response.messages.map((message) => message.event));
     await this.backfill({ events, roomId: portal.mxid });
+  }
+
+  async #handleRemoteEdit(event: RemoteEdit): Promise<void> {
+    const portal = this.#portalForRemoteEvent(event);
+    if (!portal?.mxid) {
+      throw new Error(`No Matrix room registered for portal ${portalKeyString(event.getPortalKey())}`);
+    }
+    const existing = await this.#remoteTargetMessages(event);
+    if (existing.sent.length === 0) {
+      throw new Error(`No Matrix message stored for remote edit target ${event.getTargetMessage()}`);
+    }
+    const converted = await event.convertEdit(this.#requestContext(), portal, this.#matrixIntent(), existing.db);
+    for (const [index, part] of converted.modifiedParts.entries()) {
+      const target = this.#matchingRemoteTarget(existing.sent, part.id, index);
+      if (!target?.eventId) continue;
+      const sent = await this.#matrixClient.messages.edit({
+        content: part.content,
+        eventId: target.eventId,
+        roomId: portal.mxid,
+        text: stringValue(part.content.body) ?? "",
+      });
+      const messageKey = messagePartKey(event.getTargetMessage(), part.id ?? String(index));
+      const message = {
+        eventId: sent.eventId,
+        raw: sent.raw,
+        roomId: sent.roomId,
+      };
+      this.#messages.set(messageKey, message);
+      await this.#dataStore?.setMessage(messageKey, message);
+    }
+  }
+
+  async #handleRemoteReaction(event: RemoteReaction): Promise<void> {
+    const portal = this.#portalForRemoteEvent(event);
+    if (!portal?.mxid) {
+      throw new Error(`No Matrix room registered for portal ${portalKeyString(event.getPortalKey())}`);
+    }
+    const target = await this.#remoteTargetMessage(event);
+    if (!target?.eventId) {
+      throw new Error(`No Matrix message stored for remote reaction target ${event.getTargetMessage()}`);
+    }
+    await this.#matrixClient.reactions.send({
+      eventId: target.eventId,
+      key: event.getEmoji(),
+      roomId: portal.mxid,
+    });
+  }
+
+  async #handleRemoteReactionRemove(event: RemoteReactionRemove): Promise<void> {
+    const portal = this.#portalForRemoteEvent(event);
+    if (!portal?.mxid) {
+      throw new Error(`No Matrix room registered for portal ${portalKeyString(event.getPortalKey())}`);
+    }
+    const target = await this.#remoteTargetMessage(event);
+    if (!target?.eventId) {
+      throw new Error(`No Matrix message stored for remote reaction remove target ${event.getTargetMessage()}`);
+    }
+    const emoji = event.getEmoji?.();
+    if (!emoji) return;
+    await this.#matrixClient.reactions.redact({
+      eventId: target.eventId,
+      key: emoji,
+      roomId: portal.mxid,
+    });
+  }
+
+  async #handleRemoteMessageRemove(event: RemoteMessageRemove): Promise<void> {
+    const portal = this.#portalForRemoteEvent(event);
+    if (!portal?.mxid) {
+      throw new Error(`No Matrix room registered for portal ${portalKeyString(event.getPortalKey())}`);
+    }
+    for (const target of (await this.#remoteTargetMessages(event)).sent) {
+      if (!target.eventId) continue;
+      await this.#matrixClient.messages.redact({
+        eventId: target.eventId,
+        roomId: portal.mxid,
+      });
+    }
+  }
+
+  async #handleRemoteTyping(event: RemoteTyping): Promise<void> {
+    const portal = this.#portalForRemoteEvent(event);
+    if (!portal?.mxid) return;
+    await this.#matrixClient.typing.set(stripUndefined({
+      roomId: portal.mxid,
+      timeoutMs: event.getTimeoutMs?.(),
+      typing: event.isTyping(),
+    }));
   }
 
   async #handleRemoteChatInfoChange(event: RemoteChatInfoChange): Promise<void> {
@@ -1365,6 +1481,52 @@ export class RuntimeBridge implements PickleBridge {
         return { eventId, raw: result.raw ?? result.body ?? result, roomId };
       },
     };
+  }
+
+  async #remoteTargetMessage(event: RemoteEdit | RemoteReaction | RemoteReactionRemove | RemoteMessageRemove): Promise<SentEvent | null> {
+    const partId = hasMethod(event, "getTargetMessagePart")
+      ? (event as RemoteEventWithTargetPart).getTargetMessagePart()
+      : "0";
+    return await this.#remoteStoredMessage(event.getTargetMessage(), partId);
+  }
+
+  async #remoteTargetMessages(event: RemoteEdit | RemoteMessageRemove): Promise<{ db: Message[]; sent: SentEvent[] }> {
+    if (hasMethod(event, "getTargetDBMessage")) {
+      const bundled = (event as RemoteEventWithBundledParts).getTargetDBMessage();
+      const sent = bundled.flatMap((message) => message.mxid
+        ? [{
+            eventId: message.mxid,
+            raw: message.metadata,
+            roomId: this.#portalForRemoteEvent(event)?.mxid ?? "",
+          }]
+        : []);
+      if (sent.length > 0) return { db: bundled, sent };
+    }
+    if (hasMethod(event, "getTargetMessagePart")) {
+      const partId = (event as RemoteEventWithTargetPart).getTargetMessagePart();
+      const part = await this.#remoteStoredMessage(event.getTargetMessage(), partId);
+      return part ? {
+        db: [messageFromSentEvent(event.getTargetMessage(), partId, part)],
+        sent: [part],
+      } : { db: [], sent: [] };
+    }
+    const first = await this.#remoteStoredMessage(event.getTargetMessage(), "0");
+    return first ? {
+      db: [messageFromSentEvent(event.getTargetMessage(), "0", first)],
+      sent: [first],
+    } : { db: [], sent: [] };
+  }
+
+  async #remoteStoredMessage(messageId: string, partId: string): Promise<SentEvent | null> {
+    const key = messagePartKey(messageId, partId);
+    return this.#messages.get(key) ?? await this.#dataStore?.getMessage(key) ?? null;
+  }
+
+  #matchingRemoteTarget(existing: SentEvent[], partId: string | undefined, index: number): SentEvent | undefined {
+    if (partId) {
+      return existing[index] ?? existing[0];
+    }
+    return existing[index] ?? existing[0];
   }
 
   async #sendRemoteMessagePart(roomId: string, sender: string, content: Record<string, unknown>, timestamp?: number): Promise<SentEvent> {
@@ -1470,6 +1632,10 @@ function matrixRedactionTargetEventId(event: GenericMatrixEvent): string | undef
 
 function hasMethod<T extends string>(value: object, method: T): value is object & Record<T, (...args: unknown[]) => unknown> {
   return method in value && typeof (value as Record<string, unknown>)[method] === "function";
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function appserviceBotUserId(options: MatrixAppserviceInitOptions): string {
@@ -1625,6 +1791,15 @@ function autoJoinInvite(invite: string[] | undefined, ownerUserId: string | unde
 
 function messagePartKey(messageId: string, partId: string): string {
   return `${messageId}\u0000${partId}`;
+}
+
+function messageFromSentEvent(messageId: string, partId: string, sent: SentEvent): Message {
+  return {
+    id: messageId,
+    mxid: sent.eventId,
+    partId,
+    timestamp: new Date(),
+  };
 }
 
 function eventIdFromRaw(body: unknown): string {

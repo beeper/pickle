@@ -57,6 +57,16 @@ export function defaultBeeperApprovalChoices(): BeeperApprovalChoice[] {
   ];
 }
 
+export function defaultBeeperApprovalActions(decisions: readonly ApprovalDecision[] = ["allow_once", "allow_session", "allow_room", "deny"]): Record<string, unknown>[] {
+  return decisions.map((decision) => ({
+    decision: decision.replace(/_/gu, "-"),
+    id: decision.replace(/_/gu, "-"),
+    reactionKey: approvalReactionKey(decision),
+    title: approvalActionTitle(decision),
+    variant: decision === "deny" ? "destructive" : "secondary",
+  }));
+}
+
 export function parseApprovalReactionKey(key: unknown): ParsedApprovalResponse | undefined {
   const aiBridgeChoice = resolveBeeperApprovalChoiceKey(key);
   if (aiBridgeChoice) {
@@ -144,18 +154,56 @@ export function approvalChoicesAsAny(choices: readonly BeeperApprovalChoice[] = 
 export function createBeeperApprovalNotice(params: {
   approvalId: string;
   messageId: string;
+  body?: string;
+  input?: Record<string, unknown>;
+  state?: "approval-requested" | "approval-responded";
+  approved?: boolean;
+  decision?: string;
+  expiresAtMs?: number;
   toolCallId?: string;
   toolName?: string;
   choices?: readonly BeeperApprovalChoice[];
 }): Record<string, unknown> {
+  const toolCallId = params.toolCallId ?? params.approvalId;
+  const toolName = params.toolName ?? "OpenClaw tool";
+  const approvalActions = defaultBeeperApprovalActions();
   return stripUndefined({
+    "com.beeper.ai": {
+      id: `approval_${params.approvalId}`,
+      metadata: {
+        approval: stripUndefined({
+          expiresAt: params.expiresAtMs,
+          id: params.approvalId,
+        }),
+        turn_id: `approval_${params.approvalId}`,
+      },
+      parts: [{
+        approval: stripUndefined({
+          actions: approvalActions,
+          approved: params.approved,
+          decision: params.decision,
+          expiresAtMs: params.expiresAtMs,
+          id: params.approvalId,
+        }),
+        input: stripUndefined({
+          ...(params.input ?? {}),
+          approvalActions,
+          ...(params.expiresAtMs !== undefined ? { expiresAtMs: params.expiresAtMs } : {}),
+        }),
+        state: params.state ?? "approval-requested",
+        toolCallId,
+        toolName,
+        type: "dynamic-tool",
+      }],
+      role: "assistant",
+    },
     choices: approvalChoicesAsAny(params.choices),
     id: params.approvalId,
     messageId: params.messageId,
     schema: "com.beeper.ai.approval.v1",
     state: "requested",
-    toolCallId: params.toolCallId,
-    toolName: params.toolName,
+    toolCallId,
+    toolName,
   });
 }
 
@@ -254,6 +302,36 @@ function approvalResponseForChoice(choiceKey: string): ParsedApprovalResponse | 
       return { approved: false, approvedAlways: false, decision: "deny" };
     default:
       return undefined;
+  }
+}
+
+function approvalReactionKey(decision: ApprovalDecision): string {
+  switch (decision) {
+    case "allow_once":
+      return APPROVAL_ALLOW_ONCE_REACTION;
+    case "allow_always":
+      return APPROVAL_ALLOW_ALWAYS_REACTION;
+    case "allow_session":
+      return APPROVAL_ALLOW_SESSION_REACTION;
+    case "allow_room":
+      return APPROVAL_ALLOW_ROOM_REACTION;
+    case "deny":
+      return APPROVAL_DENY_REACTION;
+  }
+}
+
+function approvalActionTitle(decision: ApprovalDecision): string {
+  switch (decision) {
+    case "allow_once":
+      return "Allow Once";
+    case "allow_always":
+      return "Allow Always";
+    case "allow_session":
+      return "Allow This Session";
+    case "allow_room":
+      return "Allow This Room";
+    case "deny":
+      return "Cancel";
   }
 }
 

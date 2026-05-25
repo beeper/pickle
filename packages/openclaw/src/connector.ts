@@ -136,9 +136,13 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
     const ownUserId = ctx.bridge.getOwnUserId();
     if (ownUserId) streamOptions.userId = ownUserId;
     this.#streams ??= new OpenClawBeeperStreamPublisher(streamOptions);
+    const login = userLoginFromOpenClawConfig(this.config);
     setBeeperChannelRuntime(new BeeperChannelRuntime({
+      bridge: ctx.bridge,
       client: ctx.client,
       getAgents: () => this.registry.data.agents,
+      getBindingByRoom: (roomId) => this.registry.getBindingByRoom(roomId),
+      login,
       log: (level, message, data) => ctx.log(level, message, data),
       ...(ownUserId ? { userId: ownUserId } : {}),
     }));

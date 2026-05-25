@@ -1,5 +1,6 @@
 import { createConfigFromOpenClawSetup, DEFAULT_REGISTRATION_URL, defaultDataDir } from "./config";
 import type { setupOpenClawBeeperBridge, SetupOpenClawBeeperBridgeOptions } from "./beeper-setup";
+import { createBeeperApprovalNotice } from "./approval";
 import { requireBeeperChannelRuntime } from "./beeper-channel-runtime";
 import type { OpenClawHostRuntime } from "./openclaw-runtime";
 
@@ -489,16 +490,40 @@ export const beeperApprovalCapability = {
   },
   render: {
     exec: {
-      buildPendingPayload: ({ request, nowMs }: { request: { id?: string; approvalId?: string; command?: string }; nowMs: number }) => ({
-        body: `Approval requested: ${request.command ?? request.id ?? request.approvalId ?? "OpenClaw tool call"}`,
-        channelData: {
-          beeper: {
-            approvalId: request.approvalId ?? request.id,
-            createdAt: nowMs,
+      buildPendingPayload: ({ request, nowMs }: { request: { id?: string; approvalId?: string; command?: string; toolCallId?: string; toolName?: string; expiresAtMs?: number }; nowMs: number }) => {
+        const approvalId = request.approvalId ?? request.id ?? `approval_${nowMs}`;
+        const toolName = request.toolName ?? request.command ?? "OpenClaw tool";
+        const body = `Approval requested: ${request.command ?? request.id ?? request.approvalId ?? "OpenClaw tool call"}`;
+        const notice = createBeeperApprovalNotice({
+          approvalId,
+          body,
+          input: {
+            command: request.command,
+            createdAtMs: nowMs,
             kind: "exec",
           },
-        },
-      }),
+          messageId: approvalId,
+          toolCallId: request.toolCallId ?? approvalId,
+          toolName,
+          ...(request.expiresAtMs !== undefined ? { expiresAtMs: request.expiresAtMs } : {}),
+        });
+        return {
+          body,
+          channelData: {
+            beeper: {
+              approvalId,
+              createdAt: nowMs,
+              kind: "exec",
+              notice,
+            },
+          },
+          content: {
+            body,
+            msgtype: "m.notice",
+            ...notice,
+          },
+        };
+      },
     },
   },
 } as const;

@@ -206,25 +206,62 @@ describe("OpenClawGatewayRuntime", () => {
     });
   });
 
-  it("runs Beeper-originated sends through the native OpenClaw plugin agent runtime", async () => {
-    const runEmbeddedAgent = vi.fn(async (params: Record<string, unknown>) => {
-      const onAgentEvent = params.onAgentEvent as ((event: { data: Record<string, unknown>; stream: string }) => void) | undefined;
-      const onPartialReply = params.onPartialReply as ((payload: { text: string }) => void) | undefined;
-      onAgentEvent?.({ data: { delta: "hello", runId: params.runId as string }, stream: "assistant.delta" });
-      onPartialReply?.({ text: "hello from callback" });
-      return { payloads: [{ text: "hello from final payload" }] };
-    });
+  it("rejects Beeper-originated sends when the OpenClaw channel runtime is unavailable", async () => {
     const transport = createOpenClawHostTransport({
       agent: {
-        ensureAgentWorkspace: () => "/tmp/workspace",
         resolveAgentDir: () => "/tmp/agent",
-        resolveAgentTimeoutMs: () => 1000,
-        runEmbeddedAgent,
         session: {
           getSessionEntry: () => ({
             sessionFile: "/tmp/session.jsonl",
             sessionId: "session-1",
           }),
+        },
+      },
+      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
+    });
+
+    await expect(transport.request("sessions.send", {
+      key: "agent:main:beeper:room",
+      message: "from Beeper",
+      idempotencyKey: "$event",
+    })).rejects.toThrow("OpenClaw Beeper requires OpenClaw channel turn helpers");
+  });
+
+  it("runs Beeper-originated sends through OpenClaw channel turn helpers for live AG-UI progress", async () => {
+    const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
+      const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
+      await replyOptions.onReasoningStream?.({ text: "checking" });
+      await replyOptions.onToolStart?.({ args: { path: "README.md" }, name: "read_file", phase: "start" });
+      await replyOptions.onApprovalEvent?.({
+        approvalId: "approval_1",
+        message: "Run command?",
+        phase: "requested",
+        toolCallId: "tool_1",
+      });
+      await replyOptions.onPartialReply?.({ text: "hello" });
+      const delivery = params.delivery as { deliver?: (payload: unknown) => Promise<unknown> };
+      await delivery.deliver?.({ text: "hello world" });
+      return { dispatchResult: { queuedFinal: true } };
+    });
+    const transport = createOpenClawHostTransport({
+      channel: {
+        reply: {
+          dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
+        },
+        session: {
+          recordInboundSession: vi.fn(),
+          resolveStorePath: () => "/tmp/sessions.json",
+        },
+        turn: {
+          buildContext: (params: Record<string, unknown>) => ({
+            Body: "from Beeper",
+            BodyForAgent: "from Beeper",
+            From: "beeper",
+            RawBody: "from Beeper",
+            SessionKey: (params.route as { routeSessionKey?: string }).routeSessionKey,
+            To: "beeper",
+          }),
+          runAssembled,
         },
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
@@ -245,37 +282,28 @@ describe("OpenClawGatewayRuntime", () => {
       key: "agent:main:beeper:room",
       message: "from Beeper",
       idempotencyKey: "$event",
+      matrix: { sender: "@alice:example" },
     });
     observedRunId = (sent as { runId?: string }).runId;
     await done;
 
-    expect(sent).toMatchObject({
-      sessionFile: "/tmp/session.jsonl",
-      sessionId: "session-1",
-      sessionKey: "agent:main:beeper:room",
-    });
-    expect(runEmbeddedAgent).toHaveBeenCalledWith(expect.objectContaining({
-      agentDir: "/tmp/agent",
+    expect(runAssembled).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: "beeper",
       agentId: "main",
-      currentMessageId: "$event",
-      messageChannel: "beeper",
-      messageProvider: "beeper",
-      prompt: "from Beeper",
-      sessionFile: "/tmp/session.jsonl",
-      sessionId: "session-1",
-      sessionKey: "agent:main:beeper:room",
-      timeoutMs: 1000,
-      trigger: "user",
-      workspaceDir: "/tmp/workspace",
+      channel: "beeper",
+      routeSessionKey: "agent:main:beeper:room",
     }));
     expect(received).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "thinking.delta" }),
+      expect.objectContaining({ event: "tool.call.started" }),
+      expect.objectContaining({ event: "approval.requested" }),
       expect.objectContaining({
         event: "assistant.delta",
-        payload: expect.objectContaining({ delta: "hello from callback" }),
+        payload: expect.objectContaining({ delta: "hello" }),
       }),
       expect.objectContaining({
         event: "assistant.delta",
-        payload: expect.objectContaining({ delta: "hello from final payload" }),
+        payload: expect.objectContaining({ delta: " world" }),
       }),
       expect.objectContaining({ event: "run.completed" }),
     ]));

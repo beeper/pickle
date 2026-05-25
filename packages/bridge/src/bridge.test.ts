@@ -309,6 +309,84 @@ describe("RuntimeBridge", () => {
     });
   });
 
+  it("handles queued remote edits, reactions, deletes, and typing through Matrix transport", async () => {
+    const client = createFakeMatrixClient();
+    const connector = createFakeConnector(createFakeNetworkAPI());
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+    const login: UserLogin = { id: "login:a" };
+    const portalKey = { id: "remote-room", receiver: login.id };
+
+    await bridge.start();
+    bridge.registerPortal({ id: "remote-room", mxid: "!room:example", portalKey });
+    bridge.queueRemoteEvent(login, createRemoteMessage({
+      convert: () => ({
+        parts: [{
+          content: { body: "hello from remote", msgtype: "m.text" },
+          type: "m.room.message",
+        }],
+      }),
+      data: {},
+      id: "remote-message",
+      portalKey,
+      sender: { isFromMe: false, sender: "remote-user" },
+    }));
+    await bridge.flushRemoteEvents();
+
+    bridge.queueRemoteEvent(login, {
+      convertEdit: async () => ({
+        modifiedParts: [{
+          content: { body: "edited remote", msgtype: "m.text" },
+          type: "m.room.message",
+        }],
+      }),
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTargetMessage: () => "remote-message",
+      getType: () => "edit",
+    });
+    bridge.queueRemoteEvent(login, {
+      getEmoji: () => "+1",
+      getID: () => "reaction-1",
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTargetMessage: () => "remote-message",
+      getType: () => "reaction",
+    });
+    bridge.queueRemoteEvent(login, {
+      getEmoji: () => "+1",
+      getID: () => "reaction-1",
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTargetMessage: () => "remote-message",
+      getType: () => "reaction_remove",
+    });
+    bridge.queueRemoteEvent(login, {
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTargetMessage: () => "remote-message",
+      getType: () => "message_remove",
+    });
+    bridge.queueRemoteEvent(login, {
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: false, sender: "remote-user" }),
+      getTimeoutMs: () => 5000,
+      getType: () => "typing",
+      isTyping: () => true,
+    });
+    await bridge.flushRemoteEvents();
+
+    expect(client.messages.edit).toHaveBeenCalledWith({
+      content: { body: "edited remote", msgtype: "m.text" },
+      eventId: "$sent",
+      roomId: "!room:example",
+      text: "edited remote",
+    });
+    expect(client.reactions.send).toHaveBeenCalledWith({ eventId: "$edit", key: "+1", roomId: "!room:example" });
+    expect(client.reactions.redact).toHaveBeenCalledWith({ eventId: "$edit", key: "+1", roomId: "!room:example" });
+    expect(client.messages.redact).toHaveBeenCalledWith({ eventId: "$edit", roomId: "!room:example" });
+    expect(client.typing.set).toHaveBeenCalledWith({ roomId: "!room:example", timeoutMs: 5000, typing: true });
+  });
+
   it("initializes appservice and creates/backfills portal rooms", async () => {
     const client = createFakeMatrixClient();
     const connector = createFakeConnector(createFakeNetworkAPI());
@@ -1118,18 +1196,21 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
       uploadEncrypted: vi.fn(async () => ({ contentUri: "mxc://example/media", file: {} as never, raw: {} })),
     },
     messages: {
-      edit: vi.fn(),
+      edit: vi.fn(async (options) => ({ eventId: "$edit", raw: {}, roomId: options.roomId })),
       get: vi.fn(),
       list: vi.fn(),
       markRead: vi.fn(),
-      redact: vi.fn(),
+      redact: vi.fn(async () => undefined),
       send: vi.fn(),
       sendMedia: vi.fn(async (options) => ({ eventId: "$media", raw: {}, roomId: options.roomId })),
     },
     raw: {
       request: vi.fn(async () => ({ body: { event_id: "$sent" }, raw: { event_id: "$sent" }, status: 200 })),
     } as unknown as MatrixClient["raw"],
-    reactions: {} as MatrixClient["reactions"],
+    reactions: {
+      redact: vi.fn(async () => undefined),
+      send: vi.fn(async (options) => ({ eventId: "$reaction", raw: {}, roomId: options.roomId })),
+    },
     receipts: {} as MatrixClient["receipts"],
     rooms: {} as MatrixClient["rooms"],
     streams: {} as MatrixClient["streams"],
@@ -1137,7 +1218,9 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
     subscription,
     sync: {} as MatrixClient["sync"],
     toDevice: {} as MatrixClient["toDevice"],
-    typing: {} as MatrixClient["typing"],
+    typing: {
+      set: vi.fn(async () => undefined),
+    },
     users: {
       get: vi.fn(async ({ userId }) => ({ avatarUrl: "mxc://example/alice", displayName: "Alice", raw: {}, userId })),
       getOwnAvatarUrl: vi.fn(async () => ({ avatarUrl: "mxc://example/me" })),

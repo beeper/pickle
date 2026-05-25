@@ -117,7 +117,30 @@ describe("OpenClaw approval response parsing", () => {
       messageId: "msg_1",
       toolCallId: "call_1",
       toolName: "shell",
-    })).toEqual({
+    })).toMatchObject({
+      "com.beeper.ai": {
+        id: "approval_approval_1",
+        metadata: {
+          approval: { id: "approval_1" },
+          turn_id: "approval_approval_1",
+        },
+        parts: [{
+          approval: {
+            actions: [
+              { decision: "allow-once", id: "allow-once", reactionKey: "approval.allow_once", title: "Allow Once", variant: "secondary" },
+              { decision: "allow-session", id: "allow-session", reactionKey: "approval.allow_session", title: "Allow This Session", variant: "secondary" },
+              { decision: "allow-room", id: "allow-room", reactionKey: "approval.allow_room", title: "Allow This Room", variant: "secondary" },
+              { decision: "deny", id: "deny", reactionKey: "approval.deny", title: "Cancel", variant: "destructive" },
+            ],
+            id: "approval_1",
+          },
+          state: "approval-requested",
+          toolCallId: "call_1",
+          toolName: "shell",
+          type: "dynamic-tool",
+        }],
+        role: "assistant",
+      },
       choices: [
         { alias: "✅", key: "approve", label: "Allow once" },
         { alias: "☑️", key: "always_approve", label: "Allow always" },

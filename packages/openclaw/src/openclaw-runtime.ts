@@ -25,12 +25,8 @@ export interface OpenClawTransport {
 
 export interface OpenClawHostRuntime {
   agent?: {
-    ensureAgentWorkspace?: (config: unknown, agentId?: string) => Promise<string> | string;
     resolveAgentDir?: (config: unknown, agentId?: string) => string;
     resolveAgentTimeoutMs?: (options: Record<string, unknown>) => number;
-    resolveAgentWorkspaceDir?: (config: unknown, agentId?: string) => string;
-    runEmbeddedAgent?: (params: Record<string, unknown>) => Promise<unknown>;
-    runEmbeddedPiAgent?: (params: Record<string, unknown>) => Promise<unknown>;
     session?: {
       getSessionEntry?: (options: Record<string, unknown>) => Record<string, unknown> | undefined;
       listSessionEntries?: (options?: Record<string, unknown>) => Array<{ entry: Record<string, unknown>; sessionKey: string }>;
@@ -765,42 +761,25 @@ async function sendSessionInPluginRuntime(
   const sessionFile = stringValue(entry.sessionFile) ?? resolvePluginSessionFile(runtime, agentId, sessionId, entry);
   const runId = `beeper:${randomUUID()}`;
   const cfg = runtime.config?.current?.();
-  const runEmbeddedAgent = runtime.agent?.runEmbeddedAgent ?? runtime.agent?.runEmbeddedPiAgent;
-  if (!runEmbeddedAgent && !canRunNativeChannelTurn(runtime)) {
-    throw new Error("OpenClaw plugin runtime does not expose channel turn helpers or agent.runEmbeddedAgent");
+  if (!canRunNativeChannelTurn(runtime)) {
+    throw new Error("OpenClaw Beeper requires OpenClaw channel turn helpers (runtime.channel.turn, runtime.channel.reply, and runtime.channel.session)");
   }
   const timeoutMs = options?.timeoutMs ?? numberValue(record.timeoutMs) ?? runtime.agent?.resolveAgentTimeoutMs?.({ cfg }) ?? 48 * 60 * 60 * 1000;
-  queuePluginRun(() => {
-    if (canRunNativeChannelTurn(runtime)) {
-      return runBeeperChannelTurnInPluginRuntime({
-        agentId,
-        cfg,
-        localEvents,
-        message,
-        record,
-        runId,
-        runtime,
-        sessionFile,
-        sessionId,
-        sessionKey,
-        timeoutMs,
-      });
-    }
-    return runEmbeddedAgentInPluginRuntime({
+  queuePluginRun(() =>
+    runBeeperChannelTurnInPluginRuntime({
       agentId,
       cfg,
       localEvents,
       message,
       record,
-      runEmbeddedAgent: runEmbeddedAgent as (params: Record<string, unknown>) => Promise<unknown>,
       runId,
       runtime,
       sessionFile,
       sessionId,
       sessionKey,
       timeoutMs,
-    });
-  });
+    })
+  );
   return { runId, sessionFile, sessionId, sessionKey };
 }
 
@@ -989,72 +968,6 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
   }
 }
 
-async function runEmbeddedAgentInPluginRuntime(params: {
-  agentId: string;
-  cfg: unknown;
-  localEvents: LocalEventBus;
-  message: string;
-  record: Record<string, unknown>;
-  runEmbeddedAgent: (params: Record<string, unknown>) => Promise<unknown>;
-  runId: string;
-  runtime: OpenClawHostRuntime;
-  sessionFile: string;
-  sessionId: string;
-  sessionKey: string;
-  timeoutMs: number;
-}): Promise<void> {
-  params.localEvents.emit({ event: "run.started", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
-  const emit = createBeeperReplyEventEmitter(params.localEvents, {
-    agentId: params.agentId,
-    runId: params.runId,
-    sessionId: params.sessionId,
-    sessionKey: params.sessionKey,
-  });
-  await params.runEmbeddedAgent(stripUndefined({
-    agentId: params.agentId,
-    config: params.cfg,
-    currentMessageId: stringValue(params.record.idempotencyKey),
-    messageChannel: "beeper",
-    messageProvider: "beeper",
-    prompt: params.message,
-    runId: params.runId,
-    sessionFile: params.sessionFile,
-    sessionId: params.sessionId,
-    sessionKey: params.sessionKey,
-    timeoutMs: params.timeoutMs,
-    trigger: "user",
-    workspaceDir: await resolvePluginWorkspaceDir(params.runtime, params.cfg, params.agentId),
-    agentDir: params.runtime.agent?.resolveAgentDir?.(params.cfg, params.agentId),
-    onAgentEvent: (event: OpenClawAgentRuntimeEvent) => {
-      const data = recordValue(event.data) ?? {};
-      params.localEvents.emit(stripUndefined({
-        event: event.stream,
-        payload: stripUndefined({
-          ...data,
-          runId: stringValue(data.runId) ?? params.runId,
-          sessionKey: event.sessionKey ?? stringValue(data.sessionKey) ?? params.sessionKey,
-        }),
-        seq: numberValue(data.seq),
-      }));
-    },
-    onAssistantMessageStart: emit.assistantMessageStart,
-    onBlockReply: emit.textPayload,
-    onBlockReplyQueued: emit.textPayload,
-    onPartialReply: emit.textPayload,
-    onReasoningEnd: emit.reasoningEnd,
-    onReasoningStream: emit.reasoningPayload,
-    onToolResult: emit.toolResult,
-  })).then(
-    (result) => {
-      emit.finalText(finalTextFromEmbeddedRunResult(result));
-      params.localEvents.emit({ event: "run.completed", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
-    },
-    (error) => {
-      params.localEvents.emit({ event: "run.failed", payload: { agentId: params.agentId, error: errorText(error), runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
-    },
-  );
-}
-
 function createBeeperReplyEventEmitter(localEvents: LocalEventBus, base: {
   agentId: string;
   runId: string;
@@ -1067,7 +980,7 @@ function createBeeperReplyEventEmitter(localEvents: LocalEventBus, base: {
     localEvents.emit({ event, payload: stripUndefined({ ...base, ...payload }) });
   };
   const textPayload = (payload: unknown) => {
-    const text = stringValue(recordValue(payload)?.text);
+    const text = replyPayloadText(payload);
     if (!text) return;
     const explicitDelta = stringValue(recordValue(payload)?.delta);
     const delta = explicitDelta ?? (text.startsWith(lastPartialText) ? text.slice(lastPartialText.length) : text);
@@ -1088,10 +1001,6 @@ function createBeeperReplyEventEmitter(localEvents: LocalEventBus, base: {
     assistantMessageStart: () => {
       lastPartialText = "";
       emit("assistant.message.start", {});
-    },
-    finalText: (text: string | undefined) => {
-      if (!text) return;
-      textPayload({ text });
     },
     reasoningEnd: () => emit("thinking.end", {}),
     reasoningPayload,
@@ -1116,18 +1025,23 @@ function createBeeperReplyEventEmitter(localEvents: LocalEventBus, base: {
     },
     itemEvent: (payload: unknown) => {
       const data = recordValue(payload) ?? {};
-      emit("tool.call.delta", {
-        delta: stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.status) ?? stringValue(data.phase),
-        inputTextDelta: stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.status) ?? stringValue(data.phase),
-        toolCallId: toolIdFor(data, `item:${stringValue(data.name) ?? stringValue(data.kind) ?? "work"}`),
+      const toolCallId = stringValue(data.toolCallId);
+      const output = stringValue(data.progressText) ?? stringValue(data.summary);
+      if (!toolCallId || !output) return;
+      emit("tool.call.completed", {
+        output,
+        preliminary: stringValue(data.phase) !== "complete" && stringValue(data.status) !== "complete",
+        toolCallId,
         toolName: stringValue(data.name) ?? stringValue(data.kind),
       });
     },
     planUpdate: (payload: unknown) => {
       const data = recordValue(payload) ?? {};
-      emit("tool.call.delta", {
-        delta: stringValue(data.title) ?? stringValue(data.explanation) ?? stringValue(data.phase),
-        inputTextDelta: stringValue(data.title) ?? stringValue(data.explanation) ?? stringValue(data.phase),
+      const output = stringValue(data.explanation) ?? stringValue(data.title);
+      if (!output) return;
+      emit("tool.call.completed", {
+        output,
+        preliminary: stringValue(data.phase) !== "complete",
         toolCallId: "plan",
         toolName: "plan",
       });
@@ -1174,6 +1088,23 @@ function createBeeperReplyEventEmitter(localEvents: LocalEventBus, base: {
   };
 }
 
+function replyPayloadText(payload: unknown): string | undefined {
+  if (typeof payload === "string") return payload;
+  const record = recordValue(payload);
+  if (!record) return undefined;
+  const direct = stringValue(record.text) ?? stringValue(record.body) ?? stringValue(record.content);
+  if (direct) return direct;
+  const parts = arrayValue(record.parts) ?? arrayValue(record.content);
+  if (!parts) return undefined;
+  const chunks: string[] = [];
+  for (const part of parts) {
+    const partRecord = recordValue(part);
+    const text = stringValue(partRecord?.text) ?? stringValue(partRecord?.content);
+    if (text) chunks.push(text);
+  }
+  return chunks.length > 0 ? chunks.join("") : undefined;
+}
+
 function relationSupplementalContext(matrix: Record<string, unknown>): Record<string, unknown> | undefined {
   const relation = recordValue(matrix.relation);
   const quote = recordValue(relation?.quote);
@@ -1187,21 +1118,6 @@ function relationSupplementalContext(matrix: Record<string, unknown>): Record<st
       isQuote: true,
     }),
   };
-}
-
-function finalTextFromEmbeddedRunResult(result: unknown): string | undefined {
-  const record = recordValue(result);
-  const direct = stringValue(record?.text) ?? stringValue(record?.message) ?? stringValue(record?.finalText);
-  if (direct) return direct;
-  const payloads = arrayValue(record?.payloads);
-  if (!payloads) return undefined;
-  const parts: string[] = [];
-  for (const payload of payloads) {
-    const payloadRecord = recordValue(payload);
-    const text = stringValue(payloadRecord?.text) ?? stringValue(payloadRecord?.content);
-    if (text) parts.push(text);
-  }
-  return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
 function resolvePluginSession(runtime: OpenClawHostRuntime, sessionKey: string, agentId?: string): { entry?: Record<string, unknown>; sessionKey: string } {
@@ -1234,14 +1150,6 @@ function resolvePluginSessionFile(
   const agentDir = runtime.agent?.resolveAgentDir?.(runtime.config?.current?.(), agentId);
   if (agentDir) return path.join(agentDir, "sessions", `${sessionId}.jsonl`);
   return path.join(process.env.OPENCLAW_STATE_DIR ?? path.join(process.env.HOME ?? ".", ".openclaw"), "agents", agentId, "sessions", `${sessionId}.jsonl`);
-}
-
-async function resolvePluginWorkspaceDir(runtime: OpenClawHostRuntime, cfg: unknown, agentId: string): Promise<string> {
-  const ensured = await runtime.agent?.ensureAgentWorkspace?.(cfg, agentId);
-  if (typeof ensured === "string" && ensured) return ensured;
-  const resolved = runtime.agent?.resolveAgentWorkspaceDir?.(cfg, agentId);
-  if (resolved) return resolved;
-  return process.cwd();
 }
 
 async function historyFromPluginRuntime(runtime: OpenClawHostRuntime, params: unknown): Promise<Array<Record<string, unknown>>> {

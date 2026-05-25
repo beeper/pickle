@@ -104,6 +104,34 @@ describe("OpenClaw Beeper native stream publisher", () => {
     expect(finalizeMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the active binding run id when the first live chunk has no AG-UI run id", async () => {
+    const { client, finalizeMessage, publishPart, startMessage } = createClient();
+    const publisher = new OpenClawBeeperStreamPublisher({ client, userId: "@bot:example.com" });
+    const binding = { ...sessionBinding(), lastRunId: "beeper:run_1", lastStreamRunId: "beeper:run_1" };
+
+    await publisher.publish(binding, [
+      { args: "{}", delta: "{}", toolCallId: "tool_1", type: "TOOL_CALL_ARGS" },
+    ]);
+    await publisher.publish(binding, [
+      { delta: "answer", messageId: "beeper:run_1", type: "TEXT_MESSAGE_CONTENT" },
+      { finishReason: "stop", runId: "beeper:run_1", threadId: "beeper:run_1", type: "RUN_FINISHED" },
+    ]);
+
+    expect(startMessage).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.objectContaining({
+        "com.beeper.ai": expect.objectContaining({ id: "beeper:run_1" }),
+        "com.beeper.ai.metadata": expect.objectContaining({ runId: "beeper:run_1" }),
+      }),
+    }));
+    expect(publishPart.mock.calls.every(([options]) => options.turnId === "beeper:run_1")).toBe(true);
+    expect(finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
+      body: "answer",
+      content: expect.objectContaining({
+        "com.beeper.ai": expect.objectContaining({ id: "beeper:run_1" }),
+      }),
+    }));
+  });
+
   it("honors native-only stream finalization without sending a replacement edit", async () => {
     const { client, finalizeMessage, publishPart, startMessage } = createClient();
     const publisher = new OpenClawBeeperStreamPublisher({
