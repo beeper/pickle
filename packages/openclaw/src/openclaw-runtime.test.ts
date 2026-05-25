@@ -99,6 +99,7 @@ describe("OpenClawGatewayRuntime", () => {
     ];
     const transport = fakeTransport({
       "exec.approval.resolve": { ok: true },
+      "plugin.approval.resolve": { plugin: true },
     }, events);
     const runtime = new OpenClawGatewayRuntime({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
@@ -113,6 +114,11 @@ describe("OpenClawGatewayRuntime", () => {
       approvalId: "approval_1",
       decision: "approve",
     });
+    await expect(runtime.resolveApproval({ approvalId: "plugin:approval_2", approvalKind: "plugin", decision: "deny" })).resolves.toEqual({ plugin: true });
+    expect(transport.request).toHaveBeenCalledWith("plugin.approval.resolve", {
+      approvalId: "plugin:approval_2",
+      decision: "deny",
+    });
   });
 
   it("sends OpenClaw requests over the HTTP gateway transport", async () => {
@@ -126,9 +132,8 @@ describe("OpenClawGatewayRuntime", () => {
       return new Response(JSON.stringify({ result: { runId: "run_1" } }), { status: 200 });
     });
     const transport = createOpenClawHttpTransport({
-      accessToken: "secret",
       fetch: fetchImpl,
-      url: "ws://127.0.0.1:29390/openclaw",
+      url: "ws://127.0.0.1:18789/openclaw",
     });
 
     await expect(transport.request("sessions.send", { key: "session", message: "hi" }, { expectFinal: false })).resolves.toEqual({
@@ -142,10 +147,10 @@ describe("OpenClawGatewayRuntime", () => {
           params: { key: "session", message: "hi" },
         },
         headers: expect.any(Headers),
-        url: "http://127.0.0.1:29390/openclaw/rpc",
+        url: "http://127.0.0.1:18789/openclaw/rpc",
       },
     ]);
-    expect(requests[0]?.headers.get("authorization")).toBe("Bearer secret");
+    expect(requests[0]?.headers.get("authorization")).toBeNull();
   });
 
   it("streams OpenClaw gateway events from SSE frames", async () => {
@@ -188,18 +193,28 @@ describe("OpenClawGatewayRuntime", () => {
   it("uses OpenClaw gateway WebSocket req/res framing and broadcast events", async () => {
     FakeWebSocket.instances = [];
     const transport = createOpenClawWebSocketTransport({
-      accessToken: "secret",
       WebSocket: FakeWebSocket as unknown as typeof WebSocket,
       url: "ws://gateway",
     });
 
     const request = transport.request("sessions.send", { key: "session", message: "hi" });
+    await waitFor(() => FakeWebSocket.instances.length === 1);
     const socket = FakeWebSocket.instances[0];
+    await sendConnectChallenge(socket);
     await waitFor(() => socket?.sent.length === 1);
     expect(JSON.parse(socket?.sent[0] ?? "{}")).toMatchObject({
       method: "connect",
       params: {
-        auth: { token: "secret" },
+        client: {
+          displayName: "pickle-openclaw",
+          id: "gateway-client",
+          mode: "backend",
+          platform: process.platform,
+          version: "0.1.0",
+        },
+        device: {
+          nonce: "nonce-1",
+        },
         role: "operator",
         scopes: ["operator.read", "operator.write", "operator.approvals"],
       },
@@ -242,8 +257,10 @@ describe("OpenClawGatewayRuntime", () => {
       return payload.runId === "run_top";
     });
     const next = iterator[Symbol.asyncIterator]().next();
-    await waitFor(() => (FakeWebSocket.instances[0]?.sent.length ?? 0) === 1);
+    await waitFor(() => FakeWebSocket.instances.length === 1);
     const socket = FakeWebSocket.instances[0]!;
+    await sendConnectChallenge(socket);
+    await waitFor(() => socket.sent.length === 1);
     socket?.receive({ id: JSON.parse(socket.sent[0] ?? "{}").id, ok: true, payload: { ok: true }, type: "res" });
     await new Promise((resolve) => setTimeout(resolve, 0));
     socket?.receive({ event: "session.message", runId: "run_skip", type: "event" });
@@ -257,6 +274,42 @@ describe("OpenClawGatewayRuntime", () => {
         seq: 4,
       },
     });
+    transport.close();
+  });
+
+  it("replays early WebSocket run events to late subscribers", async () => {
+    FakeWebSocket.instances = [];
+    const transport = createOpenClawWebSocketTransport({
+      replayLimit: 10,
+      WebSocket: FakeWebSocket as unknown as typeof WebSocket,
+      url: "ws://gateway",
+    });
+
+    const request = transport.request("sessions.send", { key: "session", message: "hi" });
+    await waitFor(() => FakeWebSocket.instances.length === 1);
+    const socket = FakeWebSocket.instances[0]!;
+    await sendConnectChallenge(socket);
+    await waitFor(() => socket.sent.length === 1);
+    socket.receive({ id: JSON.parse(socket.sent[0] ?? "{}").id, ok: true, payload: { ok: true }, type: "res" });
+    await waitFor(() => socket.sent.length === 2);
+    const sent = JSON.parse(socket.sent[1] ?? "{}");
+    socket.receive({ event: "session.message", payload: { deltaText: "early", runId: "run_early" }, seq: 5, type: "event" });
+    socket.receive({ id: sent.id, ok: true, payload: { runId: "run_early" }, type: "res" });
+    await expect(request).resolves.toEqual({ runId: "run_early" });
+
+    const iterator = transport.events((event) => {
+      const payload = event.payload as { runId?: string };
+      return payload.runId === "run_early";
+    })[Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toEqual({
+      done: false,
+      value: {
+        event: "session.message",
+        payload: { deltaText: "early", runId: "run_early" },
+        seq: 5,
+      },
+    });
+    await iterator.return?.();
     transport.close();
   });
 });
@@ -309,6 +362,12 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   throw new Error("Timed out waiting for condition");
+}
+
+async function sendConnectChallenge(socket: FakeWebSocket | undefined): Promise<void> {
+  await waitFor(() => socket?.readyState === 1);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  socket?.receive({ event: "connect.challenge", payload: { nonce: "nonce-1" }, type: "event" });
 }
 
 function fakeTransport(responses: Record<string, unknown>, events: OpenClawGatewayEvent[] = []): OpenClawTransport & {

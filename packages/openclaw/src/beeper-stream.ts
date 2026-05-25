@@ -7,12 +7,17 @@ import {
   getFinalMessageText,
   type BeeperFinalMessageAccumulator,
 } from "@beeper/pickle/streams/beeper-message";
-import type { OpenClawBridgeStreamPublisher } from "./bridge-agent";
+import type { OpenClawBridgeStreamPublisher, OpenClawStreamPublishResult } from "./bridge-agent";
 import { SerialQueue } from "./serial";
 import { AGUIEventType, createTurnId, type AGUIEvent } from "./stream-map";
 import type { OpenClawBridgeConfig, OpenClawSessionBinding } from "./types";
 
 type FinishReason = "stop" | "length" | "content_filter" | "tool_calls" | null;
+
+const BEEPER_AI_KEY = "com.beeper.ai";
+const BEEPER_AI_METADATA_KEY = "com.beeper.ai.metadata";
+const BEEPER_STREAM_DESCRIPTOR_KEY = "com.beeper.stream";
+const BEEPER_AI_STREAM_TYPE = "com.beeper.llm";
 
 export interface BeeperStreamPublisherClient {
   beeper: MatrixBeeper;
@@ -120,6 +125,7 @@ export class BeeperStreamPublisher {
         aiMessage: finalMessage,
         body: finalText,
       });
+      const finalMetadata = this.#runMetadata(options.terminalPart?.type === AGUIEventType.RUN_ERROR ? "error" : "complete", options.terminalPart);
       const finalization = options.finalization ?? "replace";
       if (finalization === "native-only") {
         this.#finalized = true;
@@ -141,7 +147,9 @@ export class BeeperStreamPublisher {
         body: finalContent.body || "...",
         content: {
           body: finalContent.body || "...",
-          "com.beeper.ai": finalContent.aiMessage,
+          [BEEPER_AI_KEY]: finalContent.aiMessage,
+          [BEEPER_AI_METADATA_KEY]: finalMetadata,
+          [BEEPER_STREAM_DESCRIPTOR_KEY]: this.#streamDescriptor(),
           msgtype: "m.text",
         },
         eventId,
@@ -166,19 +174,22 @@ export class BeeperStreamPublisher {
     if (this.#targetEventId && this.#descriptor) {
       return { descriptor: this.#descriptor, eventId: this.#targetEventId, turnId: this.turnId };
     }
+    const metadata = this.#runMetadata("streaming");
     const target = await this.#client.beeper.streams.startMessage({
       content: {
         body: "...",
-        "com.beeper.ai": {
+        [BEEPER_AI_KEY]: {
           id: this.turnId,
           metadata: { turn_id: this.turnId, ...this.#initialMessageMetadata },
           parts: [],
           role: "assistant",
         },
+        [BEEPER_AI_METADATA_KEY]: metadata,
+        [BEEPER_STREAM_DESCRIPTOR_KEY]: this.#streamDescriptor(),
         msgtype: "m.text",
       },
       roomId: this.roomId,
-      streamType: "com.beeper.llm",
+      streamType: BEEPER_AI_STREAM_TYPE,
       ...(this.#subscribers.length > 0 ? { subscribers: this.#subscribers } : {}),
       ...(this.#threadRoot ? { threadRootEventId: this.#threadRoot } : {}),
       ...(this.#userId ? { userId: this.#userId } : {}),
@@ -200,6 +211,44 @@ export class BeeperStreamPublisher {
       applyFinalMessagePart(this.#accumulator, accumulatorPart);
     }
   }
+
+  #runMetadata(state: "streaming" | "complete" | "error", terminalPart?: AGUIEvent): Record<string, unknown> {
+    return stripUndefined({
+      agent: stripUndefined({
+        id: this.#agentId,
+      }),
+      data: this.#initialMessageMetadata,
+      messageId: this.turnId,
+      model: "openclaw/gateway",
+      preview: {
+        text: "",
+        truncated: false,
+      },
+      protocol: "ag-ui",
+      runId: this.turnId,
+      schema: "com.beeper.ai.run.v1",
+      status: stripUndefined({
+        error: state === "error" ? terminalError(terminalPart) : undefined,
+        finishReason: state === "complete" ? terminalFinishReason(terminalPart) : undefined,
+        state,
+        terminal: terminalPart,
+      }),
+      threadId: this.turnId,
+      usage: {
+        completionTokens: 0,
+        promptTokens: 0,
+        totalTokens: 0,
+      },
+      usageDetails: {},
+    });
+  }
+
+  #streamDescriptor(): Record<string, unknown> {
+    return stripUndefined({
+      type: BEEPER_AI_STREAM_TYPE,
+      user_id: this.#userId,
+    });
+  }
 }
 
 export interface OpenClawBeeperStreamPublisherOptions {
@@ -220,8 +269,8 @@ export class OpenClawBeeperStreamPublisher implements OpenClawBridgeStreamPublis
     this.#userId = options.userId;
   }
 
-  async publish(binding: OpenClawSessionBinding, events: AGUIEvent[]): Promise<void> {
-    if (!events.length) return;
+  async publish(binding: OpenClawSessionBinding, events: AGUIEvent[]): Promise<OpenClawStreamPublishResult | undefined> {
+    if (!events.length) return undefined;
     const key = streamKey(binding, events);
     let publisher = this.#publishers.get(key);
     if (!publisher) {
@@ -244,24 +293,28 @@ export class OpenClawBeeperStreamPublisher implements OpenClawBridgeStreamPublis
     await publisher.publishMany(nonTerminal);
     if (terminal) {
       try {
-        await publisher.finalize({
+        const finalized = await publisher.finalize({
           finalization: this.#config.streamFinalization,
           terminalPart: terminal,
         });
+        const raw = recordValue(finalized.raw);
+        return { targetEventId: stringValue(raw?.logicalEventId) ?? finalized.eventId };
       } finally {
         this.#publishers.delete(key);
       }
     }
+    return publisher.targetEventId ? { targetEventId: publisher.targetEventId } : undefined;
   }
 }
 
 function streamKey(binding: OpenClawSessionBinding, events: AGUIEvent[]): string {
-  return `${binding.roomId}:${firstRunId(events) ?? binding.sessionKey}`;
+  return `${binding.roomId}:${firstRunId(events) ?? binding.lastStreamRunId ?? binding.lastRunId ?? binding.sessionKey}`;
 }
 
 function firstRunId(events: AGUIEvent[]): string | undefined {
   for (const event of events) {
-    const runId = stringValue((event as Record<string, unknown>).runId);
+    const record = event as Record<string, unknown>;
+    const runId = stringValue(record.runId) ?? stringValue(record.threadId) ?? stringValue(record.messageId);
     if (runId) return runId;
   }
   return undefined;
@@ -385,4 +438,17 @@ function parseMaybeJSON(value: string | undefined): unknown {
 function normalizeFinishReason(reason: string | undefined): FinishReason {
   if (reason === "length" || reason === "content_filter" || reason === "tool_calls") return reason;
   return "stop";
+}
+
+function terminalFinishReason(event: AGUIEvent | undefined): string {
+  return stringValue(event?.finishReason) ?? "stop";
+}
+
+function terminalError(event: AGUIEvent | undefined): unknown {
+  if (!event) return undefined;
+  return stringValue(event.message) ?? stringValue(event.error) ?? event;
+}
+
+function stripUndefined<T extends Record<string, unknown>>(record: T): T {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as T;
 }

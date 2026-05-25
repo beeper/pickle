@@ -220,16 +220,16 @@ importers:
   packages/openclaw:
     dependencies:
       '@beeper/pickle':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../pickle
       '@beeper/pickle-ag-ui':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../ag-ui
       '@beeper/pickle-bridge':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../bridge
       '@beeper/pickle-state-file':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../state-file
     devDependencies:
       '@types/node':

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defaultBeeperApprovalChoices } from "./approval";
 import { createOpenClawStreamState, mapOpenClawEventToBeeperChunks } from "./openclaw-event-map";
 
 describe("OpenClaw event to Beeper stream mapping", () => {
@@ -152,6 +153,7 @@ describe("OpenClaw event to Beeper stream mapping", () => {
             needsApproval: true,
           },
           approvalMessageId: "approval_1",
+          choices: defaultBeeperApprovalChoices(),
           message: "Allow shell?",
           toolCallId: "call_1",
           toolName: "shell",
@@ -229,6 +231,35 @@ describe("OpenClaw event to Beeper stream mapping", () => {
       { delta: "Hello", messageId: "turn_gateway", type: "TEXT_MESSAGE_CONTENT" },
     ]);
     expect(mapOpenClawEventToBeeperChunks(state, {
+      event: "session.message",
+      payload: {
+        message: {
+          content: [{ text: " from transcript", type: "text" }],
+          role: "assistant",
+        },
+        messageId: "msg_1",
+        messageSeq: 1,
+        runId: "run_1",
+        sessionKey: "session_1",
+      },
+    })).toEqual([
+      { delta: " from transcript", messageId: "turn_gateway", type: "TEXT_MESSAGE_CONTENT" },
+    ]);
+    expect(mapOpenClawEventToBeeperChunks(state, {
+      event: "session.message",
+      payload: {
+        message: {
+          content: [{ thinking: "checking current files", type: "thinking" }],
+          role: "assistant",
+        },
+        runId: "run_1",
+      },
+    })).toEqual([
+      { messageId: "turn_gateway", type: "REASONING_START" },
+      { messageId: "turn_gateway", role: "reasoning", type: "REASONING_MESSAGE_START" },
+      { delta: "checking current files", messageId: "turn_gateway", type: "REASONING_MESSAGE_CONTENT" },
+    ]);
+    expect(mapOpenClawEventToBeeperChunks(state, {
       event: "session.tool",
       payload: { args: { cmd: "pwd" }, phase: "started", tool: "exec", toolCallId: "tool_1" },
     })).toEqual([
@@ -269,6 +300,7 @@ describe("OpenClaw event to Beeper stream mapping", () => {
             needsApproval: true,
           },
           approvalMessageId: "approval_1",
+          choices: defaultBeeperApprovalChoices(),
           message: "Run command?",
           toolCallId: "tool_1",
           toolName: "exec",

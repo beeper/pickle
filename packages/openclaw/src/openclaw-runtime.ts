@@ -1,3 +1,6 @@
+import { generateKeyPairSync, createHash, createPrivateKey, createPublicKey, sign } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { OpenClawAgentContact, OpenClawBridgeConfig } from "./types";
 import { agentContactFromOpenClawAgent } from "./rooms";
 import type { OpenClawApprovalResolvePayload } from "./approval";
@@ -21,7 +24,6 @@ export interface OpenClawTransport {
 }
 
 export interface OpenClawHttpTransportOptions {
-  accessToken?: string;
   eventsPath?: string;
   fetch?: typeof fetch;
   requestPath?: string;
@@ -29,13 +31,34 @@ export interface OpenClawHttpTransportOptions {
 }
 
 export interface OpenClawWebSocketTransportOptions {
-  accessToken?: string;
   clientId?: string;
+  deviceIdentityPath?: string;
+  deviceToken?: string;
   clientVersion?: string;
+  replayLimit?: number;
   requestTimeoutMs?: number;
   url: string;
   WebSocket?: typeof WebSocket;
 }
+
+const DEFAULT_GATEWAY_CLIENT_ID = "gateway-client";
+const DEFAULT_GATEWAY_CLIENT_MODE = "backend";
+const DEFAULT_GATEWAY_ROLE = "operator";
+const DEFAULT_GATEWAY_SCOPES = ["operator.read", "operator.write", "operator.approvals"];
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+type GatewayDeviceIdentity = {
+  deviceId: string;
+  privateKeyPem: string;
+  publicKeyPem: string;
+};
+
+type StoredGatewayDeviceIdentity = GatewayDeviceIdentity & {
+  createdAtMs: number;
+  deviceToken?: string;
+  tokenScopes?: string[];
+  version: 1;
+};
 
 export interface OpenClawSessionCreateOptions {
   agentId: string;
@@ -58,7 +81,20 @@ export interface OpenClawSessionSendOptions {
   timeoutMs?: number;
 }
 
+export interface OpenClawMatrixAttachmentMetadata {
+  contentType?: unknown;
+  contentUri?: unknown;
+  duration?: unknown;
+  encryptedFile?: unknown;
+  filename?: unknown;
+  height?: unknown;
+  kind?: unknown;
+  size?: unknown;
+  width?: unknown;
+}
+
 export interface OpenClawMatrixMessageMetadata {
+  attachments?: OpenClawMatrixAttachmentMetadata[];
   formattedBody?: string;
   mentions?: {
     room?: boolean;
@@ -66,9 +102,16 @@ export interface OpenClawMatrixMessageMetadata {
   };
   relation?: {
     key?: string;
-    kind?: "reply" | "thread" | "edit" | "reaction" | "redaction";
+    kind?: "reply" | "thread" | "edit" | "reaction" | "reaction_remove" | "redaction";
+    quote?: {
+      body?: string;
+      sender?: string;
+    };
     replyToEventId?: string;
     targetEventId?: string;
+    targetReactionId?: string;
+    targetRunId?: string;
+    targetSessionKey?: string;
     threadRootEventId?: string;
   };
   sender?: string;
@@ -349,7 +392,9 @@ export class OpenClawGatewayRuntime {
   }
 
   async resolveApproval(payload: OpenClawApprovalResolvePayload): Promise<unknown> {
-    return await this.transport.request("exec.approval.resolve", payload);
+    const { approvalKind, ...requestPayload } = payload;
+    const method = approvalKind === "plugin" ? "plugin.approval.resolve" : "exec.approval.resolve";
+    return await this.transport.request(method, requestPayload);
   }
 
   async close(): Promise<void> {
@@ -358,7 +403,6 @@ export class OpenClawGatewayRuntime {
 }
 
 export class OpenClawHttpTransport implements OpenClawTransport {
-  readonly #accessToken: string | undefined;
   readonly #baseUrl: URL;
   readonly #eventsPath: string;
   readonly #fetch: typeof fetch;
@@ -366,7 +410,6 @@ export class OpenClawHttpTransport implements OpenClawTransport {
   #abortController = new AbortController();
 
   constructor(options: OpenClawHttpTransportOptions) {
-    this.#accessToken = options.accessToken;
     this.#baseUrl = normalizeGatewayUrl(options.url);
     this.#eventsPath = options.eventsPath ?? "/events";
     this.#fetch = options.fetch ?? fetch;
@@ -421,7 +464,6 @@ export class OpenClawHttpTransport implements OpenClawTransport {
   #headers(accept: string): Record<string, string> {
     return stripUndefined({
       accept,
-      authorization: this.#accessToken ? `Bearer ${this.#accessToken}` : undefined,
     });
   }
 }
@@ -443,6 +485,7 @@ export class OpenClawWebSocketTransport implements OpenClawTransport {
     notify: (() => void) | undefined;
     closed: boolean;
   }>();
+  readonly #replay: OpenClawGatewayEvent[] = [];
   #connectPromise: Promise<void> | undefined;
   #socket: WebSocket | undefined;
 
@@ -478,7 +521,12 @@ export class OpenClawWebSocketTransport implements OpenClawTransport {
 
   async *events(filter?: (event: OpenClawGatewayEvent) => boolean): AsyncIterable<OpenClawGatewayEvent> {
     await this.#connect();
-    const subscriber = { closed: false, events: [] as OpenClawGatewayEvent[], filter, notify: undefined as (() => void) | undefined };
+    const subscriber = {
+      closed: false,
+      events: this.#replay.filter((event) => !filter || filter(event)),
+      filter,
+      notify: undefined as (() => void) | undefined,
+    };
     this.#subscribers.add(subscriber);
     try {
       for (;;) {
@@ -547,19 +595,91 @@ export class OpenClawWebSocketTransport implements OpenClawTransport {
     socket.addEventListener("close", () => {
       this.close();
     });
+    const challenge = await this.#waitForConnectChallenge(socket);
+    const identityState = this.#loadDeviceIdentityState();
+    const clientId = this.#options.clientId ?? DEFAULT_GATEWAY_CLIENT_ID;
+    const clientMode = DEFAULT_GATEWAY_CLIENT_MODE;
+    const role = DEFAULT_GATEWAY_ROLE;
+    const scopes = [...DEFAULT_GATEWAY_SCOPES];
+    const platform = process.platform;
+    const deviceToken = this.#options.deviceToken ?? identityState.stored.deviceToken;
     await this.#sendRequest("connect", {
-      auth: this.#options.accessToken ? { token: this.#options.accessToken } : {},
+      auth: stripUndefined({
+        deviceToken,
+      }),
       client: {
-        id: this.#options.clientId ?? "pickle-openclaw",
-        mode: "backend",
-        platform: "matrix",
+        displayName: "pickle-openclaw",
+        id: clientId,
+        mode: clientMode,
+        platform,
         version: this.#options.clientVersion ?? "0.1.0",
       },
+      device: buildGatewayDeviceConnectParams(stripUndefined({
+        clientId,
+        clientMode,
+        identity: identityState.identity,
+        nonce: challenge.nonce,
+        platform,
+        role,
+        scopes,
+        token: deviceToken,
+      })),
       maxProtocol: 4,
       minProtocol: 4,
-      role: "operator",
-      scopes: ["operator.read", "operator.write", "operator.approvals"],
+      role,
+      scopes,
+    }).then((hello) => {
+      const auth = recordValue(recordValue(hello)?.auth);
+      const nextDeviceToken = stringValue(auth?.deviceToken);
+      if (nextDeviceToken && this.#options.deviceIdentityPath) {
+        writeDeviceIdentityState(this.#options.deviceIdentityPath, stripUndefined({
+          ...identityState.stored,
+          deviceToken: nextDeviceToken,
+          tokenScopes: arrayValue(auth?.scopes)?.filter((scope): scope is string => typeof scope === "string"),
+        }));
+      }
     });
+  }
+
+  #waitForConnectChallenge(socket: WebSocket): Promise<{ nonce: string }> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("OpenClaw gateway connect challenge timed out"));
+      }, this.#options.requestTimeoutMs ?? 30_000);
+      const cleanup = () => {
+        clearTimeout(timeout);
+        socket.removeEventListener("message", onMessage);
+        socket.removeEventListener("close", onClose);
+      };
+      const onClose = () => {
+        cleanup();
+        reject(new Error("OpenClaw gateway socket closed before connect challenge"));
+      };
+      const onMessage = (event: MessageEvent) => {
+        const frame = recordValue(safeJsonParse(String(event.data)));
+        if (frame?.type !== "event" || frame.event !== "connect.challenge") return;
+        const nonce = stringValue(recordValue(frame.payload)?.nonce);
+        if (!nonce) {
+          cleanup();
+          reject(new Error("OpenClaw gateway connect challenge missing nonce"));
+          return;
+        }
+        cleanup();
+        resolve({ nonce });
+      };
+      socket.addEventListener("message", onMessage);
+      socket.addEventListener("close", onClose);
+    });
+  }
+
+  #loadDeviceIdentityState(): { identity: GatewayDeviceIdentity; stored: StoredGatewayDeviceIdentity } {
+    if (this.#options.deviceIdentityPath) return loadOrCreateDeviceIdentityState(this.#options.deviceIdentityPath);
+    const identity = generateDeviceIdentity();
+    return {
+      identity,
+      stored: { ...identity, createdAtMs: Date.now(), version: 1 },
+    };
   }
 
   #handleFrame(raw: string): void {
@@ -581,6 +701,7 @@ export class OpenClawWebSocketTransport implements OpenClawTransport {
         seq: typeof frame.seq === "number" ? frame.seq : undefined,
         stateVersion: frame.stateVersion,
       });
+      this.#recordReplay(event);
       for (const subscriber of this.#subscribers) {
         if (!subscriber.filter || subscriber.filter(event)) {
           subscriber.events.push(event);
@@ -589,6 +710,16 @@ export class OpenClawWebSocketTransport implements OpenClawTransport {
         }
       }
     }
+  }
+
+  #recordReplay(event: OpenClawGatewayEvent): void {
+    this.#replay.push(event);
+    const limit = this.#options.replayLimit ?? 500;
+    if (limit <= 0) {
+      this.#replay.length = 0;
+      return;
+    }
+    if (this.#replay.length > limit) this.#replay.splice(0, this.#replay.length - limit);
   }
 }
 
@@ -704,6 +835,112 @@ function parseEventFrame(frame: string): OpenClawGatewayEvent | undefined {
 function errorMessage(error: unknown): string {
   const record = recordValue(error);
   return stringValue(record?.message) ?? stringValue(error) ?? JSON.stringify(error);
+}
+
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function loadOrCreateDeviceIdentityState(filePath: string): {
+  identity: GatewayDeviceIdentity;
+  stored: StoredGatewayDeviceIdentity;
+} {
+  const parsed = readStoredDeviceIdentity(filePath);
+  if (parsed) return { identity: parsed, stored: parsed };
+  const identity = generateDeviceIdentity();
+  const stored = { ...identity, createdAtMs: Date.now(), version: 1 as const };
+  writeDeviceIdentityState(filePath, stored);
+  return { identity, stored };
+}
+
+function readStoredDeviceIdentity(filePath: string): StoredGatewayDeviceIdentity | undefined {
+  try {
+    const parsed = recordValue(JSON.parse(readFileSync(filePath, "utf8")) as unknown);
+    if (!parsed || parsed.version !== 1) return undefined;
+    const deviceId = stringValue(parsed.deviceId);
+    const publicKeyPem = stringValue(parsed.publicKeyPem);
+    const privateKeyPem = stringValue(parsed.privateKeyPem);
+    if (!deviceId || !publicKeyPem || !privateKeyPem) return undefined;
+    return stripUndefined({
+      createdAtMs: typeof parsed.createdAtMs === "number" ? parsed.createdAtMs : Date.now(),
+      deviceId,
+      deviceToken: stringValue(parsed.deviceToken),
+      privateKeyPem,
+      publicKeyPem,
+      tokenScopes: arrayValue(parsed.tokenScopes)?.filter((scope): scope is string => typeof scope === "string"),
+      version: 1 as const,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function writeDeviceIdentityState(filePath: string, value: StoredGatewayDeviceIdentity): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}
+
+function generateDeviceIdentity(): GatewayDeviceIdentity {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const publicKeyPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const privateKeyPem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  return {
+    deviceId: createHash("sha256").update(publicKeyRawFromPem(publicKeyPem)).digest("hex"),
+    privateKeyPem,
+    publicKeyPem,
+  };
+}
+
+function buildGatewayDeviceConnectParams(options: {
+  clientId: string;
+  clientMode: string;
+  identity: GatewayDeviceIdentity;
+  nonce: string;
+  platform: string;
+  role: string;
+  scopes: string[];
+  token?: string;
+}): Record<string, unknown> {
+  const signedAt = Date.now();
+  const payload = [
+    "v3",
+    options.identity.deviceId,
+    options.clientId,
+    options.clientMode,
+    options.role,
+    options.scopes.join(","),
+    String(signedAt),
+    options.token ?? "",
+    options.nonce,
+    options.platform.trim(),
+    "",
+  ].join("|");
+  return {
+    id: options.identity.deviceId,
+    nonce: options.nonce,
+    publicKey: base64Url(publicKeyRawFromPem(options.identity.publicKeyPem)),
+    signature: base64Url(sign(null, Buffer.from(payload, "utf8"), createPrivateKey(options.identity.privateKeyPem))),
+    signedAt,
+  };
+}
+
+function publicKeyRawFromPem(publicKeyPem: string): Buffer {
+  const spki = createPublicKey(publicKeyPem).export({ type: "spki", format: "der" }) as Buffer;
+  if (
+    spki.length === ED25519_SPKI_PREFIX.length + 32 &&
+    spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)
+  ) {
+    return spki.subarray(ED25519_SPKI_PREFIX.length);
+  }
+  return spki;
+}
+
+function base64Url(value: Buffer): string {
+  return value.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 }
 
 type StripUndefined<T extends object> = {

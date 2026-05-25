@@ -167,6 +167,91 @@ describe("RuntimeBridge", () => {
     expect(message.text).toBe("hello");
   });
 
+  it("dispatches Matrix edits to loaded network clients", async () => {
+    const client = createFakeMatrixClient();
+    const network = createFakeNetworkAPI();
+    const connector = createFakeConnector(network);
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+    const login: UserLogin = { id: "login:a" };
+
+    await bridge.start();
+    await bridge.loadUserLogin(login);
+    bridge.registerPortal({ id: "remote-room", mxid: "!room:example", portalKey: { id: "remote-room", receiver: login.id } });
+
+    const result = await bridge.dispatchMatrixEvent({
+      attachments: [],
+      class: "message",
+      content: {
+        body: "* corrected",
+        "m.new_content": { body: "corrected", msgtype: "m.text" },
+        "m.relates_to": { event_id: "$old", rel_type: "m.replace" },
+        msgtype: "m.text",
+      },
+      edited: true,
+      encrypted: false,
+      eventId: "$edit",
+      kind: "message",
+      messageType: "m.text",
+      raw: {},
+      replaces: "$old",
+      roomId: "!room:example",
+      sender: { isMe: false, userId: "@alice:example" },
+      text: "corrected",
+      type: "m.room.message",
+    });
+
+    expect(result).toEqual({ dispatched: true, eventId: "$edit", handlers: 1, kind: "message", roomId: "!room:example" });
+    expect(network.handleMatrixMessage).not.toHaveBeenCalled();
+    expect(network.handleMatrixEdit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        content: expect.objectContaining({
+          "m.relates_to": { event_id: "$old", rel_type: "m.replace" },
+        }),
+        portal: expect.objectContaining({ portalKey: { id: "remote-room", receiver: login.id } }),
+        targetMessage: { id: "$old" },
+        text: "corrected",
+      }),
+    );
+  });
+
+  it("dispatches Matrix reaction removals to loaded network clients", async () => {
+    const client = createFakeMatrixClient();
+    const network = createFakeNetworkAPI();
+    const connector = createFakeConnector(network);
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+    const login: UserLogin = { id: "login:a" };
+
+    await bridge.start();
+    await bridge.loadUserLogin(login);
+    bridge.registerPortal({ id: "remote-room", mxid: "!room:example", portalKey: { id: "remote-room", receiver: login.id } });
+
+    const result = await bridge.dispatchMatrixEvent({
+      added: false,
+      class: "message",
+      content: { "m.relates_to": { event_id: "$message", key: "👍", rel_type: "m.annotation" } },
+      eventId: "$reaction",
+      key: "👍",
+      kind: "reaction",
+      raw: {},
+      relatesTo: "$message",
+      roomId: "!room:example",
+      sender: { isMe: false, userId: "@alice:example" },
+      type: "m.reaction",
+    });
+
+    expect(result).toEqual({ dispatched: true, eventId: "$reaction", handlers: 1, kind: "reaction", roomId: "!room:example" });
+    expect(network.handleMatrixReaction).not.toHaveBeenCalled();
+    expect(network.handleMatrixReactionRemove).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        portal: expect.objectContaining({ portalKey: { id: "remote-room", receiver: login.id } }),
+        targetMessage: { id: "$message" },
+        targetReaction: { id: "$reaction" },
+      }),
+    );
+  });
+
   it("ignores Matrix messages from the bridge user", async () => {
     const client = createFakeMatrixClient();
     const network = createFakeNetworkAPI();
@@ -925,14 +1010,20 @@ function createFakeConnector(network: FakeNetworkAPI): BridgeConnector & {
 type FakeNetworkAPI = NetworkAPI & {
   connect: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
+  handleMatrixEdit: ReturnType<typeof vi.fn>;
   handleMatrixMessage: ReturnType<typeof vi.fn>;
+  handleMatrixReaction: ReturnType<typeof vi.fn>;
+  handleMatrixReactionRemove: ReturnType<typeof vi.fn>;
 };
 
 function createFakeNetworkAPI(): FakeNetworkAPI {
   return {
     connect: vi.fn(),
     disconnect: vi.fn(),
+    handleMatrixEdit: vi.fn(),
     handleMatrixMessage: vi.fn(),
+    handleMatrixReaction: vi.fn(),
+    handleMatrixReactionRemove: vi.fn(),
   };
 }
 

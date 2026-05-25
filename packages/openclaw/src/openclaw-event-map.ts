@@ -40,15 +40,15 @@ export function mapOpenClawEventToBeeperChunks(
     case "run.started":
       return startRunEvents(state, metadata);
     case "assistant.delta": {
-      const delta = stringValue(data.delta) ?? stringValue(data.deltaText) ?? stringValue(data.text) ?? stringValue(data.content);
+      const delta = stringValue(data.delta) ?? stringValue(data.deltaText) ?? stringValue(data.text) ?? sessionTextDelta(data) ?? stringValue(data.content);
       return delta ? mapOpenClawMessageDelta(state, { kind: "text", value: delta }) : [];
     }
     case "assistant.message": {
-      const text = stringValue(data.deltaText) ?? stringValue(data.text) ?? stringValue(data.content) ?? stringValue(data.message);
+      const text = stringValue(data.deltaText) ?? stringValue(data.text) ?? sessionTextDelta(data) ?? stringValue(data.content) ?? stringValue(data.message);
       return text ? mapOpenClawMessageDelta(state, { kind: "text", value: text }) : [];
     }
     case "thinking.delta": {
-      const delta = stringValue(data.delta) ?? stringValue(data.text) ?? stringValue(data.content);
+      const delta = stringValue(data.delta) ?? stringValue(data.text) ?? sessionThinkingDelta(data) ?? stringValue(data.content);
       return delta ? mapOpenClawMessageDelta(state, { kind: "thinking", value: delta }) : [];
     }
     case "tool.call.started":
@@ -101,7 +101,10 @@ export function normalizeOpenClawEventType(type: string | undefined, event?: Rec
   const phase = stringValue(payload?.phase) ?? stringValue(payload?.status) ?? stringValue(payload?.kind);
   if (type === "chat") return "assistant.delta";
   if (type === "session.message") {
-    const role = stringValue(payload?.role);
+    const message = recordValue(payload?.message);
+    const role = stringValue(payload?.role) ?? stringValue(message?.role);
+    if (sessionTextDelta(payload ?? {}) !== undefined) return "assistant.delta";
+    if (sessionThinkingDelta(payload ?? {}) !== undefined) return "thinking.delta";
     if (role === "assistant") return "assistant.delta";
     if (role === "reasoning" || role === "thinking") return "thinking.delta";
     return "assistant.message";
@@ -215,6 +218,30 @@ function errorText(error: unknown): string {
   return JSON.stringify(error) ?? String(error);
 }
 
+function sessionTextDelta(data: Record<string, unknown>): string | undefined {
+  return sessionContentText(data, "text");
+}
+
+function sessionThinkingDelta(data: Record<string, unknown>): string | undefined {
+  return sessionContentText(data, "thinking");
+}
+
+function sessionContentText(data: Record<string, unknown>, kind: "text" | "thinking"): string | undefined {
+  const message = recordValue(data.message) ?? data;
+  const content = arrayValue(message.content);
+  if (!content) return undefined;
+  const chunks: string[] = [];
+  for (const part of content) {
+    const record = recordValue(part);
+    if (!record || record.type !== kind) continue;
+    const value = kind === "thinking"
+      ? stringValue(record.thinking) ?? stringValue(record.text)
+      : stringValue(record.text);
+    if (value) chunks.push(value);
+  }
+  return chunks.length > 0 ? chunks.join("") : undefined;
+}
+
 function stripUndefined<T extends Record<string, unknown>>(input: T): T {
   for (const key of Object.keys(input)) {
     if (input[key] === undefined) delete input[key];
@@ -225,6 +252,10 @@ function stripUndefined<T extends Record<string, unknown>>(input: T): T {
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
+}
+
+function arrayValue(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) ? value : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {

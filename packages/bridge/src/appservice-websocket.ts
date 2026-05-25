@@ -408,19 +408,32 @@ function rawMatrixEvent(raw: RawMatrixEvent): MatrixClientEvent | null {
   const senderId = raw.sender;
   const sender = senderId ? { isMe: false, userId: senderId } : undefined;
   if (type === "m.room.message" && roomId && eventId && sender) {
+    const relates = objectValue(content["m.relates_to"]);
+    const newContent = objectValue(content["m.new_content"]);
+    const messageContent = newContent ?? content;
+    const relation = matrixRelation(relates);
+    const replyTo = matrixReplyTo(relates);
+    const threadRoot = relation?.type === "m.thread" ? relation.eventId : undefined;
+    const mentions = matrixMentions(messageContent);
     return stripUndefined({
-      attachments: [],
+      attachments: matrixAttachments(messageContent),
       class: "message",
       content,
-      edited: false,
+      edited: Boolean(newContent && relation?.type === "m.replace"),
       encrypted: false,
       eventId,
+      html: stringValue(messageContent.formatted_body),
       kind: "message",
-      messageType: stringValue(content.msgtype) ?? "m.text",
+      mentions,
+      messageType: stringValue(messageContent.msgtype) ?? "m.text",
       raw,
+      relation,
+      replaces: relation?.type === "m.replace" ? relation.eventId : undefined,
+      replyTo,
       roomId,
       sender,
-      text: stringValue(content.body) ?? "",
+      text: stringValue(messageContent.body) ?? "",
+      threadRoot,
       timestamp: raw.origin_server_ts,
       type,
       unsigned: raw.unsigned,
@@ -475,6 +488,73 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function matrixRelation(relates: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const eventId = stringValue(relates?.event_id);
+  const type = stringValue(relates?.rel_type);
+  if (!eventId || !type) return undefined;
+  if (type === "m.annotation") {
+    const key = stringValue(relates?.key);
+    return key ? { eventId, key, type } : undefined;
+  }
+  if (type === "m.thread") {
+    return {
+      eventId,
+      ...(typeof relates?.is_falling_back === "boolean" ? { isFallback: relates.is_falling_back } : {}),
+      ...(stringValue(objectValue(relates?.["m.in_reply_to"])?.event_id) ? { replyTo: stringValue(objectValue(relates?.["m.in_reply_to"])?.event_id) } : {}),
+      type,
+    };
+  }
+  if (type === "m.replace" || type === "m.reference") return { eventId, type };
+  return { eventId, type };
+}
+
+function matrixReplyTo(relates: Record<string, unknown> | undefined): string | undefined {
+  return stringValue(objectValue(relates?.["m.in_reply_to"])?.event_id)
+    ?? (relates?.rel_type === "m.thread" ? stringValue(relates.event_id) : undefined);
+}
+
+function matrixMentions(content: Record<string, unknown>): Record<string, unknown> | undefined {
+  const raw = objectValue(content["m.mentions"]);
+  if (!raw) return undefined;
+  const userIds = Array.isArray(raw.user_ids) ? raw.user_ids.filter((userId): userId is string => typeof userId === "string") : undefined;
+  return stripUndefined({
+    room: typeof raw.room === "boolean" ? raw.room : undefined,
+    userIds,
+  });
+}
+
+function matrixAttachments(content: Record<string, unknown>): Record<string, unknown>[] {
+  const msgtype = stringValue(content.msgtype);
+  const kind = matrixAttachmentKind(msgtype);
+  if (!kind) return [];
+  const info = objectValue(content.info);
+  const encryptedFile = objectValue(content.file);
+  const attachment = stripUndefined({
+    contentType: stringValue(info?.mimetype) ?? stringValue(content.info_mimetype),
+    contentUri: stringValue(content.url),
+    duration: numberValue(info?.duration),
+    encryptedFile,
+    filename: stringValue(content.filename) ?? stringValue(content.body),
+    height: numberValue(info?.h),
+    kind,
+    size: numberValue(info?.size),
+    width: numberValue(info?.w),
+  });
+  return attachment.contentUri || attachment.encryptedFile ? [attachment] : [];
+}
+
+function matrixAttachmentKind(msgtype: string | undefined): "image" | "video" | "audio" | "file" | undefined {
+  if (msgtype === "m.image") return "image";
+  if (msgtype === "m.video") return "video";
+  if (msgtype === "m.audio") return "audio";
+  if (msgtype === "m.file") return "file";
+  return undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function stripUndefined<T extends Record<string, unknown>>(value: T): T {

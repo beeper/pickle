@@ -21,8 +21,13 @@ OpenClaw loads the runtime entry from `dist/plugin-entry.mjs` and the lightweigh
 - OpenClaw WebSocket Gateway transport using protocol v4 `req`/`res`/`event` frames.
 - Compatibility HTTP/SSE transport for gateway-like test or proxy deployments.
 - Agent ghosts for OpenClaw agents and user ghosts for imported one-to-one sessions.
+- Beeper contact-list/search and create-DM provisioning for OpenClaw agents.
+- Matrix parsing for text, formatted bodies, replies, edits, reactions, redactions, attachments, and thread/relation metadata.
+- Matrix slash commands: `/new`, `/agent`, `/sessions`, `/import`, `/backfill`, `/stop`, `/approve`, `/deny`, `/status`, and `/settings`. `/abort` is accepted as a compatibility alias for `/stop`.
+- Native Beeper stream publishing for reasoning, text, tool input/output, approvals, errors, aborts, and final replacement messages.
+- Native approval UI parsing first, with reactions and `/approve`/`/deny` as escape hatches.
 - Non-federated Matrix room creation defaults through the generated appservice registration.
-- Backfill helpers for terminal, mac app, and external one-to-one OpenClaw sessions.
+- Opt-in backfill/import helpers for dashboard, TUI, channel-origin, and archived one-to-one OpenClaw sessions.
 
 ## CLI
 
@@ -75,6 +80,16 @@ pickle-openclaw start \
   --backfill \
   --backfill-limit 500
 ```
+
+Run a non-daemon smoke check before handing the bridge to OpenClaw:
+
+```sh
+pickle-openclaw smoke --config ~/.openclaw/pickle-bridge/config.json
+```
+
+The smoke command validates the saved Beeper account shape, probes the Gateway feature surface, lists agents and recent sessions, and creates the Beeper bridge in `getOnly` mode. Use `--gateway-only` to skip Beeper setup checks or `--start` when you explicitly want the command to start and then stop the bridge object.
+
+Installed OpenClaw plugins run inside OpenClaw directly. The CLI gateway URL option is only for smoke/debug commands that explicitly probe a local gateway surface.
 
 Probe or call the Gateway surface directly:
 

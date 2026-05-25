@@ -6,6 +6,7 @@ import { getBeeperChannelSettings, type OpenClawSetupConfig } from "./setup";
 import type { OpenClawBridgeConfig } from "./types";
 
 export const DEFAULT_APPSERVICE_ID = "pickle-openclaw";
+export const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18789";
 export const DEFAULT_GHOST_LOCALPART_PREFIX = "openclaw_agent_";
 export const DEFAULT_REGISTRATION_URL = "http://127.0.0.1:29391";
 export const DEFAULT_SENDER_LOCALPART = "openclawbot";
@@ -23,7 +24,11 @@ export function defaultConfigPath(dataDir = defaultDataDir()): string {
 export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {}): OpenClawBridgeConfig {
   const dataDir = overrides.dataDir ?? process.env.PICKLE_OPENCLAW_DATA_DIR ?? defaultDataDir();
   const config: OpenClawBridgeConfig = {
-    appserviceId: overrides.appserviceId ?? process.env.PICKLE_OPENCLAW_APPSERVICE_ID ?? DEFAULT_APPSERVICE_ID,
+    appserviceId:
+      overrides.appserviceId ??
+      process.env.PICKLE_OPENCLAW_APPSERVICE_ID ??
+      process.env.PICKLE_OPENCLAW_APP_SERVICE_ID ??
+      DEFAULT_APPSERVICE_ID,
     dataDir,
     ghostLocalpartPrefix:
       overrides.ghostLocalpartPrefix ??
@@ -46,8 +51,7 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   const baseDomain = overrides.baseDomain ?? process.env.PICKLE_OPENCLAW_BASE_DOMAIN;
   const beeperEnv = overrides.beeperEnv ?? envBeeperEnv(process.env.PICKLE_OPENCLAW_BEEPER_ENV);
   const bridgeManagerToken = overrides.bridgeManagerToken ?? process.env.PICKLE_OPENCLAW_BRIDGE_MANAGER_TOKEN;
-  const gatewayAccessToken = overrides.gatewayAccessToken ?? process.env.PICKLE_OPENCLAW_GATEWAY_ACCESS_TOKEN;
-  const gatewayUrl = overrides.gatewayUrl ?? process.env.PICKLE_OPENCLAW_GATEWAY_URL;
+  const gatewayUrl = overrides.gatewayUrl ?? process.env.PICKLE_OPENCLAW_GATEWAY_URL ?? DEFAULT_GATEWAY_URL;
   const homeserver = overrides.homeserver ?? process.env.PICKLE_OPENCLAW_HOMESERVER;
   const homeserverDomain = overrides.homeserverDomain ?? process.env.PICKLE_OPENCLAW_HOMESERVER_DOMAIN;
   const hsToken = overrides.hsToken ?? process.env.PICKLE_OPENCLAW_HS_TOKEN;
@@ -59,12 +63,13 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   const streamFinalization = overrides.streamFinalization ?? envStreamFinalization(process.env.PICKLE_OPENCLAW_STREAM_FINALIZATION);
   const approvalBehavior = overrides.approvalBehavior ?? envApprovalBehavior(process.env.PICKLE_OPENCLAW_APPROVAL_BEHAVIOR);
   const bridgeManagerPostState = overrides.bridgeManagerPostState ?? envBoolean(process.env.PICKLE_OPENCLAW_BRIDGE_MANAGER_POST_STATE);
+  const allowedRoomIds = overrides.allowedRoomIds ?? envStringList(process.env.PICKLE_OPENCLAW_ALLOW_ROOMS);
+  const allowedUserIds = overrides.allowedUserIds ?? envStringList(process.env.PICKLE_OPENCLAW_ALLOW_USERS);
   if (accessToken) config.accessToken = accessToken;
   if (asToken) config.asToken = asToken;
   if (baseDomain) config.baseDomain = baseDomain;
   if (beeperEnv) config.beeperEnv = beeperEnv;
   if (bridgeManagerToken) config.bridgeManagerToken = bridgeManagerToken;
-  if (gatewayAccessToken) config.gatewayAccessToken = gatewayAccessToken;
   if (gatewayUrl) config.gatewayUrl = gatewayUrl;
   if (homeserver) config.homeserver = homeserver;
   if (homeserverDomain) config.homeserverDomain = homeserverDomain;
@@ -77,8 +82,8 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   if (streamFinalization !== undefined) config.streamFinalization = streamFinalization;
   if (approvalBehavior !== undefined) config.approvalBehavior = approvalBehavior;
   if (bridgeManagerPostState !== undefined) config.bridgeManagerPostState = bridgeManagerPostState;
-  if (overrides.allowedRoomIds) config.allowedRoomIds = overrides.allowedRoomIds;
-  if (overrides.allowedUserIds) config.allowedUserIds = overrides.allowedUserIds;
+  if (allowedRoomIds) config.allowedRoomIds = allowedRoomIds;
+  if (allowedUserIds) config.allowedUserIds = allowedUserIds;
   return config;
 }
 
@@ -126,12 +131,18 @@ function envContactVisibility(value: string | undefined): OpenClawBridgeConfig["
 }
 
 function envImportSources(value: string | undefined): OpenClawBridgeConfig["importSources"] | undefined {
-  if (!value) return undefined;
-  const sources = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  const sources = envStringList(value);
+  if (!sources) return undefined;
   if (sources.every((source) => source === "dashboard" || source === "tui" || source === "channels" || source === "archived")) {
     return sources as OpenClawBridgeConfig["importSources"];
   }
   return undefined;
+}
+
+function envStringList(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const values = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  return values.length > 0 ? values : undefined;
 }
 
 function envStreamFinalization(value: string | undefined): OpenClawBridgeConfig["streamFinalization"] | undefined {

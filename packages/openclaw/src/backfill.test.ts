@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions, isOneToOneSession, shouldImportSession } from "./backfill";
 import { createDefaultConfig } from "./config";
@@ -136,13 +139,16 @@ describe("OpenClaw backfill", () => {
     expect(shouldImportSession({ key: "agent:main:desktop:abc", origin: { surface: "mac-app" } }, ["dashboard"])).toBe(true);
     expect(shouldImportSession({ key: "agent:main:whatsapp:alice", lastProvider: "whatsapp" }, ["channels"])).toBe(true);
     expect(shouldImportSession({ key: "agent:main:terminal:old", origin: { surface: "terminal" }, updatedAt: null }, ["tui"])).toBe(false);
+    expect(shouldImportSession({ key: "agent:main:terminal:old", origin: { surface: "terminal" }, updatedAt: null }, ["archived"])).toBe(true);
     expect(shouldImportSession({ key: "agent:main:terminal:old", origin: { surface: "terminal" }, updatedAt: null }, ["tui", "archived"])).toBe(true);
+    expect(shouldImportSession({ key: "agent:main:desktop:old", origin: { surface: "mac-app" }, updatedAt: null }, ["dashboard"])).toBe(false);
     expect(shouldImportSession({ key: "agent:main:desktop:abc", origin: { surface: "mac-app" } }, ["tui"])).toBe(false);
 
     const runtime = runtimeWith({
       "sessions.list": {
         sessions: [
           { key: "agent:main:terminal:local", origin: { surface: "terminal" } },
+          { key: "agent:main:terminal:archived", origin: { surface: "terminal" }, updatedAt: null },
           { key: "agent:main:desktop:abc", origin: { surface: "mac-app" } },
           { chatType: "dm", key: "agent:main:whatsapp:user-1", lastProvider: "whatsapp", lastTo: "user-1" },
         ],
@@ -150,6 +156,9 @@ describe("OpenClaw backfill", () => {
     });
     await expect(discoverOneToOneSessions(runtime, { importSources: ["dashboard"] })).resolves.toMatchObject([
       { sessionKey: "agent:main:desktop:abc", source: "mac-app" },
+    ]);
+    await expect(discoverOneToOneSessions(runtime, { importSources: ["archived"] })).resolves.toMatchObject([
+      { sessionKey: "agent:main:terminal:archived", source: "terminal" },
     ]);
   });
 
@@ -162,7 +171,9 @@ describe("OpenClaw backfill", () => {
         ],
       },
     });
-    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-backfill-test.json");
+    const dir = await mkdtemp(join(tmpdir(), "openclaw-backfill-test-"));
+    const registryPath = join(dir, "registry.json");
+    const registry = new OpenClawBridgeRegistry(registryPath);
     const bridge = {
       backfillPortal: vi.fn(async () => ({ eventIds: [] })),
       createPortal: vi.fn(async () => ({
@@ -207,6 +218,12 @@ describe("OpenClaw backfill", () => {
     }), { limit: 25 });
     expect(registry.getUser("alice")?.ghostUserId).toBe("@openclaw_user_alice:localhost");
     expect(registry.getBindingByRoom("!room:example.com")?.humanGhostUserId).toBe("@openclaw_user_alice:localhost");
+    const persisted = new OpenClawBridgeRegistry(registryPath);
+    await persisted.load();
+    expect(persisted.getBindingBySessionKey("agent:codex:whatsapp:alice")).toMatchObject({
+      humanGhostUserId: "@openclaw_user_alice:localhost",
+      roomId: "!room:example.com",
+    });
   });
 
   it("skips already-imported sessions instead of creating duplicate portals", async () => {
@@ -291,6 +308,42 @@ describe("OpenClaw backfill", () => {
 
     expect(bridge.backfillPortal).not.toHaveBeenCalled();
     expect(runtime.transport.request).not.toHaveBeenCalledWith("chat.history", expect.anything());
+    expect(registry.getBindingBySessionKey("agent:codex:terminal:alice")).toBeUndefined();
+  });
+
+  it("does not mark a session imported when Matrix backfill fails", async () => {
+    const runtime = runtimeWith({
+      "chat.history": { messages: [{ content: "hello", id: "m1", role: "user" }] },
+      "sessions.list": {
+        sessions: [
+          { agentId: "codex", chatType: "dm", displayName: "Alice", key: "agent:codex:terminal:alice", origin: { surface: "terminal" } },
+        ],
+      },
+    });
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-backfill-failure-test.json");
+    const bridge = {
+      backfillPortal: vi.fn(async () => {
+        throw new Error("batch send failed");
+      }),
+      createPortal: vi.fn(async () => ({
+        id: "session:created",
+        mxid: "!room:example.com",
+        portalKey: { id: "session:created", receiver: "login" },
+        receiver: "login",
+      })),
+    };
+    const login = { id: "login", userId: "@owner:example.com" };
+
+    await expect(backfillAllOpenClawSessions({
+      bridge: bridge as never,
+      importSources: ["tui"],
+      login,
+      registry,
+      runtime,
+    })).rejects.toThrow("batch send failed");
+
+    expect(bridge.createPortal).toHaveBeenCalledOnce();
+    expect(bridge.backfillPortal).toHaveBeenCalledOnce();
     expect(registry.getBindingBySessionKey("agent:codex:terminal:alice")).toBeUndefined();
   });
 

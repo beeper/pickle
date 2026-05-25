@@ -19,16 +19,12 @@ describe("pickle-openclaw CLI", () => {
       dir,
       "--homeserver",
       "https://matrix.example",
-      "--gateway-access-token",
-      "gateway-secret",
       "--access-token",
       "secret",
     ], initIO)).resolves.toBe(0);
     expect(initIO.stdoutText).toContain('"accessToken": "<redacted>"');
-    expect(initIO.stdoutText).toContain('"gatewayAccessToken": "<redacted>"');
     expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
       accessToken: "secret",
-      gatewayAccessToken: "gateway-secret",
       homeserver: "https://matrix.example",
     });
     expect((await stat(configPath)).mode & 0o777).toBe(0o600);
@@ -75,7 +71,7 @@ describe("pickle-openclaw CLI", () => {
       "--access-token",
       "mx-token",
       "--gateway-url",
-      "http://127.0.0.1:29390",
+      "http://127.0.0.1:18789",
       "--homeserver",
       "https://matrix.beeper.com",
       "--matrix-device-id",
@@ -96,7 +92,7 @@ describe("pickle-openclaw CLI", () => {
       backfill: true,
       backfillLimit: 25,
       config: expect.objectContaining({
-        gatewayUrl: "http://127.0.0.1:29390",
+        gatewayUrl: "http://127.0.0.1:18789",
         matrixUserId: "@batuhan:beeper.com",
       }),
       getOnly: true,
@@ -114,7 +110,7 @@ describe("pickle-openclaw CLI", () => {
       "--data-dir",
       dir,
       "--gateway-url",
-      "http://127.0.0.1:29390",
+      "http://127.0.0.1:18789",
     ], captureIO())).resolves.toBe(0);
     const runtime = fakeRuntime({
       "config.schema.lookup": { path: ["agents"], type: "object" },
@@ -142,7 +138,7 @@ describe("pickle-openclaw CLI", () => {
     });
     const io = captureIO();
 
-    await expect(runCli(["features", "--gateway-url", "http://127.0.0.1:29390"], io, {
+    await expect(runCli(["features", "--gateway-url", "http://127.0.0.1:18789"], io, {
       runtimeFactory: () => runtime,
     })).resolves.toBe(0);
 
@@ -152,6 +148,177 @@ describe("pickle-openclaw CLI", () => {
       agents: { agents: [] },
       status: { ok: true },
     });
+  });
+
+  it("reports gateway smoke failures without token setup guidance", async () => {
+    const io = captureIO();
+    const runtime = {
+      close: vi.fn(async () => undefined),
+      featureSnapshot: vi.fn(async () => {
+        throw new Error("OpenClaw gateway request failed: unauthorized: gateway token missing (provide gateway auth token)");
+      }),
+      listAgentContacts: vi.fn(),
+      listSessions: vi.fn(),
+    } as never;
+
+    await expect(runCli(["smoke", "--gateway-only"], io, {
+      runtimeFactory: () => runtime,
+    })).resolves.toBe(1);
+
+    expect(io.stderrText).toContain("gateway token missing");
+    expect(io.stderrText).not.toContain("--gateway-access-token");
+    expect(io.stderrText).not.toContain("OPENCLAW_GATEWAY_TOKEN");
+  });
+
+  it("runs a conservative smoke check across Gateway and Beeper bridge setup", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-smoke-"));
+    const configPath = join(dir, "config.json");
+    await expect(runCli([
+      "init",
+      "--config",
+      configPath,
+      "--data-dir",
+      dir,
+      "--access-token",
+      "mx-token",
+      "--gateway-url",
+      "http://127.0.0.1:18789",
+      "--homeserver",
+      "https://matrix.beeper.com",
+      "--matrix-device-id",
+      "DEVICE",
+      "--matrix-user-id",
+      "@batuhan:beeper.com",
+      "--registration-url",
+      "http://127.0.0.1:29391",
+    ], captureIO())).resolves.toBe(0);
+    const runtime = fakeRuntime({}, {
+      agents: { agents: [{ id: "codex" }] },
+      status: { ok: true },
+    }, {
+      agents: [{ agentId: "codex", displayName: "Codex" }],
+      sessions: [{ key: "dashboard:1", label: "Dashboard session" }],
+    });
+    const bridge = { start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined) };
+    const createBridge = vi.fn(async () => bridge as never);
+    const io = captureIO();
+
+    await expect(runCli(["smoke", "--config", configPath, "--session-limit", "10"], io, {
+      createBridge,
+      runtimeFactory: () => runtime,
+    })).resolves.toBe(0);
+
+    expect(runtime.featureSnapshot).toHaveBeenCalledOnce();
+    expect(runtime.listAgentContacts).toHaveBeenCalledOnce();
+    expect(runtime.listSessions).toHaveBeenCalledWith({ includeArchived: true, limit: 10 });
+    expect(runtime.close).toHaveBeenCalledOnce();
+    expect(createBridge).toHaveBeenCalledWith(expect.objectContaining({
+      account: {
+        accessToken: "mx-token",
+        deviceId: "DEVICE",
+        homeserver: "https://matrix.beeper.com",
+        userId: "@batuhan:beeper.com",
+      },
+      config: expect.objectContaining({
+        gatewayUrl: "http://127.0.0.1:18789",
+        matrixUserId: "@batuhan:beeper.com",
+      }),
+      getOnly: true,
+    }));
+    expect(bridge.start).not.toHaveBeenCalled();
+    expect(bridge.stop).toHaveBeenCalledOnce();
+    expect(JSON.parse(io.stdoutText)).toMatchObject({
+      beeper: {
+        bridgeCreated: true,
+        getOnly: true,
+        homeserver: "https://matrix.beeper.com",
+        userId: "@batuhan:beeper.com",
+      },
+      gateway: {
+        agents: 1,
+        sessions: 1,
+      },
+      ok: true,
+    });
+    expect(io.stdoutText).not.toContain("mx-token");
+  });
+
+  it("starts and stops the Beeper bridge during smoke checks when requested", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-smoke-start-"));
+    const configPath = join(dir, "config.json");
+    await expect(runCli([
+      "init",
+      "--config",
+      configPath,
+      "--data-dir",
+      dir,
+      "--access-token",
+      "mx-token",
+      "--homeserver",
+      "https://matrix.beeper.com",
+      "--matrix-device-id",
+      "DEVICE",
+      "--matrix-user-id",
+      "@batuhan:beeper.com",
+      "--registration-url",
+      "http://127.0.0.1:29391",
+    ], captureIO())).resolves.toBe(0);
+    const runtime = fakeRuntime({}, { status: { ok: true } }, {
+      agents: [{ agentId: "codex", displayName: "Codex" }],
+      sessions: [],
+    });
+    const bridge = { start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined) };
+    const createBridge = vi.fn(async () => bridge as never);
+    const io = captureIO();
+
+    await expect(runCli(["smoke", "--config", configPath, "--start"], io, {
+      createBridge,
+      runtimeFactory: () => runtime,
+    })).resolves.toBe(0);
+
+    expect(createBridge).toHaveBeenCalledWith(expect.objectContaining({ getOnly: false }));
+    expect(bridge.start).toHaveBeenCalledOnce();
+    expect(bridge.stop).toHaveBeenCalledOnce();
+    expect(JSON.parse(io.stdoutText)).toMatchObject({
+      beeper: {
+        bridgeCreated: true,
+        getOnly: false,
+      },
+      ok: true,
+    });
+  });
+
+  it("fails smoke checks when Beeper bridge lifecycle methods are missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-smoke-invalid-"));
+    const configPath = join(dir, "config.json");
+    await expect(runCli([
+      "init",
+      "--config",
+      configPath,
+      "--data-dir",
+      dir,
+      "--access-token",
+      "mx-token",
+      "--homeserver",
+      "https://matrix.beeper.com",
+      "--matrix-device-id",
+      "DEVICE",
+      "--matrix-user-id",
+      "@batuhan:beeper.com",
+    ], captureIO())).resolves.toBe(0);
+    const runtime = fakeRuntime({}, { status: { ok: true } }, {
+      agents: [],
+      sessions: [],
+    });
+    const io = captureIO();
+
+    await expect(runCli(["smoke", "--config", configPath], io, {
+      createBridge: vi.fn(async () => ({}) as never),
+      runtimeFactory: () => runtime,
+    })).resolves.toBe(1);
+
+    expect(runtime.close).toHaveBeenCalledOnce();
+    expect(io.stderrText).toContain("bridge object is missing start/stop lifecycle methods");
   });
 
   it("runs Beeper setup from CLI and persists runtime bridge-manager settings", async () => {
@@ -378,11 +545,16 @@ describe("pickle-openclaw CLI", () => {
   });
 });
 
-function fakeRuntime(responses: Record<string, unknown>, snapshot: unknown = {}) {
+function fakeRuntime(responses: Record<string, unknown>, snapshot: unknown = {}, lists: {
+  agents?: unknown[];
+  sessions?: unknown[];
+} = {}) {
   return {
     call: vi.fn(async (method: string) => responses[method]),
     close: vi.fn(async () => undefined),
     featureSnapshot: vi.fn(async () => snapshot),
+    listAgentContacts: vi.fn(async () => lists.agents ?? []),
+    listSessions: vi.fn(async () => lists.sessions ?? []),
   } as never;
 }
 

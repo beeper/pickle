@@ -27,6 +27,19 @@ describe("OpenClaw Beeper native stream publisher", () => {
           parts: [],
           role: "assistant",
         },
+        "com.beeper.ai.metadata": expect.objectContaining({
+          data: { agent_id: "codex" },
+          model: "openclaw/gateway",
+          protocol: "ag-ui",
+          runId: "turn_1",
+          schema: "com.beeper.ai.run.v1",
+          status: { state: "streaming" },
+          threadId: "turn_1",
+        }),
+        "com.beeper.stream": {
+          type: "com.beeper.llm",
+          user_id: "@openclaw_agent_codex:example.com",
+        },
         msgtype: "m.text",
       },
       roomId: "!room:example.com",
@@ -44,6 +57,19 @@ describe("OpenClaw Beeper native stream publisher", () => {
         "com.beeper.ai": expect.objectContaining({
           parts: [{ state: "done", text: "hello", type: "text" }],
         }),
+        "com.beeper.ai.metadata": expect.objectContaining({
+          protocol: "ag-ui",
+          runId: "turn_1",
+          schema: "com.beeper.ai.run.v1",
+          status: expect.objectContaining({
+            finishReason: "stop",
+            state: "complete",
+          }),
+        }),
+        "com.beeper.stream": {
+          type: "com.beeper.llm",
+          user_id: "@openclaw_agent_codex:example.com",
+        },
         body: "hello",
         msgtype: "m.text",
       }),
@@ -57,15 +83,17 @@ describe("OpenClaw Beeper native stream publisher", () => {
     const publisher = new OpenClawBeeperStreamPublisher({ client, userId: "@bot:example.com" });
     const binding = sessionBinding();
 
-    await publisher.publish(binding, [
+    const startResult = await publisher.publish(binding, [
       { runId: "turn_2", threadId: "turn_2", type: "RUN_STARTED" },
       { messageId: "turn_2", role: "assistant", type: "TEXT_MESSAGE_START" },
     ]);
-    await publisher.publish(binding, [
+    const finishResult = await publisher.publish(binding, [
       { delta: "hi", messageId: "turn_2", type: "TEXT_MESSAGE_CONTENT" },
       { finishReason: "stop", runId: "turn_2", threadId: "turn_2", type: "RUN_FINISHED" },
     ]);
 
+    expect(startResult).toEqual({ targetEventId: "$target" });
+    expect(finishResult).toEqual({ targetEventId: "$target" });
     expect(startMessage).toHaveBeenCalledTimes(1);
     expect(publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
       "RUN_STARTED",
@@ -97,6 +125,44 @@ describe("OpenClaw Beeper native stream publisher", () => {
       "RUN_FINISHED",
     ]);
     expect(finalizeMessage).not.toHaveBeenCalled();
+  });
+
+  it("honors append stream finalization without suppressing the streamed event", async () => {
+    const { client, finalizeMessage } = createClient();
+    const publisher = new OpenClawBeeperStreamPublisher({
+      client,
+      config: { streamFinalization: "append" },
+      userId: "@bot:example.com",
+    });
+
+    const result = await publisher.publish(sessionBinding(), [
+      { delta: "append me", messageId: "turn_append", type: "TEXT_MESSAGE_CONTENT" },
+      { finishReason: "stop", runId: "turn_append", threadId: "turn_append", type: "RUN_FINISHED" },
+    ]);
+
+    expect(result).toEqual({ targetEventId: "$target" });
+    expect(finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
+      body: "append me",
+      eventId: "$target",
+      roomId: "!room:example.com",
+      topLevelContent: {},
+      userId: "@bot:example.com",
+    }));
+  });
+
+  it("suppresses the streamed event when finalizing replacement content by default", async () => {
+    const { client, finalizeMessage } = createClient();
+    const publisher = new OpenClawBeeperStreamPublisher({ client, userId: "@bot:example.com" });
+
+    await publisher.publish(sessionBinding(), [
+      { delta: "replace me", messageId: "turn_replace", type: "TEXT_MESSAGE_CONTENT" },
+      { finishReason: "stop", runId: "turn_replace", threadId: "turn_replace", type: "RUN_FINISHED" },
+    ]);
+
+    expect(finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
+      body: "replace me",
+      topLevelContent: { "com.beeper.dont_render_edited": true },
+    }));
   });
 
   it("drops a terminal run publisher even when Beeper finalization fails", async () => {

@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import {
   createRemoteMessage,
   type BackfillingNetworkAPI,
@@ -22,23 +23,25 @@ import {
   MatrixMessage,
   MatrixMessageResponse,
   MatrixReaction,
+  MatrixReactionRemove,
   MatrixRedaction,
   MessageHandlingNetworkAPI,
   NetworkAPI,
   NetworkGeneralCapabilities,
   Portal,
   ReactionHandlingNetworkAPI,
+  type ReactionRemoveHandlingNetworkAPI,
   type RedactionHandlingNetworkAPI,
   Reaction,
   ResolveIdentifierParams,
   ResolveIdentifierResponse,
   UserLogin,
 } from "@beeper/pickle-bridge";
-import { buildBackfillImport, discoverOneToOneSessions } from "./backfill";
+import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions } from "./backfill";
 import { parseApprovalResponseContent } from "./approval";
 import { OpenClawBeeperStreamPublisher } from "./beeper-stream";
 import { agentPortalSessionKey, OpenClawMatrixBridgeAgent, type OpenClawBridgeStreamPublisher } from "./bridge-agent";
-import { createDefaultConfig } from "./config";
+import { createDefaultConfig, DEFAULT_GATEWAY_URL } from "./config";
 import { createOpenClawHttpTransport, createOpenClawWebSocketTransport, OpenClawGatewayRuntime, type OpenClawMatrixMessageMetadata, type OpenClawTransport } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 import { agentContactFromOpenClawAgent, serviceBotUserId } from "./rooms";
@@ -116,7 +119,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
   getLoginFlows(): LoginFlow[] {
     return [
       {
-        description: "Connect to an existing OpenClaw gateway by URL and optional bearer token.",
+        description: "Connect to an existing OpenClaw gateway by URL.",
         id: "openclaw.gateway",
         name: "OpenClaw Gateway",
       },
@@ -167,23 +170,17 @@ export class OpenClawGatewayLoginProcess implements LoginProcess {
 
   async start(): Promise<LoginStep> {
     return {
-      instructions: "Enter your OpenClaw gateway URL and optional bearer token.",
+      instructions: "Enter your OpenClaw gateway URL.",
       stepId: "openclaw.gateway.credentials",
       type: "user_input",
       userInput: {
         fields: [
           {
-            defaultValue: this.#defaultConfig.gatewayUrl ?? "ws://127.0.0.1:29390",
+            defaultValue: this.#defaultConfig.gatewayUrl ?? DEFAULT_GATEWAY_URL,
             description: "OpenClaw gateway URL.",
             id: "gateway_url",
             name: "Gateway URL",
             type: "url",
-          },
-          {
-            description: "Optional OpenClaw gateway bearer token.",
-            id: "access_token",
-            name: "Access token",
-            type: "token",
           },
         ],
       },
@@ -192,14 +189,12 @@ export class OpenClawGatewayLoginProcess implements LoginProcess {
 
   async submitUserInput(_ctxOrInput?: BridgeRequestContext | Record<string, string>, maybeInput?: Record<string, string>): Promise<LoginStep> {
     const input = maybeInput ?? (_ctxOrInput as Record<string, string> | undefined) ?? {};
-    const gatewayUrl = input.gateway_url || this.#defaultConfig.gatewayUrl || "ws://127.0.0.1:29390";
-    const accessToken = input.access_token || this.#defaultConfig.gatewayAccessToken;
+    const gatewayUrl = input.gateway_url || this.#defaultConfig.gatewayUrl || DEFAULT_GATEWAY_URL;
     return {
       complete: {
         userLogin: {
           id: `openclaw:${encodeLoginId(gatewayUrl)}`,
           metadata: {
-            ...(accessToken ? { gatewayAccessToken: accessToken } : {}),
             gatewayUrl,
           },
           remoteName: "OpenClaw",
@@ -214,7 +209,7 @@ export class OpenClawGatewayLoginProcess implements LoginProcess {
   }
 }
 
-export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, RedactionHandlingNetworkAPI, BackfillingNetworkAPI {
+export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, ReactionRemoveHandlingNetworkAPI, RedactionHandlingNetworkAPI, BackfillingNetworkAPI {
   readonly #agent: OpenClawMatrixBridgeAgent;
   readonly #config: OpenClawBridgeConfig;
   readonly #login: UserLogin;
@@ -269,9 +264,13 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
   }
 
   async resolveIdentifier(ctx: BridgeRequestContext, params: ResolveIdentifierParams): Promise<ResolveIdentifierResponse> {
-    const contact = this.#registry.getAgent(params.identifier) ?? agentContactFromOpenClawAgent(this.#runtime.config, { id: params.identifier });
-    let portal = params.createDM ? portalForAgent(contact, this.#login.id) : undefined;
-    if (portal && params.createDM) {
+    await this.#agent.syncAgentContacts();
+    const contact = findAgentContact(this.#registry.data.agents, params.identifier);
+    if (!contact) return {};
+    let portal = params.createDM
+      ? existingAgentPortal(this.#registry.getBindingBySessionKey(agentPortalSessionKey(contact.agentId)), this.#login.id) ?? portalForAgent(contact, this.#login.id)
+      : undefined;
+    if (portal && params.createDM && !portal.mxid) {
       const portalOptions: Parameters<typeof ctx.bridge.createPortal>[1] = {
         id: portal.id,
         metadata: portal.metadata,
@@ -324,10 +323,17 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     if (!this.isAllowedMatrixIngress(msg.portal.mxid, msg.sender.userId)) return { pending: false };
     const binding = bindingFromPortal(msg.portal);
     if (binding && !this.#registry.getBindingByRoom(msg.portal.mxid ?? "")) this.#registry.upsertBinding(binding);
+    const currentBinding = msg.portal.mxid ? this.#registry.getBindingByRoom(msg.portal.mxid) ?? binding : binding;
+    const approval = parseApprovalResponseContent(msg.content);
+    if (approval) {
+      if (approvalNativeEnabled(this.#runtime.config)) {
+        await this.#agent.handleApprovalContent(msg.content, approval.approvalId ?? approvalIdFromMatrixReply(msg));
+      }
+      return { pending: false };
+    }
     const parsed = parseMatrixTextMessage(msg.text, msg.content, msg);
     if (msg.portal.mxid) {
       if (parsed.command?.name === "stop" || parsed.command?.name === "abort") {
-        const currentBinding = this.#registry.getBindingByRoom(msg.portal.mxid) ?? binding;
         const abortOptions: { runId?: string; sessionKey?: string } = {};
         if (currentBinding?.lastRunId) abortOptions.runId = currentBinding.lastRunId;
         if (currentBinding?.sessionKey) abortOptions.sessionKey = currentBinding.sessionKey;
@@ -340,7 +346,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
       await this.#agent.handleMatrixText({
         ...(parsed.attachments.length > 0 ? { attachments: parsed.attachments } : {}),
         eventId: msg.event.eventId,
-        matrix: matrixMetadataFromParsed(parsed, msg.sender.userId),
+        matrix: matrixMetadataFromParsed(parsed, msg.sender.userId, streamTargetRelationPatch(currentBinding, parsed.replyToEventId)),
         roomId: msg.portal.mxid,
         ...(parsed.replyToEventId ? { replyToEventId: parsed.replyToEventId } : {}),
         sender: msg.sender.userId,
@@ -355,6 +361,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     this.upsertPortalBinding(msg.portal);
     const parsed = parseMatrixTextMessage(msg.text, msg.content, msg);
     const targetId = msg.targetMessage.id;
+    const binding = msg.portal.mxid ? this.#registry.getBindingByRoom(msg.portal.mxid) : undefined;
     if (msg.portal.mxid) {
       await this.#agent.handleMatrixText({
         ...(parsed.attachments.length > 0 ? { attachments: parsed.attachments } : {}),
@@ -362,6 +369,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         matrix: matrixMetadataFromParsed(parsed, msg.sender.userId, {
           kind: "edit",
           targetEventId: targetId,
+          ...streamTargetRelationPatch(binding, targetId),
         }),
         roomId: msg.portal.mxid,
         replyToEventId: targetId,
@@ -385,6 +393,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     const reactionKey = matrixReactionKey(msg.content);
     if (!reactionKey || !msg.portal.mxid) return null;
     this.upsertPortalBinding(msg.portal);
+    const binding = this.#registry.getBindingByRoom(msg.portal.mxid);
     await this.#agent.handleMatrixText({
       eventId: msg.event.eventId,
       matrix: {
@@ -392,6 +401,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
           key: reactionKey,
           kind: "reaction",
           targetEventId: msg.targetMessage.id,
+          ...streamTargetRelationPatch(binding, msg.targetMessage.id),
         },
         sender: senderUserId(msg.event.sender) ?? "reaction",
       },
@@ -403,16 +413,45 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     return { id: msg.event.eventId, metadata: { openclaw: { reaction: reactionKey, targetMessageId: msg.targetMessage.id } } };
   }
 
+  async handleMatrixReactionRemove(_ctx: BridgeRequestContext, msg: MatrixReactionRemove): Promise<void> {
+    if (!this.isAllowedMatrixIngress(msg.portal.mxid, senderUserId(msg.event.sender))) return;
+    const reactionKey = matrixReactionKey(msg.content);
+    if (!msg.portal.mxid) return;
+    this.upsertPortalBinding(msg.portal);
+    const binding = this.#registry.getBindingByRoom(msg.portal.mxid);
+    await this.#agent.handleMatrixText({
+      eventId: msg.event.eventId,
+      matrix: {
+        relation: {
+          ...(reactionKey ? { key: reactionKey } : {}),
+          kind: "reaction_remove",
+          targetEventId: msg.targetMessage.id,
+          ...(msg.targetReaction.id ? { targetReactionId: msg.targetReaction.id } : {}),
+          ...streamTargetRelationPatch(binding, msg.targetMessage.id),
+        },
+        sender: senderUserId(msg.event.sender) ?? "reaction",
+      },
+      roomId: msg.portal.mxid,
+      replyToEventId: msg.targetMessage.id,
+      sender: senderUserId(msg.event.sender) ?? "reaction",
+      text: reactionKey
+        ? `Removed reaction ${reactionKey} from ${msg.targetMessage.id}`
+        : `Removed reaction from ${msg.targetMessage.id}`,
+    });
+  }
+
   async handleMatrixRedaction(_ctx: BridgeRequestContext, msg: MatrixRedaction): Promise<void> {
     if (!msg.portal.mxid) return;
     if (!this.isAllowedRoom(msg.portal.mxid)) return;
     this.upsertPortalBinding(msg.portal);
+    const binding = this.#registry.getBindingByRoom(msg.portal.mxid);
     await this.#agent.handleMatrixText({
       eventId: msg.eventId,
       matrix: {
         relation: {
           kind: "redaction",
           ...(msg.targetMessage?.id ? { targetEventId: msg.targetMessage.id } : {}),
+          ...streamTargetRelationPatch(binding, msg.targetMessage?.id),
         },
         sender: "redaction",
       },
@@ -474,8 +513,9 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
   ): Promise<MatrixMessageResponse> {
     switch (command.name) {
       case "status":
-      case "settings":
         return commandNotice(ctx, this.#login, msg, bridgeStatusText(this.#runtime.config, this.#registry.data.bindings.length));
+      case "settings":
+        return commandNotice(ctx, this.#login, msg, bridgeSettingsText(this.#runtime.config, this.#registry.data.bindings.length));
       case "sessions": {
         const options: Parameters<typeof discoverOneToOneSessions>[1] = {};
         if (this.#runtime.config.importSources !== undefined) options.importSources = this.#runtime.config.importSources;
@@ -483,9 +523,19 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         return commandNotice(ctx, this.#login, msg, sessionsSummaryText(sessions));
       }
       case "backfill":
-      case "import": {
-        const count = await this.backfillCurrentRoom(binding, msg);
+        const count = await this.backfillCurrentRoom(ctx, binding, msg);
         return commandNotice(ctx, this.#login, msg, `Queued backfill for ${count} message${count === 1 ? "" : "s"}.`);
+      case "import": {
+        const importOptions: Parameters<typeof backfillAllOpenClawSessions>[0] = {
+          bridge: ctx.bridge,
+          login: this.#login,
+          registry: this.#registry,
+          runtime: this.#runtime,
+        };
+        if (this.#runtime.config.importSources !== undefined) importOptions.importSources = this.#runtime.config.importSources;
+        if (this.#runtime.config.backfillLimit !== undefined) importOptions.limit = this.#runtime.config.backfillLimit;
+        const result = await backfillAllOpenClawSessions(importOptions);
+        return commandNotice(ctx, this.#login, msg, importSummaryText(result));
       }
       case "new": {
         const request = this.resolveNewSessionCommand(command.args, binding);
@@ -550,7 +600,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     }
   }
 
-  async backfillCurrentRoom(binding: OpenClawSessionBinding | undefined, msg: MatrixMessage): Promise<number> {
+  async backfillCurrentRoom(ctx: BridgeRequestContext, binding: OpenClawSessionBinding | undefined, msg: MatrixMessage): Promise<number> {
     const roomId = msg.portal.mxid;
     if (!binding || !roomId) return 0;
     const importOptions: { limit?: number; roomId: string } = { roomId };
@@ -564,6 +614,9 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     }, importOptions);
     if (imported.human) this.#registry.upsertUser(imported.human);
     this.#registry.upsertBinding(imported.binding);
+    const backfillOptions: { limit?: number } = {};
+    if (this.#runtime.config.backfillLimit !== undefined) backfillOptions.limit = this.#runtime.config.backfillLimit;
+    await ctx.bridge.backfillPortal(this.#login, msg.portal, backfillOptions);
     await this.#registry.save();
     return imported.messages.length;
   }
@@ -640,11 +693,45 @@ function bridgeStatusText(config: OpenClawBridgeConfig, boundRooms: number): str
     "OpenClaw Beeper bridge",
     `Gateway: ${config.gatewayUrl ?? "not configured"}`,
     `Import sources: ${(config.importSources ?? []).join(", ") || "none"}`,
-    `Approvals: ${config.approvalBehavior ?? "native"}`,
+    `Approvals: ${describeApprovalBehavior(config.approvalBehavior)}`,
     `Stream finalization: ${config.streamFinalization ?? "replace"}`,
     `Backfill limit: ${config.backfillLimit ?? "default"}`,
     `Bound rooms: ${boundRooms}`,
   ].join("\n");
+}
+
+function bridgeSettingsText(config: OpenClawBridgeConfig, boundRooms: number): string {
+  return [
+    "OpenClaw Beeper settings",
+    `Beeper environment: ${config.beeperEnv ?? "production"}`,
+    `Homeserver: ${config.homeserver ?? "not configured"}`,
+    `Registration URL: ${config.registrationUrl ?? "not configured"}`,
+    `Gateway: ${config.gatewayUrl ?? "not configured"}`,
+    `Bridge manager token: ${config.bridgeManagerToken ? "configured" : "not configured"}`,
+    `Post bridge state: ${config.bridgeManagerPostState === undefined ? "default" : config.bridgeManagerPostState ? "enabled" : "disabled"}`,
+    `Import sources: ${(config.importSources ?? []).join(", ") || "none"}`,
+    `Backfill limit: ${config.backfillLimit ?? "default"}`,
+    `Contact visibility: ${config.contactVisibility ?? "agents"}`,
+    `Stream finalization: ${config.streamFinalization ?? "replace"}`,
+    `Approvals: ${describeApprovalBehavior(config.approvalBehavior)}`,
+    `Non-federated rooms: ${config.nonFederatedRooms ? "yes" : "no"}`,
+    `Allowed rooms: ${config.allowedRoomIds?.length ? config.allowedRoomIds.join(", ") : "all"}`,
+    `Allowed users: ${config.allowedUserIds?.length ? config.allowedUserIds.join(", ") : "all"}`,
+    `Bound rooms: ${boundRooms}`,
+  ].join("\n");
+}
+
+function describeApprovalBehavior(behavior: OpenClawBridgeConfig["approvalBehavior"]): string {
+  switch (behavior ?? "native") {
+    case "native":
+      return "native Beeper UI with slash/reaction escape hatches";
+    case "reactions":
+      return "reaction fallback only";
+    case "slash":
+      return "slash command fallback only";
+    case "disabled":
+      return "disabled";
+  }
 }
 
 function approvalReactionsEnabled(config: OpenClawBridgeConfig): boolean {
@@ -653,6 +740,10 @@ function approvalReactionsEnabled(config: OpenClawBridgeConfig): boolean {
 
 function approvalSlashEnabled(config: OpenClawBridgeConfig): boolean {
   return config.approvalBehavior === undefined || config.approvalBehavior === "native" || config.approvalBehavior === "slash";
+}
+
+function approvalNativeEnabled(config: OpenClawBridgeConfig): boolean {
+  return config.approvalBehavior === undefined || config.approvalBehavior === "native";
 }
 
 function openClawPortalCreationContent(config: OpenClawBridgeConfig): Record<string, unknown> | undefined {
@@ -664,20 +755,45 @@ function sessionsSummaryText(sessions: Awaited<ReturnType<typeof discoverOneToOn
   return sessions.slice(0, 20).map((session) => `${session.label} (${session.source})`).join("\n");
 }
 
+function importSummaryText(result: Awaited<ReturnType<typeof backfillAllOpenClawSessions>>): string {
+  const imported = result.sessions.length;
+  const skipped = result.skipped.length;
+  if (imported === 0 && skipped === 0) return "No importable OpenClaw sessions found for the enabled import sources.";
+  return [
+    `Imported ${imported} OpenClaw session${imported === 1 ? "" : "s"}.`,
+    `Skipped ${skipped} already imported or unavailable session${skipped === 1 ? "" : "s"}.`,
+  ].join("\n");
+}
+
+function streamTargetRelationPatch(
+  binding: OpenClawSessionBinding | undefined,
+  targetEventId: string | undefined,
+): Partial<NonNullable<OpenClawMatrixMessageMetadata["relation"]>> {
+  if (!binding?.lastStreamTargetEventId || binding.lastStreamTargetEventId !== targetEventId) return {};
+  const patch: Partial<NonNullable<OpenClawMatrixMessageMetadata["relation"]>> = {
+    targetSessionKey: binding.sessionKey,
+  };
+  const targetRunId = binding.lastStreamRunId ?? binding.lastRunId;
+  if (targetRunId) patch.targetRunId = targetRunId;
+  return patch;
+}
+
 function matrixMetadataFromParsed(
   parsed: ParsedMatrixTextMessage,
   sender: string,
   relationPatch: NonNullable<OpenClawMatrixMessageMetadata["relation"]> = {},
 ): OpenClawMatrixMessageMetadata {
   const metadata: OpenClawMatrixMessageMetadata = { sender };
+  if (parsed.attachments.length > 0) metadata.attachments = parsed.attachments as NonNullable<OpenClawMatrixMessageMetadata["attachments"]>;
   if (parsed.formattedBody) metadata.formattedBody = parsed.formattedBody;
   if (parsed.mentions) metadata.mentions = parsed.mentions;
   if (parsed.threadRootEventId) metadata.threadRootEventId = parsed.threadRootEventId;
-  if (parsed.replyToEventId || parsed.threadRootEventId || Object.keys(relationPatch).length > 0) {
+  if (parsed.replyToEventId || parsed.threadRootEventId || parsed.replyQuote || Object.keys(relationPatch).length > 0) {
     metadata.relation = {
       kind: parsed.threadRootEventId ? "thread" : "reply",
       ...(parsed.replyToEventId ? { replyToEventId: parsed.replyToEventId } : {}),
       ...(parsed.threadRootEventId ? { threadRootEventId: parsed.threadRootEventId } : {}),
+      ...(parsed.replyQuote ? { quote: parsed.replyQuote } : {}),
       ...relationPatch,
     };
   }
@@ -696,6 +812,35 @@ function portalForAgent(contact: OpenClawAgentContact, receiver: string): Portal
       },
     },
     portalKey: { id, receiver },
+    receiver,
+    roomType: "dm",
+  };
+}
+
+function findAgentContact(contacts: readonly OpenClawAgentContact[], identifier: string): OpenClawAgentContact | undefined {
+  const normalized = identifier.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return contacts.find((contact) =>
+    contact.agentId.toLowerCase() === normalized ||
+    contact.ghostUserId.toLowerCase() === normalized ||
+    contact.displayName.toLowerCase() === normalized
+  );
+}
+
+function existingAgentPortal(binding: OpenClawSessionBinding | undefined, receiver: string): Portal | undefined {
+  if (!binding) return undefined;
+  if (!binding.roomId) return undefined;
+  return {
+    id: `agent:${binding.agentId}`,
+    metadata: {
+      openclaw: {
+        agentId: binding.agentId,
+        ghostUserId: binding.ghostUserId,
+        sessionKey: binding.sessionKey,
+      },
+    },
+    mxid: binding.roomId,
+    portalKey: { id: `agent:${binding.agentId}`, receiver },
     receiver,
     roomType: "dm",
   };
@@ -757,10 +902,11 @@ function transportFromLogin(login: UserLogin, config: OpenClawBridgeConfig): Ope
   const gatewayUrl = stringValue(metadata?.gatewayUrl) ?? config.gatewayUrl;
   if (!gatewayUrl) throw new Error("OpenClaw gateway URL is not configured");
   const options: Parameters<typeof createOpenClawHttpTransport>[0] = { url: gatewayUrl };
-  const accessToken = stringValue(metadata?.gatewayAccessToken) ?? stringValue(metadata?.accessToken) ?? config.gatewayAccessToken;
-  if (accessToken !== undefined) options.accessToken = accessToken;
   if (gatewayUrl.startsWith("ws://") || gatewayUrl.startsWith("wss://")) {
-    return createOpenClawWebSocketTransport(options);
+    return createOpenClawWebSocketTransport({
+      ...options,
+      deviceIdentityPath: resolve(config.dataDir, "gateway-device.json"),
+    });
   }
   return createOpenClawHttpTransport(options);
 }
@@ -771,7 +917,6 @@ export function userLoginFromOpenClawConfig(config: OpenClawBridgeConfig): UserL
   return {
     id: `openclaw:${encodeLoginId(gatewayUrl)}`,
     metadata: {
-      ...(config.gatewayAccessToken ? { gatewayAccessToken: config.gatewayAccessToken } : {}),
       gatewayUrl,
     },
     remoteName: "OpenClaw",
@@ -828,33 +973,49 @@ export interface ParsedMatrixTextMessage {
   };
   formattedBody?: string;
   mentions?: { room?: boolean; userIds?: string[] };
+  replyQuote?: {
+    body?: string;
+    sender?: string;
+  };
   replyToEventId?: string;
   text: string;
   threadRootEventId?: string;
 }
 
 export function parseMatrixTextMessage(text: string, content: unknown, msg?: Pick<MatrixMessage, "attachments" | "event" | "replyTo" | "threadRoot">): ParsedMatrixTextMessage {
-  const relates = recordValue(recordValue(content)?.["m.relates_to"]);
+  const contentRecord = recordValue(content);
+  const newContent = recordValue(contentRecord?.["m.new_content"]);
+  const messageContent = newContent ?? contentRecord;
+  const relates = recordValue(contentRecord?.["m.relates_to"]);
+  const effectiveText = stringValue(messageContent?.body) ?? text;
   const replyToEventId =
     stringValue(msg?.replyTo?.id) ??
     stringValue(msg?.event.replyTo) ??
     stringValue(recordValue(relates?.["m.in_reply_to"])?.event_id) ??
     (relates?.rel_type === "m.thread" ? stringValue(relates.event_id) : undefined);
   const threadRootEventId = stringValue(msg?.threadRoot?.id) ?? stringValue(msg?.event.threadRoot) ?? (relates?.rel_type === "m.thread" ? stringValue(relates.event_id) : undefined);
-  const body = stripMatrixReplyFallback(text);
-  const command = parseSlashCommand(body);
-  const formattedBody = stringValue(recordValue(content)?.formatted_body) ?? stringValue(msg?.event.html);
-  const mentions = normalizeMentions(recordValue(content)?.["m.mentions"] ?? msg?.event.mentions);
-  const attachments = normalizeMatrixAttachments(msg?.attachments ?? msg?.event.attachments ?? [], content);
+  const fallback = extractMatrixReplyFallback(effectiveText);
+  const body = fallback.body;
+  const command = parseSlashCommand(body) ?? parseSlashCommand(stripLeadingMatrixMention(body));
+  const formattedBody = stripMatrixHtmlReplyFallback(stringValue(messageContent?.formatted_body) ?? stringValue(msg?.event.html));
+  const mentions = normalizeMentions(messageContent?.["m.mentions"] ?? contentRecord?.["m.mentions"] ?? msg?.event.mentions);
+  const attachments = normalizeMatrixAttachments(msg?.attachments ?? msg?.event.attachments ?? [], messageContent ?? content);
   return {
     attachments,
     ...(command ? { command } : {}),
     ...(formattedBody ? { formattedBody } : {}),
     ...(mentions ? { mentions } : {}),
+    ...(fallback.quote ? { replyQuote: fallback.quote } : {}),
     ...(replyToEventId ? { replyToEventId } : {}),
     text: body,
     ...(threadRootEventId ? { threadRootEventId } : {}),
   };
+}
+
+function stripMatrixHtmlReplyFallback(html: string | undefined): string | undefined {
+  if (!html) return undefined;
+  const stripped = html.replace(/^\s*<mx-reply>[\s\S]*?<\/mx-reply>\s*/iu, "").trim();
+  return stripped || undefined;
 }
 
 function normalizeMatrixAttachments(attachments: unknown[], content: unknown): unknown[] {
@@ -909,12 +1070,39 @@ function normalizeMentions(value: unknown): ParsedMatrixTextMessage["mentions"] 
   return mentions.room || mentions.userIds?.length ? mentions : undefined;
 }
 
-function stripMatrixReplyFallback(text: string): string {
+function extractMatrixReplyFallback(text: string): {
+  body: string;
+  quote?: {
+    body?: string;
+    sender?: string;
+  };
+} {
   const lines = text.replace(/\r\n?/gu, "\n").split("\n");
   let index = 0;
   while (index < lines.length && lines[index]?.startsWith(">")) index += 1;
+  const quotedLines = lines.slice(0, index).map((line) => line.replace(/^>\s?/u, ""));
   if (index > 0 && lines[index] === "") index += 1;
-  return lines.slice(index).join("\n").trim();
+  const body = lines.slice(index).join("\n").trim();
+  const quote = parseMatrixReplyQuote(quotedLines);
+  return {
+    body,
+    ...(quote ? { quote } : {}),
+  };
+}
+
+function parseMatrixReplyQuote(lines: string[]): { body?: string; sender?: string } | undefined {
+  const text = lines.join("\n").trim();
+  if (!text) return undefined;
+  const firstLine = lines[0]?.trim() ?? "";
+  const senderMatch = /^<([^>]+)>\s?(.*)$/su.exec(firstLine);
+  const sender = senderMatch?.[1]?.trim();
+  const firstBody = senderMatch?.[2] ?? firstLine;
+  const rest = lines.slice(1);
+  const body = [firstBody, ...rest].join("\n").trim();
+  return stripUndefined({
+    ...(body ? { body } : {}),
+    ...(sender ? { sender } : {}),
+  });
 }
 
 function parseSlashCommand(text: string): ParsedMatrixTextMessage["command"] | undefined {
@@ -925,6 +1113,10 @@ function parseSlashCommand(text: string): ParsedMatrixTextMessage["command"] | u
     args: match[2] ?? "",
     name: match[1]!.toLowerCase(),
   };
+}
+
+function stripLeadingMatrixMention(text: string): string {
+  return text.trimStart().replace(/^@[^\s:]+(?::[^\s]+)?\s+/u, "");
 }
 
 function stripUndefined<T extends Record<string, unknown>>(input: T): T {

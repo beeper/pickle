@@ -33,6 +33,7 @@ export interface OpenClawSessionBinding {
   updatedAt: number;
   lastRunId?: string;
   lastMatrixEventId?: string;
+  lastStreamRunId?: string;
   lastStreamTargetEventId?: string;
 }
 
@@ -51,7 +52,6 @@ export interface OpenClawBridgeConfig {
   contactVisibility?: "agents" | "agents-and-users" | "none";
   dataDir: string;
   ghostLocalpartPrefix: string;
-  gatewayAccessToken?: string;
   gatewayUrl?: string;
   homeserver?: string;
   hsToken?: string;

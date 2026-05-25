@@ -143,15 +143,14 @@ export async function backfillAllOpenClawSessions(options: BackfillAllOpenClawSe
     }
     const importOptions: { limit?: number; roomId: string } = { roomId: portal.mxid };
     if (options.limit !== undefined) importOptions.limit = options.limit;
-    const imported = await buildBackfillImport(options.runtime, options.runtime.config, session, {
-      ...importOptions,
-    });
-    options.registry.upsertBinding(imported.binding);
+    const imported = await buildBackfillImport(options.runtime, options.runtime.config, session, importOptions);
     await options.bridge.backfillPortal(options.login, portal, {
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
     });
+    options.registry.upsertBinding(imported.binding);
     importedSessions.push(session);
   }
+  await options.registry.save();
   return { portals, sessions: importedSessions, skipped };
 }
 
@@ -173,7 +172,7 @@ export function shouldImportSession(
 ): boolean {
   if (!importSources || importSources.length === 0) return false;
   const normalized = new Set(importSources);
-  if (session.updatedAt === null && !normalized.has("archived")) return false;
+  if (session.updatedAt === null) return normalized.has("archived");
   const source = sessionSource(session);
   if (source === "terminal") return normalized.has("tui");
   if (source === "mac-app") return normalized.has("dashboard");

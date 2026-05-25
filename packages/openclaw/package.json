@@ -147,10 +147,10 @@
       "clawhubSpec": "clawhub:@beeper/pickle-openclaw@0.1.0",
       "npmSpec": "@beeper/pickle-openclaw@0.1.0",
       "defaultChoice": "clawhub",
-      "minHostVersion": ">=2026.5.24"
+      "minHostVersion": ">=2026.5.22"
     },
     "compat": {
-      "pluginApi": ">=2026.5.24"
+      "pluginApi": ">=2026.5.22"
     },
     "build": {
       "openclawVersion": "2026.5.24"
@@ -166,14 +166,15 @@
   "scripts": {
     "build": "tsdown",
     "clean": "rm -rf dist",
+    "prepublishOnly": "node ../../scripts/guard-pnpm-publish.mjs",
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@beeper/pickle": "workspace:*",
-    "@beeper/pickle-ag-ui": "workspace:*",
-    "@beeper/pickle-bridge": "workspace:*",
-    "@beeper/pickle-state-file": "workspace:*"
+    "@beeper/pickle": "workspace:^",
+    "@beeper/pickle-ag-ui": "workspace:^",
+    "@beeper/pickle-bridge": "workspace:^",
+    "@beeper/pickle-state-file": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -183,7 +184,7 @@
     "vitest": "^4.0.18"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.5.24"
+    "openclaw": ">=2026.5.22"
   },
   "peerDependenciesMeta": {
     "openclaw": {

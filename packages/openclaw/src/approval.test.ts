@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  createBeeperApprovalNotice,
+  defaultBeeperApprovalChoices,
   parseApprovalReactionContent,
   parseApprovalResponseContent,
   parseToolApprovalResponseChunk,
@@ -27,6 +29,106 @@ describe("OpenClaw approval response parsing", () => {
       approvalId: "approval_1",
       decision: "approve",
       toolCallId: "call_1",
+    });
+  });
+
+  it("preserves plugin approval kind from native content and reactions", () => {
+    const reaction = parseApprovalReactionContent({
+      approvalKind: "plugin",
+      "m.relates_to": {
+        event_id: "plugin:approval_1",
+        key: "✅",
+        rel_type: "m.annotation",
+      },
+    });
+    expect(reaction).toEqual({
+      approvalId: "plugin:approval_1",
+      approvalKind: "plugin",
+      approved: true,
+      approvedAlways: false,
+      decision: "allow_once",
+    });
+    expect(toOpenClawApprovalResolvePayload("plugin:approval_1", reaction!)).toEqual({
+      approvalId: "plugin:approval_1",
+      approvalKind: "plugin",
+      decision: "approve",
+    });
+
+    expect(parseApprovalResponseContent({
+      approvalId: "plugin:approval_2",
+      approvalKind: "plugin",
+      approved: false,
+      type: "tool-approval-response",
+    })).toEqual({
+      approvalId: "plugin:approval_2",
+      approvalKind: "plugin",
+      approved: false,
+      approvedAlways: false,
+      decision: "deny",
+    });
+  });
+
+  it("also accepts ai-bridge/OpenClaw Matrix approval choice keys and emoji as fallback reactions", () => {
+    expect(parseApprovalReactionContent({
+      "m.relates_to": {
+        event_id: "approval_ai_1",
+        key: "✅",
+      },
+    })).toMatchObject({
+      approvalId: "approval_ai_1",
+      approved: true,
+      approvedAlways: false,
+      decision: "allow_once",
+    });
+
+    expect(parseApprovalReactionContent({
+      "m.relates_to": {
+        event_id: "approval_ai_2",
+        key: "always_approve",
+      },
+    })).toMatchObject({
+      approvalId: "approval_ai_2",
+      approved: true,
+      approvedAlways: true,
+      decision: "allow_always",
+    });
+
+    expect(parseApprovalReactionContent({
+      "m.relates_to": {
+        event_id: "approval_ai_3",
+        key: "❌",
+      },
+    })).toMatchObject({
+      approvalId: "approval_ai_3",
+      approved: false,
+      approvedAlways: false,
+      decision: "deny",
+    });
+  });
+
+  it("builds the same approval notice shape as ai-bridge matrix content", () => {
+    expect(defaultBeeperApprovalChoices()).toEqual([
+      { alias: "✅", key: "approve", label: "Allow once" },
+      { alias: "☑️", key: "always_approve", label: "Allow always" },
+      { alias: "❌", key: "deny", label: "Deny", style: "danger" },
+    ]);
+    expect(createBeeperApprovalNotice({
+      approvalId: "approval_1",
+      messageId: "msg_1",
+      toolCallId: "call_1",
+      toolName: "shell",
+    })).toEqual({
+      choices: [
+        { alias: "✅", key: "approve", label: "Allow once" },
+        { alias: "☑️", key: "always_approve", label: "Allow always" },
+        { alias: "❌", key: "deny", label: "Deny", style: "danger" },
+      ],
+      id: "approval_1",
+      messageId: "msg_1",
+      schema: "com.beeper.ai.approval.v1",
+      state: "requested",
+      toolCallId: "call_1",
+      toolName: "shell",
     });
   });
 
@@ -86,6 +188,50 @@ describe("OpenClaw approval response parsing", () => {
       approvedAlways: true,
       decision: "allow_room",
       toolCallId: "call_4",
+    });
+  });
+
+  it("accepts AG-UI approval response events and accumulated Beeper AI parts", () => {
+    expect(parseToolApprovalResponseChunk({
+      name: "approval-responded",
+      type: "CUSTOM",
+      value: {
+        approval: {
+          always: true,
+          approved: true,
+          id: "approval_5",
+        },
+        toolCallId: "call_5",
+      },
+    })).toEqual({
+      approvalId: "approval_5",
+      approved: true,
+      approvedAlways: true,
+      decision: "allow_always",
+      toolCallId: "call_5",
+    });
+
+    expect(parseApprovalResponseContent({
+      "com.beeper.ai": {
+        parts: [
+          {
+            approval: {
+              approved: true,
+              id: "approval_6",
+              reason: "allow",
+            },
+            state: "approval-responded",
+            toolCallId: "call_6",
+            type: "dynamic-tool",
+          },
+        ],
+      },
+    })).toEqual({
+      approvalId: "approval_6",
+      approved: true,
+      approvedAlways: false,
+      decision: "allow_once",
+      toolCallId: "call_6",
     });
   });
 });

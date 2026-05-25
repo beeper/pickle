@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
@@ -204,6 +205,66 @@ func TestCreateBeeperStreamUsesMautrixEncryptionDecision(t *testing.T) {
 	}
 	if len(result.Descriptor.Encryption.Key) != 32 {
 		t.Fatalf("unexpected stream encryption key length: %d", len(result.Descriptor.Encryption.Key))
+	}
+}
+
+func TestBeeperStreamCarrierContentUsesAIBridgeEnvelopeShape(t *testing.T) {
+	core := New(nil)
+
+	content, err := core.beeperStreamCarrierContent("com.beeper.llm", MatrixPublishBeeperStreamMessagePartOptions{
+		AgentID: "codex",
+		EventID: "$stream",
+		Part: OutboundEvent{
+			"delta":     "hello",
+			"messageId": "msg-1",
+			"model":     "openclaw/codex",
+			"runId":     "run-1",
+			"threadId":  "thread-1",
+			"type":      "TEXT_MESSAGE_CONTENT",
+		},
+		TurnID: "run-1",
+	}, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deltas, ok := content[aistream.BeeperAIStreamDeltas].([]aistream.Envelope)
+	if !ok || len(deltas) != 1 {
+		t.Fatalf("expected ai-bridge deltas envelope, got %#v", content)
+	}
+	envelope := deltas[0]
+	if envelope.Seq != 7 || envelope.TargetEvent != "$stream" || envelope.AgentID != "codex" {
+		t.Fatalf("unexpected ai-bridge envelope routing fields: %#v", envelope)
+	}
+	if envelope.ThreadID != "thread-1" || envelope.RunID != "run-1" || envelope.MessageID != "msg-1" {
+		t.Fatalf("unexpected ai-bridge run identity: %#v", envelope)
+	}
+	if envelope.RelatesTo.Type != "m.reference" || envelope.RelatesTo.EventID != "$stream" {
+		t.Fatalf("expected ai-bridge reference relation, got %#v", envelope.RelatesTo)
+	}
+	if envelope.Part["type"] != "TEXT_MESSAGE_CONTENT" || envelope.Part["delta"] != "hello" {
+		t.Fatalf("unexpected ai-bridge part payload: %#v", envelope.Part)
+	}
+	if _, ok := envelope.Part["timestamp"]; !ok {
+		t.Fatalf("expected native bridge to add timestamp before ai-bridge validation: %#v", envelope.Part)
+	}
+
+	remapped, err := core.beeperStreamCarrierContent("com.example.custom", MatrixPublishBeeperStreamMessagePartOptions{
+		EventID: "$stream",
+		Part: OutboundEvent{
+			"delta":     "custom",
+			"messageId": "turn-1",
+			"type":      "TEXT_MESSAGE_CONTENT",
+		},
+		TurnID: "turn-1",
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := remapped[aistream.BeeperAIStreamDeltas]; ok {
+		t.Fatalf("expected custom stream type to remap ai-bridge deltas key, got %#v", remapped)
+	}
+	if _, ok := remapped["com.example.custom.deltas"].([]aistream.Envelope); !ok {
+		t.Fatalf("expected custom stream deltas to still use ai-bridge envelopes, got %#v", remapped)
 	}
 }
 

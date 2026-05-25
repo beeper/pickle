@@ -62,6 +62,39 @@ describe("OpenClawMatrixBridgeAgent", () => {
     ]);
   });
 
+  it("persists the Beeper stream target event id for later relation handling", async () => {
+    const registry = await tempRegistry();
+    registry.upsertBinding(testBinding());
+    const streams: OpenClawBridgeStreamPublisher = {
+      publish: vi.fn(async () => ({ targetEventId: "$stream-root" })),
+    };
+    const agent = new OpenClawMatrixBridgeAgent({
+      registry,
+      runtime: runtimeWith({
+        events: [
+          { event: "assistant.delta", payload: { data: { delta: "hi" }, runId: "run_1", type: "assistant.delta" } },
+          { event: "run.completed", payload: { runId: "run_1", type: "run.completed" } },
+        ],
+        responses: { "sessions.send": { runId: "run_1", sessionKey: "agent:codex:main" } },
+      }),
+      streams,
+    });
+
+    await agent.handleMatrixText({
+      eventId: "$event",
+      roomId: "!room:example.com",
+      sender: "@alice:example.com",
+      text: "hello",
+    });
+
+    expect(registry.getBindingByRoom("!room:example.com")).toMatchObject({
+      lastMatrixEventId: "$event",
+      lastRunId: "run_1",
+      lastStreamRunId: "run_1",
+      lastStreamTargetEventId: "$stream-root",
+    });
+  });
+
   it("does not poison message dedupe when OpenClaw send fails before persistence", async () => {
     const registry = await tempRegistry();
     registry.upsertBinding(testBinding());
@@ -206,9 +239,46 @@ describe("OpenClawMatrixBridgeAgent", () => {
     ]);
   });
 
+  it("stops consuming gateway events after a terminal run event", async () => {
+    const registry = await tempRegistry();
+    const binding = testBinding();
+    let consumedAfterTerminal = false;
+    const runtime = new OpenClawGatewayRuntime({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      transport: {
+        async *events() {
+          yield { event: "run.completed", payload: { runId: "run_1", type: "run.completed" } };
+          consumedAfterTerminal = true;
+          yield { event: "assistant.delta", payload: { data: { delta: "late" }, runId: "run_1", type: "assistant.delta" } };
+        },
+        request: vi.fn(),
+      },
+    });
+    const streams: OpenClawBridgeStreamPublisher = {
+      publish: vi.fn(),
+    };
+    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime, streams });
+
+    await agent.streamRun(binding, "run_1");
+
+    expect(consumedAfterTerminal).toBe(false);
+    expect(streams.publish).toHaveBeenCalledWith(expect.objectContaining({
+      ...binding,
+      lastRunId: "run_1",
+      lastStreamRunId: "run_1",
+    }), expect.arrayContaining([
+      expect.objectContaining({ type: "RUN_FINISHED" }),
+    ]));
+  });
+
   it("forwards Beeper approval responses back to OpenClaw", async () => {
     const registry = await tempRegistry();
-    const runtime = runtimeWith({ responses: { "exec.approval.resolve": { ok: true } } });
+    const runtime = runtimeWith({
+      responses: {
+        "exec.approval.resolve": { ok: true },
+        "plugin.approval.resolve": { ok: true },
+      },
+    });
     const agent = new OpenClawMatrixBridgeAgent({ registry, runtime, streams: { publish: vi.fn() } });
 
     await expect(agent.handleApprovalContent({
@@ -227,6 +297,22 @@ describe("OpenClawMatrixBridgeAgent", () => {
       approvalId: "approval_1",
       decision: "approve",
       toolCallId: "call_1",
+    });
+
+    await expect(agent.handleApprovalContent({
+      approvalId: "plugin:approval_2",
+      approved: false,
+      type: "tool-approval-response",
+    })).resolves.toEqual({
+      approvalId: "plugin:approval_2",
+      approvalKind: "plugin",
+      approved: false,
+      approvedAlways: false,
+      decision: "deny",
+    });
+    expect(runtime.transport.request).toHaveBeenCalledWith("plugin.approval.resolve", {
+      approvalId: "plugin:approval_2",
+      decision: "deny",
     });
   });
 });

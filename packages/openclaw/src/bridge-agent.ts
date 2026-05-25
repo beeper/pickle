@@ -1,4 +1,5 @@
 import {
+  approvalKindForId,
   parseApprovalResponseContent,
   toOpenClawApprovalResolvePayload,
   type ParsedApprovalResponse,
@@ -6,11 +7,15 @@ import {
 import { createOpenClawStreamState, mapOpenClawEventToBeeperChunks } from "./openclaw-event-map";
 import type { OpenClawGatewayRuntime, OpenClawGatewayEvent, OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
 import type { OpenClawBridgeRegistry } from "./registry";
-import type { AGUIEvent } from "./stream-map";
+import { AGUIEventType, type AGUIEvent } from "./stream-map";
 import type { OpenClawSessionBinding } from "./types";
 
 export interface OpenClawBridgeStreamPublisher {
-  publish(binding: OpenClawSessionBinding, events: AGUIEvent[]): Promise<void> | void;
+  publish(binding: OpenClawSessionBinding, events: AGUIEvent[]): Promise<OpenClawStreamPublishResult | undefined> | OpenClawStreamPublishResult | undefined;
+}
+
+export interface OpenClawStreamPublishResult {
+  targetEventId?: string;
 }
 
 export interface MatrixTextTurn {
@@ -78,6 +83,8 @@ export class OpenClawMatrixBridgeAgent {
     const response = parseApprovalResponseContent(content);
     const resolvedApprovalId = response?.approvalId ?? approvalId;
     if (!response || !resolvedApprovalId) return undefined;
+    const inferredApprovalKind = approvalKindForId(resolvedApprovalId);
+    if (!response.approvalKind && inferredApprovalKind) response.approvalKind = inferredApprovalKind;
     await this.runtime.resolveApproval(toOpenClawApprovalResolvePayload(resolvedApprovalId, response));
     return response;
   }
@@ -86,7 +93,23 @@ export class OpenClawMatrixBridgeAgent {
     const state = createOpenClawStreamState(runId);
     for await (const gatewayEvent of this.runtime.eventsForRun(runId)) {
       const chunks = mapOpenClawEventToBeeperChunks(state, openClawEventFromGateway(gatewayEvent));
-      if (chunks.length > 0) await this.streams.publish(binding, chunks);
+      if (chunks.length > 0) {
+        const result = await this.streams.publish({
+          ...binding,
+          lastRunId: runId,
+          lastStreamRunId: runId,
+        }, chunks);
+        const targetEventId = result?.targetEventId;
+        if (targetEventId) {
+          this.registry.updateBinding(binding.id, (current) => ({
+            ...current,
+            lastStreamRunId: runId,
+            lastStreamTargetEventId: targetEventId,
+            updatedAt: Date.now(),
+          }));
+        }
+        if (chunks.some(isTerminalStreamEvent)) break;
+      }
     }
   }
 
@@ -119,4 +142,8 @@ function openClawEventFromGateway(event: OpenClawGatewayEvent): unknown {
   }
   if (event.event) return { type: event.event, data: event.payload };
   return event;
+}
+
+function isTerminalStreamEvent(event: AGUIEvent): boolean {
+  return event.type === AGUIEventType.RUN_FINISHED || event.type === AGUIEventType.RUN_ERROR;
 }

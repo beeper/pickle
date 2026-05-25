@@ -55,13 +55,15 @@ export async function startOpenClawBeeperBridge(options: CreateOpenClawBeeperBri
     const registry = options.registry ?? registryFromConnector(bridge.connector);
     if (!registry) throw new Error("OpenClaw backfill requires registry");
     const login = userLoginFromOpenClawConfig(config);
-    await backfillAllOpenClawSessions({
+    const backfillOptions: Parameters<typeof backfillAllOpenClawSessions>[0] = {
       bridge,
-      ...(options.backfillLimit !== undefined ? { limit: options.backfillLimit } : {}),
       login,
       registry,
       runtime: options.runtimeFactory?.(login, config) ?? createOpenClawRuntimeFromLogin(login, config),
-    });
+    };
+    if (config.importSources !== undefined) backfillOptions.importSources = config.importSources;
+    if (options.backfillLimit !== undefined) backfillOptions.limit = options.backfillLimit;
+    await backfillAllOpenClawSessions(backfillOptions);
     await registry.save();
   }
   return bridge;

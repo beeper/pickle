@@ -35,8 +35,10 @@ import type {
   DownloadMediaResult,
   Ghost,
   MatrixDispatchResult,
+  MatrixEdit,
   MatrixMessage,
   MatrixReaction,
+  MatrixReactionRemove,
   MatrixRedaction,
   MatrixTyping,
   EventSender,
@@ -671,9 +673,11 @@ export class RuntimeBridge implements PickleBridge {
       sender: "sender" in event ? event.sender.userId : undefined,
     });
     if (event.kind === "message") {
+      if (isMatrixEditEvent(event)) return this.#dispatchMatrixEdit(event);
       return this.#dispatchMatrixMessage(event);
     }
     if (event.kind === "reaction") {
+      if (event.added === false) return this.#dispatchMatrixReactionRemove(event);
       return this.#dispatchMatrixReaction(event);
     }
     if (isGenericEvent(event, "redaction")) {
@@ -905,6 +909,42 @@ export class RuntimeBridge implements PickleBridge {
     return { dispatched: handlers > 0, eventId: event.eventId, handlers, kind: event.kind, roomId: event.roomId };
   }
 
+  async #dispatchMatrixEdit(event: MatrixMessageEvent): Promise<MatrixDispatchResult> {
+    if (event.sender.isMe || event.sender.userId === this.#ownUserId) {
+      this.#log("debug", "matrix_edit_ignored_own", { eventId: event.eventId, roomId: event.roomId, sender: event.sender.userId });
+      return { dispatched: false, eventId: event.eventId, handlers: 0, kind: event.kind, roomId: event.roomId };
+    }
+    const targetEventId = matrixEditTargetEventId(event);
+    if (!targetEventId) return this.#dispatchMatrixMessage(event);
+    const portal = this.#portalForRoom(event.roomId);
+    const msg: MatrixEdit = {
+      attachments: event.attachments,
+      content: event.content,
+      event,
+      existing: [],
+      portal,
+      sender: event.sender,
+      targetMessage: { id: targetEventId },
+      text: event.text,
+      ...(event.replyTo ? { replyTo: { id: event.replyTo } } : {}),
+      ...(event.threadRoot ? { threadRoot: { id: event.threadRoot } } : {}),
+    };
+    let handlers = 0;
+    try {
+      for (const client of this.#networkClientsForPortal(portal)) {
+        if (!hasMethod(client, "handleMatrixEdit")) continue;
+        handlers += 1;
+        this.#log("debug", "matrix_edit_to_network", { eventId: event.eventId, loginHandlers: handlers, roomId: event.roomId, targetEventId });
+        await client.handleMatrixEdit(this.#requestContext(), msg);
+      }
+      this.#sendMatrixEventCheckpoint(event, "BRIDGE", handlers > 0 ? "SUCCESS" : "UNSUPPORTED");
+    } catch (error: unknown) {
+      this.#sendMatrixEventCheckpoint(event, "BRIDGE", "PERM_FAILURE", errorMessage(error));
+      throw error;
+    }
+    return { dispatched: handlers > 0, eventId: event.eventId, handlers, kind: event.kind, roomId: event.roomId };
+  }
+
   async #dispatchMatrixCommand(command: MatrixCommand): Promise<MatrixDispatchResult> {
     const builtinResponse = await this.#handleBuiltinCommand(command);
     if (builtinResponse) {
@@ -1102,6 +1142,27 @@ export class RuntimeBridge implements PickleBridge {
     return { dispatched: handlers > 0, eventId: event.eventId, handlers, kind: event.kind, roomId: event.roomId };
   }
 
+  async #dispatchMatrixReactionRemove(event: MatrixReactionEvent): Promise<MatrixDispatchResult> {
+    if (event.sender.isMe || event.sender.userId === this.#ownUserId) {
+      return { dispatched: false, eventId: event.eventId, handlers: 0, kind: event.kind, roomId: event.roomId };
+    }
+    const portal = this.#portalForRoom(event.roomId);
+    const msg: MatrixReactionRemove = {
+      content: event.content,
+      event,
+      portal,
+      targetMessage: { id: event.relatesTo },
+      targetReaction: { id: event.eventId },
+    };
+    let handlers = 0;
+    for (const client of this.#networkClientsForPortal(portal)) {
+      if (!hasMethod(client, "handleMatrixReactionRemove")) continue;
+      handlers += 1;
+      await client.handleMatrixReactionRemove(this.#requestContext(), msg);
+    }
+    return { dispatched: handlers > 0, eventId: event.eventId, handlers, kind: event.kind, roomId: event.roomId };
+  }
+
   async #dispatchMatrixRedaction(event: GenericMatrixEvent): Promise<MatrixDispatchResult> {
     const roomId = event.roomId;
     if (!roomId || !event.eventId) {
@@ -1112,6 +1173,7 @@ export class RuntimeBridge implements PickleBridge {
     const msg: MatrixRedaction = {
       eventId: event.eventId,
       portal: this.#portalForRoom(roomId),
+      ...(matrixRedactionTargetEventId(event) ? { targetMessage: { id: matrixRedactionTargetEventId(event)! } } : {}),
     };
     let handlers = 0;
     for (const client of this.#networkClientsForPortal(msg.portal)) {
@@ -1379,6 +1441,27 @@ const defaultLogger: BridgeLogger = (level, message, data) => {
 
 function isGenericEvent(event: MatrixClientEvent, kind: string): event is GenericMatrixEvent {
   return event.kind === kind && "content" in event && typeof event.content === "object" && event.content !== null;
+}
+
+function isMatrixEditEvent(event: MatrixMessageEvent): boolean {
+  return Boolean(event.edited && matrixEditTargetEventId(event));
+}
+
+function matrixEditTargetEventId(event: MatrixMessageEvent): string | undefined {
+  if (event.replaces) return event.replaces;
+  if (event.relation?.type === "m.replace") return event.relation.eventId;
+  const relates = isRecord(event.content["m.relates_to"]) ? event.content["m.relates_to"] : undefined;
+  if (isRecord(relates) && relates.rel_type === "m.replace" && typeof relates.event_id === "string") {
+    return relates.event_id;
+  }
+  return undefined;
+}
+
+function matrixRedactionTargetEventId(event: GenericMatrixEvent): string | undefined {
+  const raw = isRecord(event.raw) ? event.raw : undefined;
+  if (typeof raw?.redacts === "string") return raw.redacts;
+  if (typeof event.content.redacts === "string") return event.content.redacts;
+  return undefined;
 }
 
 function hasMethod<T extends string>(value: object, method: T): value is object & Record<T, (...args: unknown[]) => unknown> {
