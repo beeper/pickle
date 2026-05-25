@@ -327,8 +327,18 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
           roomId: msg.portal.mxid,
         });
         currentBinding = await this.createBindingForMatrixRoom(msg.portal.mxid, DEFAULT_NEW_SESSION_LABEL);
+        ctx.log?.("info", "openclaw_matrix_message_bound_room", {
+          agentId: currentBinding.agentId,
+          roomId: msg.portal.mxid,
+          sessionKey: currentBinding.sessionKey,
+        });
       }
       this.registerCanonicalPortalForBinding(ctx, msg.portal, currentBinding);
+      ctx.log?.("info", "openclaw_matrix_message_dispatching", {
+        eventId: msg.event.eventId,
+        roomId: msg.portal.mxid,
+        sessionKey: currentBinding.sessionKey,
+      });
       await this.#agent.handleMatrixText({
         ...(parsed.attachments.length > 0 ? { attachments: parsed.attachments } : {}),
         eventId: msg.event.eventId,
@@ -337,6 +347,12 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         ...(parsed.replyToEventId ? { replyToEventId: parsed.replyToEventId } : {}),
         sender: msg.sender.userId,
         text: parsed.text,
+      });
+      ctx.log?.("info", "openclaw_matrix_message_dispatched", {
+        eventId: msg.event.eventId,
+        lastRunId: this.#registry.getBindingByRoom(msg.portal.mxid)?.lastRunId,
+        roomId: msg.portal.mxid,
+        sessionKey: this.#registry.getBindingByRoom(msg.portal.mxid)?.sessionKey,
       });
     }
     return { pending: false };

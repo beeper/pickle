@@ -532,63 +532,16 @@ export const beeperApprovalCapability = {
 export const beeperMessageActions = {
   resolveExecutionMode: () => "gateway",
   describeMessageTool: () => ({
-    actions: ["send", "edit", "delete", "react", "read", "mark_unread"],
-    capabilities: ["media", "replyTo", "reactions", "readReceipts", "markedUnread"],
+    actions: ["react", "read", "mark_unread"],
+    capabilities: ["reactions", "readReceipts", "markedUnread"],
   }),
   supportsAction: ({ action }: { action: string }) =>
-    action === "send" || action === "edit" || action === "delete" || action === "react" || action === "read" || action === "mark_unread",
-  extractToolSend: ({ args }: { args: Record<string, unknown> }) => {
-    const action = stringValue(args.action)?.trim();
-    if (action !== "send" && action !== "sendMessage") return null;
-    const to = stringValue(args.to);
-    if (!to) return null;
-    const accountId = stringValue(args.accountId);
-    const threadId = stringValue(args.threadId);
-    return stripUndefined({ accountId, threadId, to });
-  },
+    action === "react" || action === "read" || action === "mark_unread",
+  extractToolSend: () => null,
   handleAction: async (ctx: { action: string; params: Record<string, unknown>; mediaReadFile?: (filePath: string) => Promise<Buffer> }) => {
     const runtime = requireBeeperChannelRuntime();
     const params = ctx.params;
     const roomId = resolveBeeperRoomTarget(readRequiredString(params, "to", "roomId", "channelId"));
-    if (ctx.action === "send") {
-      const mediaUrl = stringValue(params.media) ?? stringValue(params.mediaUrl) ?? stringValue(params.filePath) ?? stringValue(params.path);
-      const text = stringValue(params.message) ?? stringValue(params.text) ?? "";
-      const replyToId = stringValue(params.replyTo) ?? stringValue(params.replyToId);
-      if (mediaUrl) {
-        const bytes = ctx.mediaReadFile ? await ctx.mediaReadFile(mediaUrl) : undefined;
-        const filename = mediaUrl.split("/").pop();
-        const sent = await runtime.sendMedia({
-          roomId,
-          ...(bytes !== undefined ? { bytes } : {}),
-          ...(text ? { caption: text } : {}),
-          ...(filename ? { filename } : {}),
-          ...(bytes === undefined ? { path: mediaUrl } : {}),
-        });
-        return { content: [{ type: "text", text: `Sent Beeper media ${sent.eventId}` }] };
-      }
-      const sent = await runtime.sendText({
-        roomId,
-        text,
-        ...(replyToId ? { replyToId } : {}),
-      });
-      return { content: [{ type: "text", text: `Sent Beeper message ${sent.eventId}` }] };
-    }
-    if (ctx.action === "edit") {
-      const eventId = readRequiredString(params, "messageId", "eventId");
-      const text = readRequiredString(params, "message", "text");
-      const sent = await runtime.edit({ eventId, roomId, text });
-      return { content: [{ type: "text", text: `Edited Beeper message ${sent.eventId}` }] };
-    }
-    if (ctx.action === "delete") {
-      const eventId = readRequiredString(params, "messageId", "eventId");
-      const reason = stringValue(params.reason);
-      await runtime.redact({
-        eventId,
-        roomId,
-        ...(reason !== undefined ? { reason } : {}),
-      });
-      return { content: [{ type: "text", text: `Deleted Beeper message ${eventId}` }] };
-    }
     if (ctx.action === "react") {
       const eventId = readRequiredString(params, "messageId", "eventId");
       const emoji = readRequiredString(params, "emoji", "reaction", "key");
@@ -624,7 +577,7 @@ export const beeperAgentPromptAdapter = {
     ],
     text_markup: "Matrix-flavored plain text with optional formatted_body metadata",
   }),
-  messageToolCapabilities: () => ["nativeStreaming", "replyTo", "reactions"],
+  messageToolCapabilities: () => ["reactions"],
   reactionGuidance: () => ({ channelLabel: "Beeper", level: "minimal" as const }),
 } as const;
 

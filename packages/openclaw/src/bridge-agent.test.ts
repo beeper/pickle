@@ -40,6 +40,7 @@ describe("OpenClawMatrixBridgeAgent", () => {
     expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
       idempotencyKey: "$event",
       key: "agent:codex:main",
+      matrix: { roomId: "!room:example.com" },
       message: "hello",
     }, { expectFinal: false });
     expect(registry.getBindingByRoom("!room:example.com")?.lastRunId).toBe("run_1");
@@ -80,6 +81,7 @@ describe("OpenClawMatrixBridgeAgent", () => {
     expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
       idempotencyKey: "$retryable",
       key: "agent:codex:main",
+      matrix: { roomId: "!room:example.com" },
       message: "hello",
     }, { expectFinal: false });
   });
@@ -114,6 +116,7 @@ describe("OpenClawMatrixBridgeAgent", () => {
     expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
       idempotencyKey: "$event",
       key: "agent:codex:session_1",
+      matrix: { roomId: "!room:example.com" },
       message: "hello",
     }, { expectFinal: false });
     expect(registry.getBindingByRoom("!room:example.com")?.sessionKey).toBe("agent:codex:session_1");

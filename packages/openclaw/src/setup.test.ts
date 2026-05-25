@@ -204,17 +204,18 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(beeperChannelPlugin.actions).toEqual(expect.any(Object));
     expect(beeperChannelPlugin.actions.describeMessageTool()).toMatchObject({
-      actions: ["send", "edit", "delete", "react", "read", "mark_unread"],
-      capabilities: ["media", "replyTo", "reactions", "readReceipts", "markedUnread"],
+      actions: ["react", "read", "mark_unread"],
+      capabilities: ["reactions", "readReceipts", "markedUnread"],
     });
     expect(beeperChannelPlugin.actions.extractToolSend({
       args: { action: "send", threadId: "$thread", to: "beeper:!room" },
-    })).toEqual({ threadId: "$thread", to: "beeper:!room" });
+    })).toBeNull();
     expect(beeperChannelPlugin.agentPrompt).toEqual(expect.objectContaining({
       inboundFormattingHints: expect.any(Function),
       messageToolCapabilities: expect.any(Function),
       reactionGuidance: expect.any(Function),
     }));
+    expect(beeperChannelPlugin.agentPrompt.messageToolCapabilities()).toEqual(["reactions"]);
     expect(beeperChannelPlugin.config).toEqual(expect.objectContaining({
       describeAccount: expect.any(Function),
       hasConfiguredState: expect.any(Function),
@@ -717,43 +718,13 @@ describe("OpenClaw Beeper setup surface", () => {
 	      login: { id: "openclaw:plugin" },
 	    }));
 
-	    const sendResult = await beeperChannelPlugin.actions.handleAction({
-	      action: "send",
-	      params: { message: "hello", replyTo: "$parent", to: "!room" },
-	    });
-	    const sentMessageId = String(sendResult.content[0]?.text).replace("Sent Beeper message ", "");
-	    expect(sentMessageId).toMatch(/^openclaw:message:/u);
-	    expect(client.messages.send).not.toHaveBeenCalled();
-	    expect((queued[0] as { getSender: () => unknown }).getSender()).toEqual({ isFromMe: true, sender: "@codex:example" });
-
-	    await beeperChannelPlugin.actions.handleAction({
-	      action: "send",
-      mediaReadFile: async () => Buffer.from("file"),
-	      params: { mediaUrl: "/tmp/a.txt", text: "caption", to: "!room" },
-	    });
-	    expect(client.media.upload).toHaveBeenCalledWith({
-	      bytes: Buffer.from("file"),
-	      filename: "a.txt",
-	    });
-	    expect(client.messages.sendMedia).not.toHaveBeenCalled();
-
-	    await beeperChannelPlugin.actions.handleAction({
-	      action: "edit",
-	      params: { eventId: sentMessageId, text: "updated", to: "!room" },
-	    });
-	    expect(client.messages.edit).not.toHaveBeenCalled();
+	    const sentMessageId = "openclaw:message:test";
 
 	    await beeperChannelPlugin.actions.handleAction({
 	      action: "react",
 	      params: { eventId: sentMessageId, key: "+1", to: "!room" },
 	    });
 	    expect(client.reactions.send).not.toHaveBeenCalled();
-
-	    await beeperChannelPlugin.actions.handleAction({
-	      action: "delete",
-	      params: { eventId: sentMessageId, reason: "cleanup", to: "!room" },
-	    });
-	    expect(client.messages.redact).not.toHaveBeenCalled();
 
 	    await beeperChannelPlugin.heartbeat.sendTyping({ to: "!room" });
 	    expect(client.typing.set).not.toHaveBeenCalled();
@@ -766,11 +737,7 @@ describe("OpenClaw Beeper setup surface", () => {
 	      params: { eventId: sentMessageId, to: "!room" },
 	    });
 	    expect(queued.map((event) => (event as { getType: () => string }).getType())).toEqual([
-	      "message",
-	      "message",
-	      "edit",
 	      "reaction",
-	      "message_remove",
 	      "typing",
 	      "read_receipt",
 	      "mark_unread",

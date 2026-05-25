@@ -46,10 +46,14 @@ export class OpenClawMatrixBridgeAgent {
       return;
     }
     const sessionKey = await this.ensureSession(binding);
+    const matrix: OpenClawMatrixMessageMetadata = {
+      ...(turn.matrix ?? {}),
+      roomId: turn.roomId,
+    };
     const run = await this.runtime.sendMessage({
       ...(turn.attachments && turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
       idempotencyKey: turn.eventId,
-      ...(turn.matrix ? { matrix: turn.matrix } : {}),
+      matrix,
       message: turn.text,
       ...(turn.replyToEventId ? { replyTo: { eventId: turn.replyToEventId, roomId: turn.roomId } } : {}),
       sessionKey,
