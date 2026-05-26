@@ -332,6 +332,92 @@ func TestBeeperStreamCarrierContentUsesAIBridgeEnvelopeShape(t *testing.T) {
 	}
 }
 
+func TestBeeperStreamPublishWithoutSubscribersSendsRoomCarrierEvent(t *testing.T) {
+	requests := make(chan recordedRequest, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.URL.Path}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"event_id":"$event"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@testbot:example"), "device-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.DeviceID = id.DeviceID("PICKLE")
+	cli.StateStore = mautrix.NewMemoryStateStore()
+	core.client = cli
+	core.beeperStream, err = beeperstream.New(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startReq, err := json.Marshal(MatrixStartBeeperStreamMessageOptions{
+		RoomID:     "!room:example",
+		StreamType: "com.beeper.llm",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleStartBeeperStreamMessage(context.Background(), startReq); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case req := <-requests:
+		if !strings.Contains(req.body, `"com.beeper.stream":{"type":"com.beeper.llm.deltas"}`) {
+			t.Fatalf("expected room-carrier anchor descriptor, got %s", req.body)
+		}
+	default:
+		t.Fatal("expected stream anchor request")
+	}
+
+	publishReq, err := json.Marshal(MatrixPublishBeeperStreamMessagePartOptions{
+		EventID: "$event",
+		Part: OutboundEvent{
+			"delta":     "hello",
+			"messageId": "turn-test",
+			"type":      "TEXT_MESSAGE_CONTENT",
+		},
+		RoomID: "!room:example",
+		TurnID: "turn-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handlePublishBeeperStreamMessagePart(context.Background(), publishReq); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case req := <-requests:
+			if !strings.Contains(req.path, "/rooms/!room:example/send/m.room.message/") {
+				continue
+			}
+			if !strings.Contains(req.body, `"com.beeper.llm.deltas"`) {
+				continue
+			}
+			if !strings.Contains(req.body, `"body":""`) || !strings.Contains(req.body, `"msgtype":"m.text"`) {
+				t.Fatalf("expected hidden m.text carrier event, got %s", req.body)
+			}
+			if !strings.Contains(req.body, `"rel_type":"m.reference"`) || !strings.Contains(req.body, `"event_id":"$event"`) {
+				t.Fatalf("expected carrier event to reference stream root, got %s", req.body)
+			}
+			if !strings.Contains(req.body, `"delta":"hello"`) {
+				t.Fatalf("expected ai-bridge stream deltas in carrier body, got %s", req.body)
+			}
+			return
+		case <-deadline:
+			t.Fatal("timed out waiting for room carrier stream event")
+		}
+	}
+}
+
 func TestRegisterBeeperStreamInjectsDirectSubscribers(t *testing.T) {
 	requests := make(chan recordedRequest, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

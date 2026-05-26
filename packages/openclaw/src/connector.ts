@@ -8,6 +8,8 @@ import {
   BridgeContext,
   BridgeRequestContext,
   BridgeUser,
+  type MatrixCommand,
+  type MatrixCommandResponse,
   ConnectContext,
   type ContactListingNetworkAPI,
   FetchMessagesParams,
@@ -110,6 +112,55 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       networkId: "openclaw",
       networkUrl: "https://github.com/openclaw/openclaw",
     };
+  }
+
+  async handleCommand(ctx: BridgeRequestContext, command: MatrixCommand): Promise<MatrixCommandResponse> {
+    const name = command.command.startsWith("/") ? command.command.slice(1).toLowerCase() : command.command.toLowerCase();
+    switch (name) {
+      case "status":
+        return {
+          handled: true,
+          text: bridgeStatusText(this.config, this.registry.data.bindings.length),
+        };
+      case "settings":
+        return {
+          handled: true,
+          text: bridgeSettingsText(this.config, this.registry.data.bindings.length),
+        };
+      case "sessions": {
+        const options: Parameters<typeof discoverOneToOneSessions>[1] = {};
+        if (this.config.importSources !== undefined) options.importSources = this.config.importSources;
+        const sessions = await discoverOneToOneSessions(this.#runtimeFactory(this.config), options);
+        return { handled: true, text: sessionsSummaryText(sessions) };
+      }
+      case "import": {
+        const importOptions: Parameters<typeof backfillAllOpenClawSessions>[0] = {
+          bridge: ctx.bridge,
+          login: userLoginFromOpenClawConfig(this.config),
+          registry: this.registry,
+          runtime: this.#runtimeFactory(this.config),
+        };
+        if (this.config.importSources !== undefined) importOptions.importSources = this.config.importSources;
+        if (this.config.backfillLimit !== undefined) importOptions.limit = this.config.backfillLimit;
+        const result = await backfillAllOpenClawSessions(importOptions);
+        return { handled: true, text: importSummaryText(result) };
+      }
+      case "backfill":
+        return { handled: true, text: "Usage: /backfill inside an OpenClaw session room." };
+      case "new":
+        return { handled: true, text: "Usage: /new inside an OpenClaw session room." };
+      case "agent":
+        return { handled: true, text: "Use /agent inside an OpenClaw session room." };
+      case "approve":
+      case "deny":
+        return { handled: true, text: "Approval slash commands are disabled for this bridge." };
+      case "stop":
+      case "abort":
+        await this.#runtimeFactory(this.config).abortSession({});
+        return { handled: true };
+      default:
+        return { handled: false };
+    }
   }
 
   getBridgeInfoVersion() {

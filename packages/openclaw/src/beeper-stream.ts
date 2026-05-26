@@ -17,6 +17,7 @@ const BEEPER_AI_KEY = "com.beeper.ai";
 const BEEPER_AI_METADATA_KEY = "com.beeper.ai.metadata";
 const BEEPER_STREAM_DESCRIPTOR_KEY = "com.beeper.stream";
 const BEEPER_AI_STREAM_TYPE = "com.beeper.llm";
+const BEEPER_AI_STREAM_DELTAS_TYPE = "com.beeper.llm.deltas";
 
 export interface BeeperStreamPublisherClient {
   beeper: MatrixBeeper;
@@ -244,6 +245,11 @@ export class BeeperStreamPublisher {
   }
 
   #streamDescriptor(): Record<string, unknown> {
+    if (this.#subscribers.length === 0) {
+      return {
+        type: BEEPER_AI_STREAM_DELTAS_TYPE,
+      };
+    }
     return stripUndefined({
       type: BEEPER_AI_STREAM_TYPE,
       user_id: this.#userId,

@@ -36,8 +36,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
           threadId: "turn_1",
         }),
         "com.beeper.stream": {
-          type: "com.beeper.llm",
-          user_id: "@openclaw_agent_codex:example.com",
+          type: "com.beeper.llm.deltas",
         },
         msgtype: "m.text",
       },
@@ -66,8 +65,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
           }),
         }),
         "com.beeper.stream": {
-          type: "com.beeper.llm",
-          user_id: "@openclaw_agent_codex:example.com",
+          type: "com.beeper.llm.deltas",
         },
         body: "hello",
         msgtype: "m.text",

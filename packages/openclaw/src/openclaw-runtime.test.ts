@@ -267,7 +267,8 @@ describe("OpenClawGatewayRuntime", () => {
     const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
       await replyOptions.onReasoningStream?.({ text: "checking" });
-      await replyOptions.onToolStart?.({ args: { path: "README.md" }, name: "read_file", phase: "start" });
+      await replyOptions.onToolStart?.({ args: { path: "README.md" }, name: "read_file", phase: "start", toolCallId: "real-tool-id" });
+      await replyOptions.onCommandOutput?.({ name: "read_file", output: "ok", phase: "end", status: "completed", toolCallId: "real-tool-id" });
       await replyOptions.onApprovalEvent?.({
         approvalId: "approval_1",
         message: "Run command?",
@@ -330,12 +331,17 @@ describe("OpenClawGatewayRuntime", () => {
       routeSessionKey: "agent:main:beeper:room",
     }));
     expect((runAssembled.mock.calls[0]?.[0] as { replyOptions?: Record<string, unknown> } | undefined)?.replyOptions).toMatchObject({
+      disableBlockStreaming: false,
       sourceReplyDeliveryMode: "automatic",
     });
     expect(beeperStreams.startMessage.mock.invocationCallOrder[0]).toBeLessThan(runAssembled.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
     expect(received).toEqual(expect.arrayContaining([
       expect.objectContaining({ event: "thinking.delta" }),
       expect.objectContaining({ event: "tool.call.started" }),
+      expect.objectContaining({
+        event: "tool.call.completed",
+        payload: expect.objectContaining({ output: "ok", toolCallId: "real-tool-id" }),
+      }),
       expect.objectContaining({ event: "approval.requested" }),
       expect.objectContaining({
         event: "assistant.delta",
@@ -354,14 +360,188 @@ describe("OpenClawGatewayRuntime", () => {
       "REASONING_MESSAGE_CONTENT",
       "TOOL_CALL_START",
       "TOOL_CALL_ARGS",
+      "TOOL_CALL_RESULT",
       "TOOL_CALL_END",
       "CUSTOM",
       "TEXT_MESSAGE_CONTENT",
     ]));
+    const toolOutput = beeperStreams.publishPart.mock.calls
+      .map(([options]) => options.part)
+      .find((part) => part.type === "TOOL_CALL_RESULT" && part.content === "ok");
+    expect(toolOutput).toMatchObject({
+      state: "complete",
+      toolCallId: "real-tool-id",
+      toolName: "read_file",
+    });
     expect(beeperStreams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       eventId: "$stream-root",
       roomId: "!room:example",
     }));
+  });
+
+  it("preserves supported dummybridge-style tool ids and avoids replaying duplicate text callbacks", async () => {
+    const beeperStreams = {
+      finalizeMessage: vi.fn(async () => ({
+        eventId: "$stream-root",
+        raw: {},
+        replacementEventId: "$stream-final",
+        roomId: "!room:example",
+      })),
+      publishPart: vi.fn(async () => undefined),
+      startMessage: vi.fn(async () => ({
+        descriptor: { type: "com.beeper.llm" },
+        eventId: "$stream-root",
+        roomId: "!room:example",
+      })),
+    };
+    setBeeperChannelRuntime(new BeeperChannelRuntime({
+      client: {
+        beeper: { streams: beeperStreams },
+        media: { upload: vi.fn() },
+      } as never,
+      userId: "@sh-openclaw-bot:example",
+    }));
+    const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
+      const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
+      await replyOptions.onPartialReply?.({ text: "hel" });
+      await replyOptions.onBlockReplyQueued?.({ text: "hel" });
+      await replyOptions.onBlockReply?.({ text: "hello" });
+      await replyOptions.onToolStart?.({ args: { path: "a.txt" }, name: "read_file", phase: "start", toolCallId: "tool-a" });
+      await replyOptions.onToolStart?.({ args: { path: "b.txt" }, name: "read_file", phase: "start", toolCallId: "tool-b" });
+      await replyOptions.onCommandOutput?.({ name: "read_file", output: "chunk-a", phase: "delta", status: "running", toolCallId: "tool-a" });
+      await replyOptions.onCommandOutput?.({ name: "read_file", output: "done-a", phase: "end", status: "completed", toolCallId: "tool-a" });
+      await replyOptions.onToolResult?.({ result: { ok: true }, toolCallId: "tool-b", toolName: "read_file" });
+      const delivery = params.delivery as { deliver?: (payload: unknown, info?: unknown) => Promise<unknown> };
+      await delivery.deliver?.({ text: "hello world" }, { kind: "final" });
+      return { dispatchResult: { queuedFinal: true } };
+    });
+    const transport = createOpenClawHostTransport({
+      channel: {
+        reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
+        session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
+        turn: {
+          buildContext: (params: Record<string, unknown>) => ({
+            Body: "from Beeper",
+            BodyForAgent: "from Beeper",
+            From: "beeper",
+            RawBody: "from Beeper",
+            SessionKey: (params.route as { routeSessionKey?: string }).routeSessionKey,
+            To: "beeper",
+          }),
+          runAssembled,
+        },
+      },
+      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
+    });
+
+    const done = (async () => {
+      for await (const event of transport.events()) {
+        if (event.event === "run.completed") break;
+      }
+    })();
+    await transport.request("sessions.send", {
+      key: "agent:main:beeper:room",
+      message: "from Beeper",
+      matrix: { roomId: "!room:example", sender: "@alice:example" },
+    });
+    await done;
+
+    const parts = beeperStreams.publishPart.mock.calls.map(([options]) => options.part);
+    expect(parts.filter((part) => part.type === "TEXT_MESSAGE_CONTENT").map((part) => part.delta)).toEqual([
+      "hel",
+      "lo",
+      " world",
+    ]);
+    expect(parts.filter((part) => part.type === "TOOL_CALL_START").map((part) => [part.toolCallId, part.toolName])).toEqual([
+      ["tool-a", "read_file"],
+      ["tool-b", "read_file"],
+    ]);
+    expect(parts.filter((part) => part.type === "TOOL_CALL_RESULT").map((part) => [part.toolCallId, part.content, part.state])).toEqual([
+      ["tool-a", "chunk-a", "streaming"],
+      ["tool-a", "done-a", "complete"],
+    ]);
+    expect(parts.filter((part) => part.type === "TOOL_CALL_END").map((part) => [part.toolCallId, part.toolName])).toEqual([
+      ["tool-a", "read_file"],
+      ["tool-b", "read_file"],
+    ]);
+  });
+
+  it("streams assistant agent events when reply callbacks only deliver the final block", async () => {
+    const beeperStreams = {
+      finalizeMessage: vi.fn(async () => ({
+        eventId: "$stream-root",
+        raw: {},
+        replacementEventId: "$stream-final",
+        roomId: "!room:example",
+      })),
+      publishPart: vi.fn(async () => undefined),
+      startMessage: vi.fn(async () => ({
+        descriptor: { type: "com.beeper.llm" },
+        eventId: "$stream-root",
+        roomId: "!room:example",
+      })),
+    };
+    setBeeperChannelRuntime(new BeeperChannelRuntime({
+      client: {
+        beeper: { streams: beeperStreams },
+        media: { upload: vi.fn() },
+      } as never,
+      userId: "@sh-openclaw-bot:example",
+    }));
+    let agentEventListener: ((event: { data?: Record<string, unknown>; runId?: string; stream?: string }) => void) | undefined;
+    const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
+      const replyOptions = params.replyOptions as { runId?: string };
+      agentEventListener?.({ data: { delta: "hel", text: "hel" }, runId: replyOptions.runId, stream: "assistant" });
+      agentEventListener?.({ data: { delta: "lo", text: "hello" }, runId: replyOptions.runId, stream: "assistant" });
+      const delivery = params.delivery as { deliver?: (payload: unknown, info?: unknown) => Promise<unknown> };
+      await delivery.deliver?.({ text: "hello world" }, { kind: "final" });
+      return { dispatchResult: { queuedFinal: true } };
+    });
+    const transport = createOpenClawHostTransport({
+      channel: {
+        reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
+        session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
+        turn: {
+          buildContext: (params: Record<string, unknown>) => ({
+            Body: "from Beeper",
+            BodyForAgent: "from Beeper",
+            From: "beeper",
+            RawBody: "from Beeper",
+            SessionKey: (params.route as { routeSessionKey?: string }).routeSessionKey,
+            To: "beeper",
+          }),
+          runAssembled,
+        },
+      },
+      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
+      events: {
+        onAgentEvent: (listener) => {
+          agentEventListener = listener;
+          return () => {
+            agentEventListener = undefined;
+          };
+        },
+      },
+    });
+
+    const done = (async () => {
+      for await (const event of transport.events()) {
+        if (event.event === "run.completed") break;
+      }
+    })();
+    await transport.request("sessions.send", {
+      key: "agent:main:beeper:room",
+      message: "from Beeper",
+      matrix: { roomId: "!room:example", sender: "@alice:example" },
+    });
+    await done;
+
+    const parts = beeperStreams.publishPart.mock.calls.map(([options]) => options.part);
+    expect(parts.filter((part) => part.type === "TEXT_MESSAGE_CONTENT").map((part) => part.delta)).toEqual([
+      "hel",
+      "lo",
+      " world",
+    ]);
   });
 
   it("loads plugin runtime history from the OpenClaw session transcript", async () => {

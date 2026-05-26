@@ -1,4 +1,4 @@
-import type { MatrixEdit, MatrixMessage, MatrixReaction, MatrixReactionRemove, MatrixRedaction, UserLogin } from "@beeper/pickle-bridge";
+import type { MatrixCommand, MatrixEdit, MatrixMessage, MatrixReaction, MatrixReactionRemove, MatrixRedaction, UserLogin } from "@beeper/pickle-bridge";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
 import { createOpenClawConnector, OpenClawNetworkAPI, parseMatrixTextMessage, userLoginFromOpenClawConfig } from "./connector";
@@ -53,6 +53,30 @@ describe("OpenClawBridgeConnector", () => {
       remoteName: "OpenClaw",
       userId: "@batuhan:beeper.com",
     }));
+  });
+
+  it("handles slash-prefixed OpenClaw commands through management command fallback", async () => {
+    const connector = createOpenClawConnector({
+      config: createDefaultConfig({
+        dataDir: "/tmp/openclaw",
+        importSources: ["dashboard"],
+      }),
+    });
+    const response = await connector.handleCommand({} as never, {
+      args: [],
+      body: "/status",
+      command: "/status",
+      event: { eventId: "$status", kind: "message", roomId: "!management:example" },
+      prefix: "!openclaw",
+      room: { mxid: "!management:example" },
+      sender: { userId: "@alice:example.com" },
+      text: "/status",
+    } as MatrixCommand);
+
+    expect(response).toMatchObject({
+      handled: true,
+      text: expect.stringContaining("Import sources: dashboard"),
+    });
   });
 
   it("loads a network API that registers OpenClaw agents as ghosts", async () => {

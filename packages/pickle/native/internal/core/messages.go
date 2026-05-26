@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
 	agui "github.com/beeper/ai-bridge/pkg/ag-ui"
+	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
 	"maunium.net/go/mautrix"
 	mautrixbeeperstream "maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
@@ -117,8 +117,10 @@ type MatrixFinalizeBeeperStreamMessageResult struct {
 
 type beeperStreamMessage struct {
 	descriptor *event.BeeperStreamInfo
+	direct     bool
 	nextSeq    int
 	roomID     id.RoomID
+	userID     string
 }
 
 func (c *Core) handleStartBeeperStreamMessage(ctx context.Context, payload []byte) ([]byte, error) {
@@ -146,7 +148,13 @@ func (c *Core) handleStartBeeperStreamMessage(ctx context.Context, payload []byt
 	if content["msgtype"] == nil {
 		content["msgtype"] = "m.text"
 	}
-	content["com.beeper.stream"] = descriptor
+	if len(req.Subscribers) > 0 {
+		content["com.beeper.stream"] = descriptor
+	} else {
+		content["com.beeper.stream"] = map[string]any{
+			"type": aistream.BeeperAIStreamDeltas,
+		}
+	}
 	resp, err := c.sendBeeperStreamMessageEvent(ctx, req.RoomID, req.ThreadRootEventID, req.UserID, content)
 	if err != nil {
 		return nil, err
@@ -157,8 +165,10 @@ func (c *Core) handleStartBeeperStreamMessage(ctx context.Context, payload []byt
 	}
 	c.beeperStreamMessages[eventID] = &beeperStreamMessage{
 		descriptor: descriptor.Clone(),
+		direct:     len(req.Subscribers) > 0,
 		nextSeq:    1,
 		roomID:     id.RoomID(req.RoomID),
+		userID:     req.UserID,
 	}
 	c.addBeeperStreamSubscribers(ctx, id.RoomID(req.RoomID), eventID, req.Subscribers)
 	c.client.Log.Debug().
@@ -230,8 +240,20 @@ func (c *Core) handlePublishBeeperStreamMessagePart(ctx context.Context, payload
 	if err != nil {
 		return nil, err
 	}
-	if err := c.beeperStream.Publish(ctx, stream.roomID, id.EventID(req.EventID), content); err != nil {
-		return nil, err
+	if stream.direct {
+		if err := c.beeperStream.Publish(ctx, stream.roomID, id.EventID(req.EventID), content); err != nil {
+			return nil, err
+		}
+	} else {
+		content["body"] = ""
+		content["msgtype"] = "m.text"
+		content["m.relates_to"] = map[string]any{
+			"rel_type": "m.reference",
+			"event_id": req.EventID,
+		}
+		if _, err := c.sendBeeperStreamMessageEvent(ctx, stream.roomID.String(), "", stream.userID, content); err != nil {
+			return nil, err
+		}
 	}
 	stream.nextSeq = seq + 1
 	return c.empty()
