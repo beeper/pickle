@@ -212,9 +212,9 @@ export const OPENCLAW_BRIDGE_COVERAGE = {
     stream: ["chat", "session.message", "session.operation", "session.tool"],
   },
   methodAccess: {
-    bridgeSpecificWrappers: ["agents.list", "sessions.list", "sessions.create", "sessions.send", "sessions.steer", "sessions.abort", "chat.history", "exec.approval.resolve", "models.list", "tools.catalog", "tools.effective", "tools.invoke", "tasks.list", "tasks.get", "tasks.cancel", "artifacts.list", "artifacts.get", "artifacts.download"],
+    pluginRuntimeAdapters: ["agents.list", "sessions.list", "sessions.create", "chat.history", "exec.approval.resolve", "plugin.approval.resolve"],
     commonGatewayMethods: OPENCLAW_GATEWAY_COMMON_METHODS,
-    genericGatewayCall: "OpenClawGatewayRuntime.call",
+    beeperTurnDispatch: "runtime.channel.turn.runAssembled",
     managementSurface: "OpenClaw in-process plugin runtime",
     snapshotProbe: ["health", "status", "models.list", "channels.status", "sessions.list", "commands.list", "tools.catalog", "skills.status", "tasks.list", "usage.status", "artifacts.list", "cron.list", "agents.list", "config.get"],
   },

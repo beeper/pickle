@@ -44,8 +44,9 @@ describe("OpenClaw Beeper setup surface", () => {
       },
       capabilities: {
         media: true,
+        nativeCommands: true,
         reactions: true,
-        threads: false,
+        threads: true,
       },
       reload: {
         configPrefixes: ["channels.beeper", "plugins.entries.beeper"],
@@ -82,9 +83,7 @@ describe("OpenClaw Beeper setup surface", () => {
       label: "Beeper",
       selectionLabel: expect.any(String),
     }));
-    expect(beeperChannelPlugin.capabilities.chatTypes).toEqual(
-      ["direct"],
-    );
+    expect(beeperChannelPlugin.capabilities.chatTypes).toEqual(["direct", "group", "thread"]);
     expect(beeperChannelPlugin.message).toEqual(expect.objectContaining({
       durableFinal: expect.objectContaining({
         capabilities: expect.objectContaining({
@@ -347,7 +346,6 @@ describe("OpenClaw Beeper setup surface", () => {
         senderLocalpart: "ocbot",
         serviceBotLocalpart: "ocservice",
         storePath: "/tmp/openclaw-store",
-        streamFinalization: "replace",
         userLocalpartPrefix: "oc_user_",
       },
     });
@@ -371,7 +369,6 @@ describe("OpenClaw Beeper setup surface", () => {
       senderLocalpart: "ocbot",
       serviceBotLocalpart: "ocservice",
       storePath: "/tmp/openclaw-store",
-      streamFinalization: "replace",
       userLocalpartPrefix: "oc_user_",
     });
     expect(isBeeperChannelConfigured(cfg)).toBe(false);
@@ -413,7 +410,6 @@ describe("OpenClaw Beeper setup surface", () => {
         select: async ({ message }) => {
           if (message === "Beeper environment") return "dev";
           if (message === "Beeper contact visibility") return "agents";
-          if (message === "Stream finalization") return "replace";
           if (message === "Approval behavior") return "native";
           throw new Error(`unexpected select prompt ${message}`);
         },
@@ -589,7 +585,6 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(defaultBeeperChannelSettings()).toMatchObject({
       enabled: true,
       importSources: ["dashboard", "tui"],
-      streamFinalization: "replace",
     });
     const configured = await beeperSetupWizard.configure({ cfg: {} });
     expect(getBeeperChannelSettings(configured.cfg)).toMatchObject({
@@ -618,7 +613,6 @@ describe("OpenClaw Beeper setup surface", () => {
       enabled: true,
       importSources: ["dashboard", "tui"],
       registrationUrl: "http://bridge",
-      streamFinalization: "replace",
     }));
     const snapshot = beeperStatusAdapter.buildAccountSnapshot({ account });
 
@@ -677,6 +671,7 @@ describe("OpenClaw Beeper setup surface", () => {
 	    const client = {
 	      appservice: { sendMessage: vi.fn(async () => ({ eventId: "$as" })) },
       beeper: {
+        aiRuns: createTestBeeperAIRuns(),
         streams: {
           finalizeMessage: vi.fn(async () => ({ replacementEventId: "$replace", roomId: "!room", raw: {} })),
           publishPart: vi.fn(async () => undefined),
@@ -830,3 +825,30 @@ describe("OpenClaw Beeper setup surface", () => {
     });
   });
 });
+
+function createTestBeeperAIRuns() {
+  const snapshot = (runId: string, events: Record<string, unknown>[] = []) => ({
+    body: "...",
+    events,
+    finalAIMessage: {},
+    initialAIMessage: {},
+    metadata: {},
+    messageId: runId,
+    runId,
+    threadId: runId,
+  });
+  return {
+    appendEvent: vi.fn(async ({ event, runId }: { event: Record<string, unknown>; runId: string }) =>
+      snapshot(runId, [event])),
+    begin: vi.fn(async ({ runId, threadId }: { runId: string; threadId?: string }) =>
+      snapshot(runId, [
+        { runId, threadId: threadId ?? runId, type: "RUN_STARTED" },
+        { messageId: runId, role: "assistant", type: "TEXT_MESSAGE_START" },
+      ])),
+    delete: vi.fn(async () => undefined),
+    error: vi.fn(async ({ message, runId }: { message?: string; runId: string }) =>
+      snapshot(runId, [{ message, runId, type: "RUN_ERROR" }])),
+    finish: vi.fn(async ({ finishReason, runId }: { finishReason?: string; runId: string }) =>
+      snapshot(runId, [{ finishReason: finishReason ?? "stop", runId, type: "RUN_FINISHED" }])),
+  };
+}

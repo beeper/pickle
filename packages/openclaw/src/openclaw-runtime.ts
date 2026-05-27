@@ -4,7 +4,7 @@ import path from "node:path";
 import type { OpenClawAgentContact, OpenClawBridgeConfig } from "./types";
 import { agentContactFromOpenClawAgent } from "./rooms";
 import type { OpenClawApprovalResolvePayload } from "./approval";
-import { getBeeperChannelRuntime } from "./beeper-channel-runtime";
+import { getBeeperChannelRuntime, getBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
 import {
   AGUIEventType,
   closeReasoningPart,
@@ -17,9 +17,8 @@ import {
   mapOpenClawToolEnd,
   mapOpenClawToolInput,
   mapOpenClawToolOutput,
-  startRunEvents,
-} from "./stream-map";
-import type { AGUIEvent } from "./stream-map";
+} from "./beeper-turn-events";
+import type { AGUIEvent } from "./beeper-turn-events";
 
 export type GatewayRequestOptions = {
   expectFinal?: boolean;
@@ -33,7 +32,7 @@ export type OpenClawGatewayEvent = {
   stateVersion?: unknown;
 };
 
-export interface OpenClawTransport {
+export interface OpenClawRuntimeRequestSurface {
   close?(): Promise<void> | void;
   events(filter?: (event: OpenClawGatewayEvent) => boolean): AsyncIterable<OpenClawGatewayEvent>;
   request<T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions): Promise<T>;
@@ -220,11 +219,29 @@ export interface OpenClawChatHistoryMessage {
   [key: string]: unknown;
 }
 
-export class OpenClawGatewayRuntime {
+export interface OpenClawSessionHistoryRuntime {
   readonly config: OpenClawBridgeConfig;
-  readonly transport: OpenClawTransport;
+  listAgentContacts(): Promise<OpenClawAgentContact[]>;
+  listSessions(params?: Record<string, unknown>): Promise<OpenClawListedSession[]>;
+  loadHistory(sessionKey: string, limit?: number): Promise<OpenClawChatHistoryMessage[]>;
+}
 
-  constructor(options: { config: OpenClawBridgeConfig; transport: OpenClawTransport }) {
+export interface OpenClawSessionTurnRuntime extends OpenClawSessionHistoryRuntime {
+  createSession(options: OpenClawSessionCreateOptions): Promise<OpenClawSessionRef>;
+  resolveApproval(payload: OpenClawApprovalResolvePayload): Promise<unknown>;
+  sendMessage(options: OpenClawSessionSendOptions): Promise<OpenClawRunRef>;
+}
+
+export interface OpenClawBridgeRuntime extends OpenClawSessionTurnRuntime {
+  close(): Promise<void>;
+  featureSnapshot(): Promise<OpenClawGatewayFeatureSnapshot>;
+}
+
+export class OpenClawPluginRuntimeAdapter {
+  readonly config: OpenClawBridgeConfig;
+  readonly transport: OpenClawRuntimeRequestSurface;
+
+  constructor(options: { config: OpenClawBridgeConfig; transport: OpenClawRuntimeRequestSurface }) {
     this.config = options.config;
     this.transport = options.transport;
   }
@@ -272,46 +289,6 @@ export class OpenClawGatewayRuntime {
       agents: settledValue(entries[12]),
       config: settledValue(entries[13]),
     });
-  }
-
-  listModels(params: Record<string, unknown> = { view: "configured" }): Promise<unknown> {
-    return this.call("models.list", params);
-  }
-
-  listTools(params: Record<string, unknown> = {}): Promise<unknown> {
-    return this.call("tools.catalog", params);
-  }
-
-  effectiveTools(sessionKey: string): Promise<unknown> {
-    return this.call("tools.effective", { sessionKey });
-  }
-
-  invokeTool(params: Record<string, unknown>, options?: GatewayRequestOptions): Promise<unknown> {
-    return this.call("tools.invoke", params, options);
-  }
-
-  listTasks(params: Record<string, unknown> = { limit: 100 }): Promise<unknown> {
-    return this.call("tasks.list", params);
-  }
-
-  getTask(taskId: string): Promise<unknown> {
-    return this.call("tasks.get", { taskId });
-  }
-
-  cancelTask(taskId: string, reason?: string): Promise<unknown> {
-    return this.call("tasks.cancel", stripUndefined({ reason, taskId }));
-  }
-
-  listArtifacts(params: Record<string, unknown>): Promise<unknown> {
-    return this.call("artifacts.list", params);
-  }
-
-  getArtifact(params: Record<string, unknown>): Promise<unknown> {
-    return this.call("artifacts.get", params);
-  }
-
-  downloadArtifact(params: Record<string, unknown>): Promise<unknown> {
-    return this.call("artifacts.download", params);
   }
 
   async createSession(options: OpenClawSessionCreateOptions): Promise<OpenClawSessionRef> {
@@ -385,44 +362,10 @@ export class OpenClawGatewayRuntime {
   async sendMessage(options: OpenClawSessionSendOptions): Promise<OpenClawRunRef> {
     const requestOptions: GatewayRequestOptions = { expectFinal: false };
     if (options.timeoutMs !== undefined) requestOptions.timeoutMs = options.timeoutMs;
-    const raw = await this.transport.request("sessions.send", {
-      key: options.sessionKey,
-      message: options.message,
-      ...(options.attachments ? { attachments: options.attachments } : {}),
-      ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
-      ...(options.matrix ? { matrix: options.matrix } : {}),
-      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
-      ...(options.thinking ? { thinking: options.thinking } : {}),
-      ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-    }, requestOptions);
-    const record = recordValue(raw) ?? {};
-    const runId = stringValue(record.runId);
-    if (!runId) throw new Error("OpenClaw sessions.send did not return a runId");
-    return { raw, runId, sessionKey: stringValue(record.sessionKey) ?? options.sessionKey };
-  }
-
-  async steerSession(options: OpenClawSessionSendOptions): Promise<OpenClawRunRef> {
-    const requestOptions: GatewayRequestOptions = { expectFinal: false };
-    if (options.timeoutMs !== undefined) requestOptions.timeoutMs = options.timeoutMs;
-    const raw = await this.transport.request("sessions.steer", {
-      key: options.sessionKey,
-      message: options.message,
-      ...(options.attachments ? { attachments: options.attachments } : {}),
-      ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
-      ...(options.thinking ? { thinking: options.thinking } : {}),
-      ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-    }, requestOptions);
-    const record = recordValue(raw) ?? {};
-    const runId = stringValue(record.runId);
-    if (!runId) throw new Error("OpenClaw sessions.steer did not return a runId");
-    return { raw, runId, sessionKey: stringValue(record.sessionKey) ?? options.sessionKey };
-  }
-
-  abortSession(params: { runId?: string; sessionKey?: string }): Promise<unknown> {
-    return this.call("sessions.abort", stripUndefined({
-      key: params.sessionKey,
-      runId: params.runId,
-    }));
+    if (this.transport instanceof OpenClawHostRuntimeAdapter) {
+      return this.transport.sendMessage(options, requestOptions);
+    }
+    throw new Error("OpenClaw Beeper turns require OpenClaw channel turn helpers");
   }
 
   async resolveApproval(payload: OpenClawApprovalResolvePayload): Promise<unknown> {
@@ -436,7 +379,7 @@ export class OpenClawGatewayRuntime {
   }
 }
 
-export class OpenClawHostTransport implements OpenClawTransport {
+export class OpenClawHostRuntimeAdapter implements OpenClawRuntimeRequestSurface {
   readonly #runtime: OpenClawHostRuntime;
   readonly #localEvents = new LocalEventBus();
 
@@ -447,6 +390,9 @@ export class OpenClawHostTransport implements OpenClawTransport {
   request<T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions): Promise<T> {
     if (isDirectPluginRuntimeMethod(method)) {
       return this.#pluginRuntimeRequest<T>(method, params, options);
+    }
+    if (method === "sessions.send") {
+      return Promise.reject(new Error("OpenClaw Beeper turns require OpenClaw channel turn helpers"));
     }
     const call = this.#runtime.request ?? this.#runtime.call;
     if (!call) return this.#pluginRuntimeRequest<T>(method, params, options);
@@ -471,6 +417,23 @@ export class OpenClawHostTransport implements OpenClawTransport {
     return events(filter);
   }
 
+  async sendMessage(options: OpenClawSessionSendOptions, requestOptions: GatewayRequestOptions = {}): Promise<OpenClawRunRef> {
+    const raw = await sendSessionInPluginRuntime(this.#runtime, this.#localEvents, {
+      key: options.sessionKey,
+      message: options.message,
+      ...(options.attachments ? { attachments: options.attachments } : {}),
+      ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+      ...(options.matrix ? { matrix: options.matrix } : {}),
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+      ...(options.thinking ? { thinking: options.thinking } : {}),
+      ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+    }, requestOptions);
+    const record = recordValue(raw) ?? {};
+    const runId = stringValue(record.runId);
+    if (!runId) throw new Error("OpenClaw channel turn did not return a runId");
+    return { raw, runId, sessionKey: stringValue(record.sessionKey) ?? options.sessionKey };
+  }
+
   async #pluginRuntimeRequest<T = unknown>(
     method: string,
     params?: unknown,
@@ -485,24 +448,21 @@ export class OpenClawHostTransport implements OpenClawTransport {
         return await createSessionInPluginRuntime(this.#runtime, params) as T;
       case "sessions.list":
         return { sessions: sessionsFromPluginRuntime(this.#runtime, params) } as T;
-      case "sessions.send":
-        return await sendSessionInPluginRuntime(this.#runtime, this.#localEvents, params, _options) as T;
       default:
         throw new Error(`OpenClaw plugin runtime does not expose request/call for ${method}`);
     }
   }
 }
 
-export function createOpenClawHostTransport(runtime: OpenClawHostRuntime): OpenClawHostTransport {
-  return new OpenClawHostTransport(runtime);
+export function createOpenClawHostRuntimeAdapter(runtime: OpenClawHostRuntime): OpenClawHostRuntimeAdapter {
+  return new OpenClawHostRuntimeAdapter(runtime);
 }
 
 function isDirectPluginRuntimeMethod(method: string): boolean {
   return method === "agents.list"
     || method === "chat.history"
     || method === "sessions.create"
-    || method === "sessions.list"
-    || method === "sessions.send";
+    || method === "sessions.list";
 }
 
 function arrayValue(value: unknown): unknown[] | undefined {
@@ -782,8 +742,8 @@ async function sendSessionInPluginRuntime(
   const record = recordValue(params) ?? {};
   const sessionKey = stringValue(record.key) ?? stringValue(record.sessionKey);
   const message = stringValue(record.message);
-  if (!sessionKey) throw new Error("OpenClaw plugin sessions.send requires key");
-  if (!message) throw new Error("OpenClaw plugin sessions.send requires message");
+  if (!sessionKey) throw new Error("OpenClaw channel turn requires session key");
+  if (!message) throw new Error("OpenClaw channel turn requires message");
   const agentId = agentIdFromSessionKey(sessionKey) ?? "main";
   const resolved = resolvePluginSession(runtime, sessionKey, agentId);
   const entry = resolved.entry ?? {};
@@ -950,6 +910,7 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
   const threadRoot = stringValue(recordValue(matrix.relation)?.threadRootEventId) ?? stringValue(recordValue(matrix.relation)?.replyToEventId);
   const stream = createBeeperReplyStreamEmitter({
     agentId: params.agentId,
+    hostRuntime: params.runtime,
     localEvents: params.localEvents,
     roomId,
     runId: params.runId,
@@ -1073,6 +1034,7 @@ function forwardAgentRuntimeStreamEvents(params: {
 
 function createBeeperReplyStreamEmitter(base: {
   agentId: string;
+  hostRuntime?: OpenClawHostRuntime;
   localEvents: LocalEventBus;
   roomId: string;
   runId: string;
@@ -1080,7 +1042,7 @@ function createBeeperReplyStreamEmitter(base: {
   sessionKey: string;
   threadRoot?: string;
 }) {
-  const channelRuntime = getBeeperChannelRuntime();
+  const channelRuntime = getBeeperChannelRuntimeForHost(base.hostRuntime) ?? getBeeperChannelRuntime();
   if (!channelRuntime) {
     throw new Error("OpenClaw Beeper requires the Beeper channel runtime for native rich streaming");
   }
@@ -1110,10 +1072,6 @@ function createBeeperReplyStreamEmitter(base: {
       }),
     });
   };
-  const startMetadata = () => ({
-    agent_id: base.agentId,
-    session_key: base.sessionKey,
-  });
   const ensureStarted = async () => {
     if (hasPublished || finalized) return;
     hasPublished = true;
@@ -1124,7 +1082,7 @@ function createBeeperReplyStreamEmitter(base: {
       sessionId: base.sessionId,
       sessionKey: base.sessionKey,
     });
-    await publisher.publishMany(startRunEvents(state, startMetadata()));
+    await publisher.start();
     channelRuntime.debug("openclaw_beeper_stream_started", {
       agentId: base.agentId,
       eventId: publisher.targetEventId,

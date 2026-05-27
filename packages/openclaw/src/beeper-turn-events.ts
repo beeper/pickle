@@ -29,25 +29,6 @@ export function createTurnId(): string {
   return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function startRunEvents(state: StreamRunState, metadata: Record<string, unknown> = {}): AGUIEvent[] {
-  if (state.messageStarted) return [];
-  state.messageStarted = true;
-  state.textStarted = true;
-  return [
-    {
-      runId: state.turnId,
-      threadId: state.turnId,
-      type: AGUIEventType.RUN_STARTED,
-      ...(Object.keys(metadata).length > 0 ? { metadata: { turn_id: state.turnId, ...metadata } } : {}),
-    },
-    {
-      messageId: state.turnId,
-      role: "assistant",
-      type: AGUIEventType.TEXT_MESSAGE_START,
-    },
-  ];
-}
-
 export function finishRunEvents(
   state: StreamRunState,
   finishReason: FinishReason = "stop",

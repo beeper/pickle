@@ -5,13 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BeeperChannelRuntime, setBeeperChannelRuntime } from "./beeper-channel-runtime";
 import { createDefaultConfig } from "./config";
 import {
-  createOpenClawHostTransport,
-  OpenClawGatewayRuntime,
+  createOpenClawHostRuntimeAdapter,
+  OpenClawPluginRuntimeAdapter,
   type OpenClawGatewayEvent,
-  type OpenClawTransport,
+  type OpenClawRuntimeRequestSurface,
 } from "./openclaw-runtime";
 
-describe("OpenClawGatewayRuntime", () => {
+describe("OpenClawPluginRuntimeAdapter", () => {
   afterEach(() => {
     setBeeperChannelRuntime(undefined);
   });
@@ -20,7 +20,7 @@ describe("OpenClawGatewayRuntime", () => {
     const transport = fakeTransport({
       "agents.list": { agents: [{ description: "Code", id: "codex", name: "Codex" }] },
     });
-    const runtime = new OpenClawGatewayRuntime({
+    const runtime = new OpenClawPluginRuntimeAdapter({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw", homeserver: "https://matrix.example" }),
       transport,
     });
@@ -36,12 +36,11 @@ describe("OpenClawGatewayRuntime", () => {
     expect(transport.request).toHaveBeenCalledWith("agents.list", {});
   });
 
-  it("creates sessions and sends messages through OpenClaw RPC", async () => {
+  it("creates sessions through OpenClaw RPC and rejects generic Beeper sends", async () => {
     const transport = fakeTransport({
       "sessions.create": { key: "agent:codex:main", sessionId: "session_1" },
-      "sessions.send": { runId: "run_1", sessionKey: "agent:codex:main" },
     });
-    const runtime = new OpenClawGatewayRuntime({
+    const runtime = new OpenClawPluginRuntimeAdapter({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
       transport,
     });
@@ -53,50 +52,42 @@ describe("OpenClawGatewayRuntime", () => {
       raw: { key: "agent:codex:main", sessionId: "session_1" },
       sessionId: "session_1",
     });
-    await expect(runtime.sendMessage({ message: "hello", sessionKey: "agent:codex:main", timeoutMs: 1000 })).resolves.toEqual({
-      raw: { runId: "run_1", sessionKey: "agent:codex:main" },
-      runId: "run_1",
-      sessionKey: "agent:codex:main",
-    });
-    expect(transport.request).toHaveBeenCalledWith("sessions.send", {
-      key: "agent:codex:main",
-      message: "hello",
-      timeoutMs: 1000,
-    }, { expectFinal: false, timeoutMs: 1000 });
+    await expect(runtime.sendMessage({ message: "hello", sessionKey: "agent:codex:main", timeoutMs: 1000 }))
+      .rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel turn helpers");
+    expect(transport.request).not.toHaveBeenCalledWith("sessions.send", expect.anything(), expect.anything());
   });
 
-  it("exposes generic OpenClaw gateway feature RPC wrappers", async () => {
+  it("keeps management probes on the plugin runtime adapter without command wrappers", async () => {
     const transport = fakeTransport({
       "artifacts.list": { artifacts: [{ id: "artifact_1" }] },
+      "agents.list": { agents: [{ id: "codex" }] },
+      "channels.status": { ok: true },
+      "commands.list": { commands: [] },
+      "config.get": { config: {} },
+      "cron.list": { jobs: [] },
+      "health": { ok: true },
       "models.list": { models: ["gpt-5.4"] },
-      "sessions.abort": { aborted: true },
-      "sessions.steer": { runId: "run_steer", sessionKey: "agent:codex:main" },
+      "sessions.list": { sessions: [] },
+      "skills.status": { skills: [] },
+      "status": { state: "ready" },
       "tasks.cancel": { cancelled: true },
       "tasks.list": { tasks: [] },
       "tools.catalog": { tools: [{ name: "exec" }] },
-      "tools.effective": { tools: [{ name: "read" }] },
-      "tools.invoke": { ok: true },
+      "usage.status": { tokens: 1 },
     });
-    const runtime = new OpenClawGatewayRuntime({
+    const runtime = new OpenClawPluginRuntimeAdapter({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
       transport,
     });
 
-    await expect(runtime.listModels()).resolves.toEqual({ models: ["gpt-5.4"] });
-    await expect(runtime.listTools()).resolves.toEqual({ tools: [{ name: "exec" }] });
-    await expect(runtime.effectiveTools("agent:codex:main")).resolves.toEqual({ tools: [{ name: "read" }] });
-    await expect(runtime.invokeTool({ name: "read", sessionKey: "agent:codex:main" })).resolves.toEqual({ ok: true });
-    await expect(runtime.listTasks()).resolves.toEqual({ tasks: [] });
-    await expect(runtime.cancelTask("task_1", "stale")).resolves.toEqual({ cancelled: true });
-    await expect(runtime.listArtifacts({ sessionKey: "agent:codex:main" })).resolves.toEqual({ artifacts: [{ id: "artifact_1" }] });
-    await expect(runtime.steerSession({ message: "actually do this", sessionKey: "agent:codex:main" })).resolves.toEqual({
-      raw: { runId: "run_steer", sessionKey: "agent:codex:main" },
-      runId: "run_steer",
-      sessionKey: "agent:codex:main",
+    await expect(runtime.featureSnapshot()).resolves.toMatchObject({
+      health: { ok: true },
+      models: { models: ["gpt-5.4"] },
+      tools: { tools: [{ name: "exec" }] },
     });
-    await expect(runtime.abortSession({ runId: "run_steer" })).resolves.toEqual({ aborted: true });
+    await expect(runtime.call("artifacts.list", { sessionKey: "agent:codex:main" })).resolves.toEqual({ artifacts: [{ id: "artifact_1" }] });
+    await expect(runtime.call("tasks.cancel", { reason: "stale", taskId: "task_1" })).resolves.toEqual({ cancelled: true });
     expect(transport.request).toHaveBeenCalledWith("tasks.cancel", { reason: "stale", taskId: "task_1" }, undefined);
-    expect(transport.request).toHaveBeenCalledWith("sessions.abort", { runId: "run_steer" }, undefined);
   });
 
   it("filters gateway events by run id and resolves approvals", async () => {
@@ -108,7 +99,7 @@ describe("OpenClawGatewayRuntime", () => {
       "exec.approval.resolve": { ok: true },
       "plugin.approval.resolve": { plugin: true },
     }, events);
-    const runtime = new OpenClawGatewayRuntime({
+    const runtime = new OpenClawPluginRuntimeAdapter({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
       transport,
     });
@@ -138,7 +129,7 @@ describe("OpenClawGatewayRuntime", () => {
       },
       request: vi.fn(async (method: string) => ({ method, runId: "run_1" })),
     };
-    const transport = createOpenClawHostTransport(host);
+    const transport = createOpenClawHostRuntimeAdapter(host);
 
     await expect(transport.request("exec.approval.resolve", { approvalId: "approval_1", decision: "approve" })).resolves.toEqual({
       method: "exec.approval.resolve",
@@ -160,17 +151,88 @@ describe("OpenClawGatewayRuntime", () => {
     const host = {
       request: vi.fn(async (method: string) => ({ method, runId: "host_run" })),
     };
-    const transport = createOpenClawHostTransport({
+    const transport = createOpenClawHostRuntimeAdapter({
       ...host,
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
     });
 
-    await expect(transport.request("sessions.send", { key: "session", message: "hi" })).rejects.toThrow("OpenClaw Beeper requires OpenClaw channel turn helpers");
+    await expect(transport.request("sessions.send", { key: "session", message: "hi" })).rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel turn helpers");
     expect(host.request).not.toHaveBeenCalled();
   });
 
+  it("sends host-backed Beeper turns through channel helpers without sessions.send RPC", async () => {
+    const beeperStreams = {
+      finalizeMessage: vi.fn(async () => ({
+        eventId: "$stream-root",
+        raw: {},
+        replacementEventId: "$stream-final",
+        roomId: "!room:example",
+      })),
+      publishPart: vi.fn(async () => undefined),
+      startMessage: vi.fn(async () => ({
+        descriptor: { type: "com.beeper.llm" },
+        eventId: "$stream-root",
+        roomId: "!room:example",
+      })),
+    };
+    setBeeperChannelRuntime(new BeeperChannelRuntime({
+      client: {
+        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        media: { upload: vi.fn() },
+      } as never,
+      userId: "@sh-openclaw-bot:example",
+    }));
+    const request = vi.fn(async () => {
+      throw new Error("generic request should not be used");
+    });
+    let resolveRun: (() => void) | undefined;
+    const runDone = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
+    const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
+      const delivery = params.delivery as { deliver?: (payload: unknown, info?: unknown) => Promise<unknown> };
+      await delivery.deliver?.("direct final", { kind: "final" });
+      resolveRun?.();
+    });
+    const runtime = new OpenClawPluginRuntimeAdapter({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      transport: createOpenClawHostRuntimeAdapter({
+        request,
+        channel: {
+          reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
+          session: {
+            recordInboundSession: vi.fn(),
+            resolveStorePath: () => "/tmp/openclaw",
+          },
+          turn: {
+            buildContext: vi.fn((params) => params),
+            runAssembled,
+          },
+        },
+        config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
+      }),
+    });
+
+    const sent = await runtime.sendMessage({
+      idempotencyKey: "$event",
+      matrix: { roomId: "!room:example", sender: "@alice:example" },
+      message: "hello",
+      sessionKey: "agent:main:beeper:default:direct:!room:example",
+    });
+
+    expect(sent.runId).toMatch(/^beeper:/u);
+    await runDone;
+    expect(request).not.toHaveBeenCalledWith("sessions.send", expect.anything(), expect.anything());
+    expect(runAssembled).toHaveBeenCalledTimes(1);
+    expect(beeperStreams.startMessage).toHaveBeenCalledTimes(1);
+    expect(beeperStreams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
+      body: "direct final",
+      roomId: "!room:example",
+    }));
+  });
+
   it("adapts OpenClaw plugin runtime helpers when no gateway request surface exists", async () => {
-    const transport = createOpenClawHostTransport({
+    const transport = createOpenClawHostRuntimeAdapter({
       agent: {
         session: {
           listSessionEntries: () => [
@@ -222,7 +284,28 @@ describe("OpenClawGatewayRuntime", () => {
   });
 
   it("rejects Beeper-originated sends when the OpenClaw channel runtime is unavailable", async () => {
-    const transport = createOpenClawHostTransport({
+    const transport = createOpenClawHostRuntimeAdapter({
+      agent: {
+        resolveAgentDir: () => "/tmp/agent",
+        session: {
+          getSessionEntry: () => ({
+            sessionFile: "/tmp/session.jsonl",
+            sessionId: "session-1",
+          }),
+        },
+      },
+      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
+    });
+
+    await expect(transport.sendMessage({
+      sessionKey: "agent:main:beeper:room",
+      message: "from Beeper",
+      idempotencyKey: "$event",
+    })).rejects.toThrow("OpenClaw Beeper requires OpenClaw channel turn helpers");
+  });
+
+  it("does not expose Beeper-originated sends as host transport RPC", async () => {
+    const transport = createOpenClawHostRuntimeAdapter({
       agent: {
         resolveAgentDir: () => "/tmp/agent",
         session: {
@@ -239,7 +322,7 @@ describe("OpenClawGatewayRuntime", () => {
       key: "agent:main:beeper:room",
       message: "from Beeper",
       idempotencyKey: "$event",
-    })).rejects.toThrow("OpenClaw Beeper requires OpenClaw channel turn helpers");
+    })).rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel turn helpers");
   });
 
   it("runs Beeper-originated sends through OpenClaw channel turn helpers for live AG-UI progress", async () => {
@@ -259,7 +342,7 @@ describe("OpenClawGatewayRuntime", () => {
     };
     setBeeperChannelRuntime(new BeeperChannelRuntime({
       client: {
-        beeper: { streams: beeperStreams },
+        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
         media: { upload: vi.fn() },
       } as never,
       userId: "@sh-openclaw-bot:example",
@@ -280,7 +363,7 @@ describe("OpenClawGatewayRuntime", () => {
       await delivery.deliver?.({ text: "hello world" });
       return { dispatchResult: { queuedFinal: true } };
     });
-    const transport = createOpenClawHostTransport({
+    const transport = createOpenClawHostRuntimeAdapter({
       channel: {
         reply: {
           dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
@@ -315,8 +398,8 @@ describe("OpenClawGatewayRuntime", () => {
         if (received.some((event) => event.event === "run.completed")) break;
       }
     })();
-    const sent = await transport.request("sessions.send", {
-      key: "agent:main:beeper:room",
+    const sent = await transport.sendMessage({
+      sessionKey: "agent:main:beeper:room",
       message: "from Beeper",
       idempotencyKey: "$event",
       matrix: { roomId: "!room:example", sender: "@alice:example" },
@@ -396,7 +479,7 @@ describe("OpenClawGatewayRuntime", () => {
     };
     setBeeperChannelRuntime(new BeeperChannelRuntime({
       client: {
-        beeper: { streams: beeperStreams },
+        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
         media: { upload: vi.fn() },
       } as never,
       userId: "@sh-openclaw-bot:example",
@@ -415,7 +498,7 @@ describe("OpenClawGatewayRuntime", () => {
       await delivery.deliver?.({ text: "hello world" }, { kind: "final" });
       return { dispatchResult: { queuedFinal: true } };
     });
-    const transport = createOpenClawHostTransport({
+    const transport = createOpenClawHostRuntimeAdapter({
       channel: {
         reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
         session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
@@ -439,8 +522,8 @@ describe("OpenClawGatewayRuntime", () => {
         if (event.event === "run.completed") break;
       }
     })();
-    await transport.request("sessions.send", {
-      key: "agent:main:beeper:room",
+    await transport.sendMessage({
+      sessionKey: "agent:main:beeper:room",
       message: "from Beeper",
       matrix: { roomId: "!room:example", sender: "@alice:example" },
     });
@@ -483,7 +566,7 @@ describe("OpenClawGatewayRuntime", () => {
     };
     setBeeperChannelRuntime(new BeeperChannelRuntime({
       client: {
-        beeper: { streams: beeperStreams },
+        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
         media: { upload: vi.fn() },
       } as never,
       userId: "@sh-openclaw-bot:example",
@@ -497,7 +580,7 @@ describe("OpenClawGatewayRuntime", () => {
       await delivery.deliver?.({ text: "hello world" }, { kind: "final" });
       return { dispatchResult: { queuedFinal: true } };
     });
-    const transport = createOpenClawHostTransport({
+    const transport = createOpenClawHostRuntimeAdapter({
       channel: {
         reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
         session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
@@ -529,8 +612,8 @@ describe("OpenClawGatewayRuntime", () => {
         if (event.event === "run.completed") break;
       }
     })();
-    await transport.request("sessions.send", {
-      key: "agent:main:beeper:room",
+    await transport.sendMessage({
+      sessionKey: "agent:main:beeper:room",
       message: "from Beeper",
       matrix: { roomId: "!room:example", sender: "@alice:example" },
     });
@@ -551,7 +634,7 @@ describe("OpenClawGatewayRuntime", () => {
       JSON.stringify({ message: { id: "u1", role: "user", content: [{ type: "text", text: "Hi" }] }, timestamp: 10 }),
       JSON.stringify({ message: { id: "a1", role: "assistant", content: [{ type: "text", text: "Hello" }] }, timestamp: 20 }),
     ].join("\n"));
-    const transport = createOpenClawHostTransport({
+    const transport = createOpenClawHostRuntimeAdapter({
       agent: {
         session: {
           getSessionEntry: () => ({
@@ -572,7 +655,7 @@ describe("OpenClawGatewayRuntime", () => {
 
   it("adapts plugin transcript lifecycle updates into runtime events", async () => {
     let listener: ((update: { sessionKey?: string; messageSeq?: number }) => void) | undefined;
-    const transport = createOpenClawHostTransport({
+    const transport = createOpenClawHostRuntimeAdapter({
       events: {
         onSessionTranscriptUpdate: (next) => {
           listener = next;
@@ -601,7 +684,7 @@ describe("OpenClawGatewayRuntime", () => {
   });
 });
 
-function fakeTransport(responses: Record<string, unknown>, events: OpenClawGatewayEvent[] = []): OpenClawTransport & {
+function fakeTransport(responses: Record<string, unknown>, events: OpenClawGatewayEvent[] = []): OpenClawRuntimeRequestSurface & {
   request: ReturnType<typeof vi.fn>;
 } {
   return {
@@ -611,5 +694,35 @@ function fakeTransport(responses: Record<string, unknown>, events: OpenClawGatew
       }
     },
     request: vi.fn(async (method: string) => responses[method]),
+  };
+}
+
+function createTestBeeperAIRuns() {
+  const snapshot = (runId: string, events: Record<string, unknown>[] = []) => ({
+    body: "...",
+    events,
+    finalAIMessage: {},
+    initialAIMessage: {},
+    metadata: {},
+    messageId: runId,
+    runId,
+    threadId: runId,
+  });
+  return {
+    appendEvent: vi.fn(async ({ event, runId }: { event: Record<string, unknown>; runId: string }) =>
+      snapshot(runId, [event])),
+    begin: vi.fn(async ({ runId, threadId }: { runId: string; threadId?: string }) =>
+      snapshot(runId, [
+        { runId, threadId: threadId ?? runId, type: "RUN_STARTED" },
+        { messageId: runId, role: "assistant", type: "TEXT_MESSAGE_START" },
+      ])),
+    delete: vi.fn(async () => undefined),
+    error: vi.fn(async ({ message, runId }: { message?: string; runId: string }) =>
+      snapshot(runId, [{ message, runId, type: "RUN_ERROR" }])),
+    finish: vi.fn(async ({ finishReason, runId }: { finishReason?: string; runId: string }) =>
+      snapshot(runId, [
+        { messageId: runId, type: "TEXT_MESSAGE_END" },
+        { finishReason: finishReason ?? "stop", runId, threadId: runId, type: "RUN_FINISHED" },
+      ])),
   };
 }

@@ -8,8 +8,6 @@ import {
   BridgeContext,
   BridgeRequestContext,
   BridgeUser,
-  type MatrixCommand,
-  type MatrixCommandResponse,
   ConnectContext,
   type ContactListingNetworkAPI,
   FetchMessagesParams,
@@ -57,13 +55,28 @@ import {
   ResolveIdentifierResponse,
   UserLogin,
 } from "@beeper/pickle-bridge";
-import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions } from "./backfill";
+import { buildBackfillImport } from "./backfill";
 import { parseApprovalReactionContent, parseApprovalResponseContent } from "./approval";
-import { BeeperChannelRuntime, setBeeperChannelRuntime } from "./beeper-channel-runtime";
+import {
+  BEEPER_CHANNEL_RUNTIME_CONTEXT_CAPABILITY,
+  BeeperChannelRuntime,
+  setBeeperChannelRuntime,
+  setBeeperChannelRuntimeForHost,
+} from "./beeper-channel-runtime";
 import { agentPortalSessionKey, OpenClawMatrixBridgeAgent } from "./bridge-agent";
 import { createDefaultConfig } from "./config";
 import { parseMatrixTextMessage, type ParsedMatrixTextMessage } from "./matrix-parser";
-import { createOpenClawHostTransport, OpenClawGatewayRuntime, type OpenClawGatewayFeatureSnapshot, type OpenClawHostRuntime, type OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
+import {
+  createOpenClawHostRuntimeAdapter,
+  type OpenClawBridgeRuntime,
+  OpenClawPluginRuntimeAdapter,
+  OpenClawHostRuntimeAdapter,
+  type OpenClawGatewayFeatureSnapshot,
+  type OpenClawHostRuntime,
+  type OpenClawMatrixMessageMetadata,
+  type OpenClawRunRef,
+  type OpenClawSessionSendOptions,
+} from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 import { agentContactFromOpenClawAgent, agentGhostUserId, serviceBotUserId } from "./rooms";
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
@@ -71,45 +84,11 @@ import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding
 const DEFAULT_NEW_SESSION_LABEL = "New OpenClaw Session";
 const MATRIX_HTML_FORMAT = "org.matrix.custom.html";
 
-type CommandReply = {
-  html?: string;
-  text: string;
-};
-
-type CommandSection = {
-  entries: Array<[string, string | number | boolean | undefined]>;
-  title: string;
-};
-
-type SupportedCommandSpec = {
-  command: string;
-  description: string;
-};
-
-const SUPPORTED_COMMON_COMMANDS: SupportedCommandSpec[] = [
-  { command: "/help", description: "Show supported OpenClaw commands." },
-  { command: "/commands", description: "List supported OpenClaw commands." },
-  { command: "/status", description: "Show bridge and current room status." },
-  { command: "/settings", description: "Show Beeper bridge settings." },
-  { command: "/tools [compact|verbose]", description: "List available runtime tools." },
-  { command: "/models", description: "List configured OpenClaw models." },
-  { command: "/tasks", description: "List recent OpenClaw tasks." },
-  { command: "/sessions", description: "List importable one-to-one OpenClaw sessions." },
-  { command: "/backfill", description: "Queue backfill for the current session room." },
-  { command: "/import", description: "Import supported OpenClaw session history." },
-  { command: "/new [agent-id] [session label]", description: "Create a new OpenClaw session room." },
-  { command: "/agent", description: "Show the agent bound to this room." },
-  { command: "/stop", description: "Abort the active run in this room." },
-  { command: "/abort", description: "Abort the active run in this room." },
-  { command: "/approve <approval-id>", description: "Approve a pending native approval request when enabled." },
-  { command: "/deny <approval-id>", description: "Deny a pending native approval request when enabled." },
-];
-
 export interface OpenClawConnectorOptions {
   config?: OpenClawBridgeConfig;
   registry?: OpenClawBridgeRegistry;
-  runtime?: OpenClawGatewayRuntime | OpenClawHostRuntime;
-  runtimeFactory?: (config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
+  runtime?: OpenClawPluginRuntimeAdapter | OpenClawHostRuntime;
+  runtimeFactory?: (config: OpenClawBridgeConfig) => OpenClawPluginRuntimeAdapter;
 }
 
 export function createOpenClawConnector(options: OpenClawConnectorOptions = {}): OpenClawBridgeConnector {
@@ -119,16 +98,21 @@ export function createOpenClawConnector(options: OpenClawConnectorOptions = {}):
 export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeConfig> {
   readonly config: OpenClawBridgeConfig;
   readonly registry: OpenClawBridgeRegistry;
-  readonly runtime: OpenClawGatewayRuntime | undefined;
-  #runtimeFactory: (config: OpenClawBridgeConfig) => OpenClawGatewayRuntime;
+  readonly runtime: OpenClawPluginRuntimeAdapter | undefined;
+  readonly #hostRuntime: OpenClawHostRuntime | undefined;
+  #channelRuntime: BeeperChannelRuntime | undefined;
+  #runtimeFactory: (config: OpenClawBridgeConfig) => OpenClawPluginRuntimeAdapter;
 
   constructor(options: OpenClawConnectorOptions = {}) {
     this.config = options.config ?? createDefaultConfig();
     this.registry = options.registry ?? new OpenClawBridgeRegistry();
-    const runtime = options.runtime instanceof OpenClawGatewayRuntime
+    this.#hostRuntime = options.runtime && !(options.runtime instanceof OpenClawPluginRuntimeAdapter)
       ? options.runtime
-      : options.runtime
-        ? new OpenClawGatewayRuntime({ config: this.config, transport: createOpenClawHostTransport(options.runtime) })
+      : undefined;
+    const runtime = options.runtime instanceof OpenClawPluginRuntimeAdapter
+      ? options.runtime
+      : this.#hostRuntime
+        ? new OpenClawPluginRuntimeAdapter({ config: this.config, transport: createOpenClawHostRuntimeAdapter(this.#hostRuntime) })
         : undefined;
     this.runtime = runtime;
     this.#runtimeFactory =
@@ -139,6 +123,10 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       });
   }
 
+  getChannelRuntime(): BeeperChannelRuntime | undefined {
+    return this.#channelRuntime;
+  }
+
   getName() {
     return {
       beeperBridgeType: "openclaw",
@@ -147,68 +135,6 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       networkId: "openclaw",
       networkUrl: "https://github.com/openclaw/openclaw",
     };
-  }
-
-  async handleCommand(ctx: BridgeRequestContext, command: MatrixCommand): Promise<MatrixCommandResponse> {
-    const name = command.command.startsWith("/") ? command.command.slice(1).toLowerCase() : command.command.toLowerCase();
-    switch (name) {
-      case "help":
-      case "commands":
-        return commandResponse(commandsReply());
-      case "status":
-        return commandResponse(await bridgeStatusReply(this.config, this.registry.data.bindings.length, undefined, this.runtime));
-      case "settings":
-        return commandResponse(bridgeSettingsReply(this.config, this.registry.data.bindings.length));
-      case "tools": {
-        const runtime = this.#runtimeFactory(this.config);
-        return commandResponse(await toolsReply(runtime, command.args.join(" ")));
-      }
-      case "models": {
-        const runtime = this.#runtimeFactory(this.config);
-        return commandResponse(await modelsReply(runtime));
-      }
-      case "tasks": {
-        const runtime = this.#runtimeFactory(this.config);
-        return commandResponse(await tasksReply(runtime, undefined));
-      }
-      case "sessions": {
-        const runtime = this.#runtimeFactory(this.config);
-        const options: Parameters<typeof discoverOneToOneSessions>[1] = {};
-        if (this.config.importSources !== undefined) options.importSources = this.config.importSources;
-        const sessions = await discoverOneToOneSessions(runtime, options);
-        return commandResponse(sessionsSummaryReply(sessions));
-      }
-      case "import": {
-        const runtime = this.#runtimeFactory(this.config);
-        const importOptions: Parameters<typeof backfillAllOpenClawSessions>[0] = {
-          bridge: ctx.bridge,
-          login: userLoginFromOpenClawConfig(this.config),
-          registry: this.registry,
-          runtime,
-        };
-        if (this.config.importSources !== undefined) importOptions.importSources = this.config.importSources;
-        if (this.config.backfillLimit !== undefined) importOptions.limit = this.config.backfillLimit;
-        const result = await backfillAllOpenClawSessions(importOptions);
-        return commandResponse(importSummaryReply(result));
-      }
-      case "backfill":
-        return commandResponse(simpleReply("Usage", "Use /backfill inside an OpenClaw session room."));
-      case "new":
-        return commandResponse(simpleReply("Usage", "Use /new inside an OpenClaw session room."));
-      case "agent":
-        return commandResponse(simpleReply("Usage", "Use /agent inside an OpenClaw session room."));
-      case "approve":
-      case "deny":
-        return commandResponse(simpleReply("Approvals", "Approval slash commands are disabled for this bridge."));
-      case "stop":
-      case "abort": {
-        const runtime = this.#runtimeFactory(this.config);
-        await runtime.abortSession({});
-        return { handled: true };
-      }
-      default:
-        return { handled: false };
-    }
   }
 
   getBridgeInfoVersion() {
@@ -248,7 +174,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
     await this.registry.load();
     const ownUserId = ctx.bridge.getOwnUserId();
     const login = userLoginFromOpenClawConfig(this.config);
-    setBeeperChannelRuntime(new BeeperChannelRuntime({
+    const channelRuntime = new BeeperChannelRuntime({
       bridge: ctx.bridge,
       client: ctx.client,
       getAgents: () => this.registry.data.agents,
@@ -257,7 +183,11 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       login,
       log: (level, message, data) => ctx.log(level, message, data),
       ...(ownUserId ? { userId: ownUserId } : {}),
-    }));
+    });
+    this.#channelRuntime = channelRuntime;
+    setBeeperChannelRuntime(channelRuntime);
+    if (this.#hostRuntime) setBeeperChannelRuntimeForHost(this.#hostRuntime, channelRuntime);
+    registerBeeperRuntimeContext(this.#hostRuntime, channelRuntime);
   }
 
   async start(ctx: BridgeContext): Promise<void> {
@@ -280,8 +210,20 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       login,
       registry: this.registry,
       runtime: this.#runtimeFactory(this.config),
+      sendTurn: this.#sendTurn,
     });
   }
+
+  #sendTurn = (options: OpenClawSessionSendOptions) => {
+    const runtime = this.#runtimeFactory(this.config);
+    if (runtime.transport instanceof OpenClawHostRuntimeAdapter) {
+      return runtime.transport.sendMessage(options, {
+        expectFinal: false,
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      });
+    }
+    return runtime.sendMessage(options);
+  };
 }
 
 export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, ReactionRemoveHandlingNetworkAPI, RedactionHandlingNetworkAPI, ReadReceiptHandlingNetworkAPI, MarkedUnreadHandlingNetworkAPI, TypingHandlingNetworkAPI, RoomNameHandlingNetworkAPI, RoomTopicHandlingNetworkAPI, RoomAvatarHandlingNetworkAPI, MembershipHandlingNetworkAPI, DeleteChatHandlingNetworkAPI, BackfillingNetworkAPI {
@@ -289,13 +231,14 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
   readonly #config: OpenClawBridgeConfig;
   readonly #login: UserLogin;
   readonly #registry: OpenClawBridgeRegistry;
-  readonly #runtime: OpenClawGatewayRuntime;
+  readonly #runtime: OpenClawBridgeRuntime;
 
   constructor(options: {
     config: OpenClawBridgeConfig;
     login: UserLogin;
     registry: OpenClawBridgeRegistry;
-    runtime: OpenClawGatewayRuntime;
+    runtime: OpenClawBridgeRuntime;
+    sendTurn?: (options: OpenClawSessionSendOptions) => Promise<OpenClawRunRef>;
   }) {
     this.#config = options.config;
     this.#login = options.login;
@@ -304,6 +247,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     this.#agent = new OpenClawMatrixBridgeAgent({
       registry: options.registry,
       runtime: options.runtime,
+      ...(options.sendTurn ? { sendTurn: options.sendTurn } : {}),
     });
   }
 
@@ -408,17 +352,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     }
     const parsed = parseMatrixTextMessage(msg.text, msg.content, msg);
     if (msg.portal.mxid) {
-      if (parsed.command?.name === "stop" || parsed.command?.name === "abort") {
-        const abortOptions: { runId?: string; sessionKey?: string } = {};
-        if (currentBinding?.lastRunId) abortOptions.runId = currentBinding.lastRunId;
-        if (currentBinding?.sessionKey) abortOptions.sessionKey = currentBinding.sessionKey;
-        await this.#runtime.abortSession(abortOptions);
-        return { pending: false };
-      }
       if (currentBinding) this.registerCanonicalPortalForBinding(ctx, msg.portal, currentBinding);
-      if (parsed.command) {
-        return await this.handleSlashCommand(ctx, parsed.command, currentBinding, msg);
-      }
       if (!currentBinding) {
         ctx.log?.("warn", "openclaw_matrix_message_unbound_room", {
           portalId: msg.portal.id,
@@ -657,141 +591,6 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     };
   }
 
-  async handleSlashCommand(
-    ctx: BridgeRequestContext,
-    command: NonNullable<ParsedMatrixTextMessage["command"]>,
-    binding: OpenClawSessionBinding | undefined,
-    msg: MatrixMessage,
-  ): Promise<MatrixMessageResponse> {
-    const notice = (reply: CommandReply | string, noticeBinding = binding) =>
-      commandNotice(ctx, this.#config, this.#login, msg, reply, noticeBinding);
-    switch (command.name) {
-      case "help":
-      case "commands":
-        return notice(commandsReply());
-      case "status":
-        return notice(await bridgeStatusReply(this.#runtime.config, this.#registry.data.bindings.length, binding, this.#runtime));
-      case "settings":
-        return notice(bridgeSettingsReply(this.#runtime.config, this.#registry.data.bindings.length));
-      case "tools":
-        return notice(await toolsReply(this.#runtime, command.args));
-      case "models":
-        return notice(await modelsReply(this.#runtime));
-      case "tasks":
-        return notice(await tasksReply(this.#runtime, binding));
-      case "sessions": {
-        const options: Parameters<typeof discoverOneToOneSessions>[1] = {};
-        if (this.#runtime.config.importSources !== undefined) options.importSources = this.#runtime.config.importSources;
-        const sessions = await discoverOneToOneSessions(this.#runtime, options);
-        return notice(sessionsSummaryReply(sessions));
-      }
-      case "backfill":
-        const count = await this.backfillCurrentRoom(ctx, binding, msg);
-        return notice(simpleReply("Backfill", `Queued backfill for ${count} message${count === 1 ? "" : "s"}.`));
-      case "import": {
-        const importOptions: Parameters<typeof backfillAllOpenClawSessions>[0] = {
-          bridge: ctx.bridge,
-          login: this.#login,
-          registry: this.#registry,
-          runtime: this.#runtime,
-        };
-        if (this.#runtime.config.importSources !== undefined) importOptions.importSources = this.#runtime.config.importSources;
-        if (this.#runtime.config.backfillLimit !== undefined) importOptions.limit = this.#runtime.config.backfillLimit;
-        const result = await backfillAllOpenClawSessions(importOptions);
-        return notice(importSummaryReply(result));
-      }
-      case "new": {
-        const request = this.resolveNewSessionCommand(command.args, binding);
-        if (!request) {
-          return notice(simpleReply("Usage", "Usage: /new [agent-id] [session label]. In an agent DM, /new [session label] is enough."));
-        }
-        if (!binding && msg.portal.mxid) {
-          const created = await this.createBindingForMatrixRoom(msg.portal.mxid, request.label, request.agentId, request.ghostUserId);
-          this.registerCanonicalPortalForBinding(ctx, msg.portal, created);
-          return notice(simpleReply("New Session", `Created a new OpenClaw session in this room: ${created.sessionKey}`), created);
-        }
-        const session = await this.#runtime.createSession({
-          agentId: request.agentId,
-          key: newBeeperSessionKey(request.agentId),
-          label: request.label,
-        });
-        const portalOptions: Parameters<typeof ctx.bridge.createPortal>[1] = {
-          id: portalIdForSession(session.key),
-          metadata: {
-            openclaw: stripUndefined({
-              agentId: request.agentId,
-              ghostUserId: request.ghostUserId,
-              sessionKey: session.key,
-            }),
-          },
-          name: request.label,
-          roomType: "dm",
-        };
-        const creationContent = openClawPortalCreationContent(this.#runtime.config);
-        if (creationContent) portalOptions.creationContent = creationContent;
-        const portal = await ctx.bridge.createPortal(this.#login, portalOptions);
-        if (portal.mxid) {
-          this.#registry.upsertBinding({
-            agentId: request.agentId,
-            createdAt: Date.now(),
-            ghostUserId: request.ghostUserId,
-            id: Buffer.from(portal.mxid).toString("base64url"),
-            kind: "session",
-            label: request.label,
-            owner: "bridge",
-            roomId: portal.mxid,
-            sessionKey: session.key,
-            updatedAt: Date.now(),
-          });
-        }
-        await this.#registry.save();
-        return notice(simpleReply("New Session", portal.mxid
-          ? `Created a new OpenClaw session room: ${portal.mxid}`
-          : `Created a new OpenClaw session: ${session.key}`));
-      }
-      case "approve":
-      case "deny": {
-        if (!approvalSlashEnabled(this.#runtime.config)) {
-          return notice(simpleReply("Approvals", "Approval slash commands are disabled for this bridge."));
-        }
-        const approvalId = command.args.trim() || approvalIdFromMatrixReply(msg);
-        if (!approvalId) return notice(simpleReply("Usage", `Usage: /${command.name} <approval-id> or reply to an approval message with /${command.name}`));
-        await this.#agent.handleApprovalContent({
-          approvalId,
-          approved: command.name === "approve",
-          approvedAlways: false,
-          type: "tool-approval-response",
-        }, approvalId);
-        return notice(simpleReply("Approvals", `${command.name === "approve" ? "Approved" : "Denied"} ${approvalId}.`));
-      }
-      case "agent":
-        return notice(simpleReply("Agent", binding ? `Agent: ${binding.agentId}` : "This room is not bound to an OpenClaw agent yet."));
-      default:
-        return notice(simpleReply("Unknown Command", `Unknown OpenClaw command: /${command.name}`));
-    }
-  }
-
-  async backfillCurrentRoom(ctx: BridgeRequestContext, binding: OpenClawSessionBinding | undefined, msg: MatrixMessage): Promise<number> {
-    const roomId = msg.portal.mxid;
-    if (!binding || !roomId) return 0;
-    const importOptions: { limit?: number; roomId: string } = { roomId };
-    if (this.#runtime.config.backfillLimit !== undefined) importOptions.limit = this.#runtime.config.backfillLimit;
-    const imported = await buildBackfillImport(this.#runtime, this.#runtime.config, {
-      agentId: binding.agentId,
-      label: binding.label ?? binding.sessionKey,
-      session: { key: binding.sessionKey },
-      sessionKey: binding.sessionKey,
-      source: binding.owner === "imported" ? "unknown" : "channel",
-    }, importOptions);
-    if (imported.human) this.#registry.upsertUser(imported.human);
-    this.#registry.upsertBinding(imported.binding);
-    const backfillOptions: { limit?: number } = {};
-    if (this.#runtime.config.backfillLimit !== undefined) backfillOptions.limit = this.#runtime.config.backfillLimit;
-    await ctx.bridge.backfillPortal(this.#login, msg.portal, backfillOptions);
-    await this.#registry.save();
-    return imported.messages.length;
-  }
-
   isAllowedMatrixIngress(roomId: string | undefined, sender: string | undefined): boolean {
     if (!this.isAllowedRoom(roomId)) return false;
     if (!this.isAllowedUser(sender)) return false;
@@ -911,33 +710,6 @@ function newBeeperSessionKey(agentId: string): string {
   return `agent:${agentId}:beeper:${randomUUID()}`;
 }
 
-async function commandNotice(
-  ctx: BridgeRequestContext,
-  config: OpenClawBridgeConfig,
-  login: UserLogin,
-  msg: MatrixMessage,
-  reply: CommandReply | string,
-  binding: OpenClawSessionBinding | undefined,
-): Promise<MatrixMessageResponse> {
-  const formatted = normalizeCommandReply(reply);
-  const portalKey = canonicalPortalKeyForBinding(binding, login.id) ?? msg.portal.portalKey;
-  ctx.queueRemoteEvent(login, createRemoteMessage({
-    convert: () => ({
-      parts: [{ content: commandContent(formatted), id: "body", type: "m.text" }],
-    }),
-    data: { text: formatted.text },
-    id: `${msg.event.eventId}:openclaw-command`,
-    portalKey,
-    sender: {
-      isFromMe: true,
-      sender: binding?.ghostUserId ?? serviceBotUserId(config),
-    },
-    timestamp: new Date(),
-  }));
-  await ctx.bridge?.flushRemoteEvents?.();
-  return { pending: false };
-}
-
 function canonicalPortalForBinding(portal: Portal, binding: OpenClawSessionBinding, receiver: string): Portal {
   const id = portalIdForSession(binding.sessionKey);
   return {
@@ -960,273 +732,6 @@ function canonicalPortalForBinding(portal: Portal, binding: OpenClawSessionBindi
   };
 }
 
-function canonicalPortalKeyForBinding(binding: OpenClawSessionBinding | undefined, receiver: string): PortalKey | undefined {
-  if (!binding) return undefined;
-  return { id: portalIdForSession(binding.sessionKey), receiver };
-}
-
-function commandResponse(reply: CommandReply | string): MatrixCommandResponse {
-  const formatted = normalizeCommandReply(reply);
-  return {
-    content: commandContent(formatted),
-    handled: true,
-    text: formatted.text,
-  };
-}
-
-function commandContent(reply: CommandReply): Record<string, unknown> {
-  return stripUndefined({
-    body: reply.text,
-    format: reply.html ? MATRIX_HTML_FORMAT : undefined,
-    formatted_body: reply.html,
-    msgtype: "m.text",
-  });
-}
-
-function normalizeCommandReply(reply: CommandReply | string): CommandReply {
-  return typeof reply === "string" ? textReply(reply) : reply;
-}
-
-function textReply(text: string): CommandReply {
-  return {
-    html: htmlLines(text.split("\n")),
-    text,
-  };
-}
-
-function simpleReply(title: string, text: string): CommandReply {
-  return {
-    html: htmlLines([`<strong>${escapeMatrixHtml(title)}</strong>`, "", ...text.split("\n").map(escapeMatrixHtml)], { escaped: true }),
-    text,
-  };
-}
-
-function sectionsReply(title: string, sections: CommandSection[]): CommandReply {
-  const text = [
-    title,
-    ...sections.flatMap((section) => [
-      "",
-      section.title,
-      ...section.entries.map(([label, value]) => `${label}: ${formatCommandValue(value)}`),
-    ]),
-  ].join("\n");
-  const html = htmlLines([
-    `<strong>${escapeMatrixHtml(title)}</strong>`,
-    ...sections.flatMap((section) => [
-      "",
-      `<strong>${escapeMatrixHtml(section.title)}</strong>`,
-      ...section.entries.map(([label, value]) =>
-        `<strong>${escapeMatrixHtml(label)}:</strong> ${escapeMatrixHtml(formatCommandValue(value))}`),
-    ]),
-  ], { escaped: true });
-  return { html, text };
-}
-
-async function bridgeStatusReply(
-  config: OpenClawBridgeConfig,
-  boundRooms: number,
-  binding: OpenClawSessionBinding | undefined,
-  runtime: OpenClawGatewayRuntime | undefined,
-): Promise<CommandReply> {
-  const snapshot = runtime ? await safeFeatureSnapshot(runtime) : undefined;
-  const status = recordValue(snapshot?.status);
-  const health = recordValue(snapshot?.health);
-  const models = arrayFromResponse(snapshot?.models, "models");
-  const commands = arrayFromResponse(snapshot?.commands, "commands");
-  const tasks = arrayFromResponse(snapshot?.tasks, "tasks");
-  const tools = arrayFromResponse(snapshot?.tools, "tools");
-  const usage = recordValue(snapshot?.usage);
-  const sections: CommandSection[] = [
-    {
-      title: "Bridge",
-      entries: [
-        ["Runtime", "OpenClaw plugin"],
-        ["Gateway", statusTextFromRecord(status) ?? statusTextFromRecord(health) ?? "available"],
-        ["Beeper environment", config.beeperEnv ?? "production"],
-        ["Homeserver", config.homeserver ?? "not configured"],
-        ["Registration URL", config.registrationUrl ?? "not configured"],
-        ["Bound rooms", boundRooms],
-      ],
-    },
-    {
-      title: "Room",
-      entries: [
-        ["Session key", binding?.sessionKey ?? "not bound"],
-        ["Agent", binding?.agentId ?? "not bound"],
-        ["Ghost", binding?.ghostUserId ?? "service bot"],
-        ["Last run", binding?.lastRunId ?? "none"],
-        ["Last stream run", binding?.lastStreamRunId ?? "none"],
-      ],
-    },
-    {
-      title: "Runtime",
-      entries: [
-        ["Models", models ? models.length : "unknown"],
-        ["Commands", commands ? commands.length : "unknown"],
-        ["Tools", tools ? tools.length : "unknown"],
-        ["Tasks", tasks ? tasks.length : "unknown"],
-        ["Usage", usageSummary(usage) ?? "unknown"],
-      ],
-    },
-    {
-      title: "Behavior",
-      entries: [
-        ["Import sources", (config.importSources ?? []).join(", ") || "none"],
-        ["Approvals", describeApprovalBehavior(config.approvalBehavior)],
-        ["Stream finalization", config.streamFinalization ?? "replace"],
-        ["Backfill limit", config.backfillLimit ?? "default"],
-        ["Contact visibility", config.contactVisibility ?? "agents"],
-      ],
-    },
-  ];
-  return sectionsReply("OpenClaw Beeper status", sections);
-}
-
-function bridgeSettingsReply(config: OpenClawBridgeConfig, boundRooms: number): CommandReply {
-  return sectionsReply("OpenClaw Beeper settings", [{
-    title: "Bridge",
-    entries: [
-      ["Beeper environment", config.beeperEnv ?? "production"],
-      ["Homeserver", config.homeserver ?? "not configured"],
-      ["Registration URL", config.registrationUrl ?? "not configured"],
-      ["Runtime", "OpenClaw plugin"],
-      ["Bridge manager token", config.bridgeManagerToken ? "configured" : "not configured"],
-      ["Post bridge state", config.bridgeManagerPostState === undefined ? "default" : config.bridgeManagerPostState ? "enabled" : "disabled"],
-      ["Import sources", (config.importSources ?? []).join(", ") || "none"],
-      ["Backfill limit", config.backfillLimit ?? "default"],
-      ["Contact visibility", config.contactVisibility ?? "agents"],
-      ["Stream finalization", config.streamFinalization ?? "replace"],
-      ["Approvals", describeApprovalBehavior(config.approvalBehavior)],
-      ["Non-federated rooms", config.nonFederatedRooms ? "yes" : "no"],
-      ["Allowed rooms", config.allowedRoomIds?.length ? config.allowedRoomIds.join(", ") : "all"],
-      ["Allowed users", config.allowedUserIds?.length ? config.allowedUserIds.join(", ") : "all"],
-      ["Bound rooms", boundRooms],
-    ],
-  }]);
-}
-
-function commandsReply(): CommandReply {
-  const text = [
-    "OpenClaw commands",
-    "",
-    ...SUPPORTED_COMMON_COMMANDS.map((command) => `${command.command} - ${command.description}`),
-  ].join("\n");
-  const html = [
-    "<strong>OpenClaw Commands</strong>",
-    "",
-    ...SUPPORTED_COMMON_COMMANDS.map((command) =>
-      `<code>${escapeMatrixHtml(command.command)}</code> - ${escapeMatrixHtml(command.description)}`),
-  ];
-  return { html: htmlLines(html, { escaped: true }), text };
-}
-
-function htmlLines(lines: string[], options: { escaped?: boolean } = {}): string {
-  return lines
-    .map((line) => options.escaped ? line : escapeMatrixHtml(line))
-    .join("<br>");
-}
-
-async function toolsReply(runtime: OpenClawGatewayRuntime, args: string): Promise<CommandReply> {
-  const mode = args.trim().toLowerCase();
-  if (mode && mode !== "compact" && mode !== "verbose") {
-    return simpleReply("Usage", "Usage: /tools [compact|verbose]");
-  }
-  const result = await safeRuntimeCall(() => runtime.listTools());
-  const tools = arrayFromResponse(result, "tools") ?? [];
-  if (tools.length === 0) return simpleReply("Available Tools", "No runtime tools are available right now.");
-  const verbose = mode === "verbose";
-  const entries = tools.slice(0, 80).map((tool, index) => {
-    const record = recordValue(tool);
-    const name = stringValue(record?.name) ?? stringValue(record?.id) ?? `tool-${index + 1}`;
-    const description = stringValue(record?.description) ?? stringValue(record?.label) ?? "available";
-    return [name, verbose ? description : "available"] as [string, string];
-  });
-  return sectionsReply("Available Tools", [{ title: verbose ? "Verbose" : "Compact", entries }]);
-}
-
-async function modelsReply(runtime: OpenClawGatewayRuntime): Promise<CommandReply> {
-  const result = await safeRuntimeCall(() => runtime.listModels({ view: "configured" }));
-  const models = arrayFromResponse(result, "models") ?? [];
-  if (models.length === 0) return simpleReply("Models", "No configured models were returned by OpenClaw.");
-  return sectionsReply("Models", [{
-    title: "Configured",
-    entries: models.slice(0, 80).map((model, index) => {
-      const record = recordValue(model);
-      const id = stringValue(record?.id) ?? stringValue(record?.model) ?? stringValue(record?.name) ?? (typeof model === "string" ? model : `model-${index + 1}`);
-      const provider = stringValue(record?.provider) ?? stringValue(record?.owner) ?? "available";
-      return [id, provider];
-    }),
-  }]);
-}
-
-async function tasksReply(runtime: OpenClawGatewayRuntime, binding: OpenClawSessionBinding | undefined): Promise<CommandReply> {
-  const result = await safeRuntimeCall(() => runtime.listTasks({ limit: 25, ...(binding?.sessionKey ? { ownerKey: binding.sessionKey } : {}) }));
-  const tasks = arrayFromResponse(result, "tasks") ?? [];
-  if (tasks.length === 0) return simpleReply("Tasks", "No recent OpenClaw tasks were returned.");
-  return sectionsReply("Tasks", [{
-    title: "Recent",
-    entries: tasks.slice(0, 25).map((task, index) => {
-      const record = recordValue(task);
-      const id = stringValue(record?.id) ?? stringValue(record?.taskId) ?? `task-${index + 1}`;
-      const status = stringValue(record?.status) ?? stringValue(record?.state) ?? "unknown";
-      return [id, status];
-    }),
-  }]);
-}
-
-async function safeFeatureSnapshot(runtime: OpenClawGatewayRuntime): Promise<OpenClawGatewayFeatureSnapshot | undefined> {
-  try {
-    return await runtime.featureSnapshot();
-  } catch {
-    return undefined;
-  }
-}
-
-async function safeRuntimeCall<T>(call: () => Promise<T>): Promise<T | undefined> {
-  try {
-    return await call();
-  } catch {
-    return undefined;
-  }
-}
-
-function arrayFromResponse(response: unknown, key: string): unknown[] | undefined {
-  return arrayValue(recordValue(response)?.[key]) ?? arrayValue(response);
-}
-
-function statusTextFromRecord(record: Record<string, unknown> | undefined): string | undefined {
-  if (!record) return undefined;
-  return stringValue(record.status)
-    ?? stringValue(record.state)
-    ?? (record.ok === true ? "ok" : record.ok === false ? "not ok" : undefined);
-}
-
-function usageSummary(usage: Record<string, unknown> | undefined): string | undefined {
-  if (!usage) return undefined;
-  const summary = stringValue(usage.summary) ?? stringValue(usage.status);
-  if (summary) return summary;
-  const tokens = numberValue(usage.tokens) ?? numberValue(usage.totalTokens);
-  const cost = numberValue(usage.cost) ?? numberValue(usage.totalCost);
-  if (tokens !== undefined && cost !== undefined) return `${tokens} tokens, ${cost} cost`;
-  if (tokens !== undefined) return `${tokens} tokens`;
-  if (cost !== undefined) return `${cost} cost`;
-  return undefined;
-}
-
-function formatCommandValue(value: string | number | boolean | undefined): string {
-  if (value === undefined || value === "") return "unknown";
-  if (typeof value === "boolean") return value ? "yes" : "no";
-  return String(value);
-}
-
-function escapeMatrixHtml(value: string): string {
-  return value
-    .replace(/&/gu, "&amp;")
-    .replace(/</gu, "&lt;")
-    .replace(/>/gu, "&gt;")
-    .replace(/"/gu, "&quot;");
-}
-
 function describeApprovalBehavior(behavior: OpenClawBridgeConfig["approvalBehavior"]): string {
   switch (behavior ?? "native") {
     case "native":
@@ -1240,44 +745,12 @@ function approvalReactionsEnabled(_config: OpenClawBridgeConfig): boolean {
   return false;
 }
 
-function approvalSlashEnabled(_config: OpenClawBridgeConfig): boolean {
-  return false;
-}
-
 function approvalNativeEnabled(config: OpenClawBridgeConfig): boolean {
   return config.approvalBehavior === undefined || config.approvalBehavior === "native";
 }
 
 function openClawPortalCreationContent(config: OpenClawBridgeConfig): Record<string, unknown> | undefined {
   return config.nonFederatedRooms ? { "m.federate": false } : undefined;
-}
-
-function sessionsSummaryReply(sessions: Awaited<ReturnType<typeof discoverOneToOneSessions>>): CommandReply {
-  if (sessions.length === 0) return simpleReply("Sessions", "No importable OpenClaw sessions found for the enabled import sources.");
-  return sectionsReply("Sessions", [{
-    title: "Importable",
-    entries: sessions.slice(0, 20).map((session) => [session.label, session.source]),
-  }]);
-}
-
-function importSummaryReply(result: Awaited<ReturnType<typeof backfillAllOpenClawSessions>>): CommandReply {
-  const imported = result.sessions.length;
-  const skipped = result.skipped.length;
-  if (imported === 0 && skipped === 0) return simpleReply("Import", "No importable OpenClaw sessions found for the enabled import sources.");
-  const reply = sectionsReply("Import", [{
-    title: "Summary",
-    entries: [
-      ["Imported", `${imported} OpenClaw session${imported === 1 ? "" : "s"}`],
-      ["Skipped", `${skipped} already imported or unavailable session${skipped === 1 ? "" : "s"}`],
-    ],
-  }]);
-  return {
-    ...reply,
-    text: [
-      `Imported ${imported} OpenClaw session${imported === 1 ? "" : "s"}.`,
-      `Skipped ${skipped} already imported or unavailable session${skipped === 1 ? "" : "s"}.`,
-    ].join("\n"),
-  };
 }
 
 function streamTargetRelationPatch(
@@ -1465,8 +938,21 @@ export function userLoginFromOpenClawConfig(config: OpenClawBridgeConfig): UserL
   };
 }
 
-export function createOpenClawRuntimeFromHost(runtime: OpenClawHostRuntime, config: OpenClawBridgeConfig): OpenClawGatewayRuntime {
-  return new OpenClawGatewayRuntime({ config, transport: createOpenClawHostTransport(runtime) });
+export function createOpenClawRuntimeAdapterFromHost(runtime: OpenClawHostRuntime, config: OpenClawBridgeConfig): OpenClawPluginRuntimeAdapter {
+  return new OpenClawPluginRuntimeAdapter({ config, transport: createOpenClawHostRuntimeAdapter(runtime) });
+}
+
+function registerBeeperRuntimeContext(hostRuntime: OpenClawHostRuntime | undefined, runtime: BeeperChannelRuntime): void {
+  const channel = recordValue(hostRuntime)?.channel;
+  const runtimeContexts = recordValue(channel)?.runtimeContexts;
+  const register = recordValue(runtimeContexts)?.register;
+  if (typeof register !== "function") return;
+  register.call(runtimeContexts, {
+    accountId: "default",
+    capability: BEEPER_CHANNEL_RUNTIME_CONTEXT_CAPABILITY,
+    channelId: "beeper",
+    context: runtime,
+  });
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

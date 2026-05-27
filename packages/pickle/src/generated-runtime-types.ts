@@ -126,6 +126,40 @@ export interface MatrixAppserviceBatchSendResult {
 export interface MatrixAppserviceTransactionOptions {
   transaction: { [key: string]: unknown };
 }
+export interface MatrixBeginBeeperAIRunOptions {
+  agentId?: string;
+  agentName?: string;
+  model?: string;
+  runId?: string;
+  threadId?: string;
+}
+export interface MatrixAppendBeeperAIRunEventOptions {
+  event: { [key: string]: unknown };
+  runId: string;
+}
+export interface MatrixFinishBeeperAIRunOptions {
+  finishReason?: string;
+  runId: string;
+  usage?: unknown /* agui.Usage */;
+}
+export interface MatrixErrorBeeperAIRunOptions {
+  message?: string;
+  runId: string;
+  type?: "error" | "abort";
+}
+export interface MatrixDeleteBeeperAIRunOptions {
+  runId: string;
+}
+export interface MatrixBeeperAIRunSnapshot {
+  body: string;
+  events: Array<{ [key: string]: unknown }>;
+  initialAIMessage: { [key: string]: unknown };
+  finalAIMessage: { [key: string]: unknown };
+  metadata: { [key: string]: unknown };
+  messageId: string;
+  runId: string;
+  threadId: string;
+}
 export interface MatrixCryptoStatus {
   deviceId?: string;
   hasRecoveryKey: boolean;

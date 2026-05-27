@@ -1,7 +1,7 @@
 import type { BridgeCreatePortalOptions, PickleBridge, Portal, UserLogin } from "@beeper/pickle-bridge";
 import type {
   OpenClawChatHistoryMessage,
-  OpenClawGatewayRuntime,
+  OpenClawSessionHistoryRuntime,
   OpenClawListedSession,
 } from "./openclaw-runtime";
 import { agentContactFromOpenClawAgent, agentGhostUserId, bindingIdForRoom, userContactFromOpenClawSession } from "./rooms";
@@ -39,7 +39,7 @@ export interface BackfillAllOpenClawSessionsOptions {
   limit?: number;
   login: UserLogin;
   registry: OpenClawBridgeRegistry;
-  runtime: OpenClawGatewayRuntime;
+  runtime: OpenClawSessionHistoryRuntime;
 }
 
 export interface BackfillAllOpenClawSessionsResult {
@@ -49,7 +49,7 @@ export interface BackfillAllOpenClawSessionsResult {
 }
 
 export async function discoverOneToOneSessions(
-  runtime: OpenClawGatewayRuntime,
+  runtime: OpenClawSessionHistoryRuntime,
   options: { importSources?: OpenClawImportSource[] } = {},
 ): Promise<OpenClawBackfillSession[]> {
   const sessions = await runtime.listSessions({ includeArchived: true });
@@ -71,7 +71,7 @@ export async function discoverOneToOneSessions(
 }
 
 export async function buildBackfillImport(
-  runtime: OpenClawGatewayRuntime,
+  runtime: Pick<OpenClawSessionHistoryRuntime, "loadHistory">,
   config: OpenClawBridgeConfig,
   session: OpenClawBackfillSession,
   options: { limit?: number; roomId: string }

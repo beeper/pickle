@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BeeperChannelRuntime, getBeeperChannelRuntime, setBeeperChannelRuntime } from "./beeper-channel-runtime";
+import {
+  BeeperChannelRuntime,
+  getBeeperChannelRuntime,
+  getBeeperChannelRuntimeForHost,
+  setBeeperChannelRuntime,
+  setBeeperChannelRuntimeForHost,
+} from "./beeper-channel-runtime";
 
 function createClient() {
   return {
@@ -179,5 +185,20 @@ describe("BeeperChannelRuntime", () => {
     const runtime = new BeeperChannelRuntime({ client: createClient() as never });
     setBeeperChannelRuntime(runtime);
     expect(getBeeperChannelRuntime()).toBe(runtime);
+  });
+
+  it("stores Beeper runtimes by OpenClaw host runtime", () => {
+    const hostRuntime = {};
+    const globalRuntime = new BeeperChannelRuntime({ client: createClient() as never });
+    const scopedRuntime = new BeeperChannelRuntime({ client: createClient() as never });
+
+    setBeeperChannelRuntime(globalRuntime);
+    setBeeperChannelRuntimeForHost(hostRuntime, scopedRuntime);
+
+    expect(getBeeperChannelRuntime()).toBe(globalRuntime);
+    expect(getBeeperChannelRuntimeForHost(hostRuntime)).toBe(scopedRuntime);
+
+    setBeeperChannelRuntimeForHost(hostRuntime, undefined);
+    expect(getBeeperChannelRuntimeForHost(hostRuntime)).toBeUndefined();
   });
 });

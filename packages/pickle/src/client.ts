@@ -86,6 +86,13 @@ class DefaultMatrixClient implements MatrixClient {
       }),
     };
     this.beeper = {
+      aiRuns: {
+        appendEvent: (opts) => this.#withCore((core) => core.appendBeeperAIRunEvent(stripUndefined(opts))),
+        begin: (opts) => this.#withCore((core) => core.beginBeeperAIRun(stripUndefined(opts))),
+        delete: (opts) => this.#withCore((core) => core.deleteBeeperAIRun(stripUndefined(opts))),
+        error: (opts) => this.#withCore((core) => core.errorBeeperAIRun(stripUndefined(opts))),
+        finish: (opts) => this.#withCore((core) => core.finishBeeperAIRun(stripUndefined(opts))),
+      },
       ephemeral: {
         send: (opts) =>
           this.#withCore((core) => core.sendEphemeralEvent(stripUndefined({

@@ -18,5 +18,4 @@ export * from "./registration";
 export * from "./rooms";
 export * from "./setup";
 export * from "./setup-entry";
-export * from "./stream-map";
 export * from "./types";

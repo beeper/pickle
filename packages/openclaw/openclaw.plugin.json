@@ -38,8 +38,7 @@
       "PICKLE_OPENCLAW_SENDER_LOCALPART",
       "PICKLE_OPENCLAW_SERVICE_BOT_LOCALPART",
       "PICKLE_OPENCLAW_STORE_PATH",
-      "PICKLE_OPENCLAW_USER_LOCALPART_PREFIX",
-      "PICKLE_OPENCLAW_STREAM_FINALIZATION"
+      "PICKLE_OPENCLAW_USER_LOCALPART_PREFIX"
     ]
   },
   "uiHints": {
@@ -202,15 +201,6 @@
         ],
         "description": "Which OpenClaw identities should appear in Beeper contacts."
       },
-      "streamFinalization": {
-        "type": "string",
-        "enum": [
-          "replace",
-          "append",
-          "native-only"
-        ],
-        "description": "How native Beeper stream output is finalized."
-      },
       "approvalBehavior": {
         "type": "string",
         "enum": [
@@ -362,15 +352,6 @@
               "none"
             ],
             "description": "Which OpenClaw identities should appear in Beeper contacts."
-          },
-          "streamFinalization": {
-            "type": "string",
-            "enum": [
-              "replace",
-              "append",
-              "native-only"
-            ],
-            "description": "How native Beeper stream output is finalized."
           },
           "approvalBehavior": {
             "type": "string",

@@ -52,7 +52,6 @@ describe("OpenClaw bridge config", () => {
       homeserverDomain: "beeper.local",
       importSources: ["dashboard", "tui"],
       approvalBehavior: "native",
-      streamFinalization: "replace",
     })).toMatchObject({
       approvalBehavior: "native",
       backfillLimit: 25,
@@ -64,7 +63,6 @@ describe("OpenClaw bridge config", () => {
       contactVisibility: "agents-and-users",
       homeserverDomain: "beeper.local",
       importSources: ["dashboard", "tui"],
-      streamFinalization: "replace",
     });
   });
 

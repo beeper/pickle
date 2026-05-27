@@ -64,7 +64,6 @@ export interface OpenClawBridgeConfig {
   senderLocalpart: string;
   serviceBotLocalpart: string;
   storePath: string;
-  streamFinalization?: "replace" | "append" | "native-only";
   userLocalpartPrefix: string;
 }
 

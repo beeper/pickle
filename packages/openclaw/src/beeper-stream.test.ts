@@ -1,11 +1,11 @@
 import type { MatrixClient } from "@beeper/pickle";
 import { describe, expect, it, vi } from "vitest";
-import { BeeperStreamPublisher } from "./beeper-stream";
+import { BeeperTurnStreamCoordinator } from "./beeper-stream";
 
 describe("OpenClaw Beeper native stream publisher", () => {
   it("starts one native Beeper stream, publishes AG-UI events, and finalizes replacement content", async () => {
     const { client, finalizeMessage, publishPart, startMessage } = createClient();
-    const publisher = new BeeperStreamPublisher({
+    const publisher = new BeeperTurnStreamCoordinator({
       client,
       initialMessageMetadata: { agent_id: "codex" },
       roomId: "!room:example.com",
@@ -45,6 +45,8 @@ describe("OpenClaw Beeper native stream publisher", () => {
       userId: "@openclaw_agent_codex:example.com",
     });
     expect(publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
+      "RUN_STARTED",
+      "TEXT_MESSAGE_START",
       "TEXT_MESSAGE_START",
       "TEXT_MESSAGE_CONTENT",
       "RUN_FINISHED",
@@ -75,57 +77,9 @@ describe("OpenClaw Beeper native stream publisher", () => {
     }));
   });
 
-  it("honors native-only stream finalization without sending a replacement edit", async () => {
-    const { client, finalizeMessage, publishPart, startMessage } = createClient();
-    const publisher = new BeeperStreamPublisher({
-      client,
-      roomId: "!room:example.com",
-      turnId: "turn_3",
-      userId: "@bot:example.com",
-    });
-
-    await publisher.publish({ delta: "native", messageId: "turn_3", type: "TEXT_MESSAGE_CONTENT" });
-    await publisher.finalize({
-      finalization: "native-only",
-      terminalPart: { finishReason: "stop", runId: "turn_3", threadId: "turn_3", type: "RUN_FINISHED" },
-    });
-
-    expect(startMessage).toHaveBeenCalledTimes(1);
-    expect(publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
-      "TEXT_MESSAGE_CONTENT",
-      "RUN_FINISHED",
-    ]);
-    expect(finalizeMessage).not.toHaveBeenCalled();
-  });
-
-  it("honors append stream finalization without suppressing the streamed event", async () => {
+  it("always finalizes with a replacement edit that suppresses the streamed event", async () => {
     const { client, finalizeMessage } = createClient();
-    const publisher = new BeeperStreamPublisher({
-      client,
-      roomId: "!room:example.com",
-      turnId: "turn_append",
-      userId: "@bot:example.com",
-    });
-
-    await publisher.publish({ delta: "append me", messageId: "turn_append", type: "TEXT_MESSAGE_CONTENT" });
-    const result = await publisher.finalize({
-      finalization: "append",
-      terminalPart: { finishReason: "stop", runId: "turn_append", threadId: "turn_append", type: "RUN_FINISHED" },
-    });
-
-    expect(result).toEqual(expect.objectContaining({ eventId: "$target" }));
-    expect(finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
-      body: "append me",
-      eventId: "$target",
-      roomId: "!room:example.com",
-      topLevelContent: {},
-      userId: "@bot:example.com",
-    }));
-  });
-
-  it("suppresses the streamed event when finalizing replacement content by default", async () => {
-    const { client, finalizeMessage } = createClient();
-    const publisher = new BeeperStreamPublisher({
+    const publisher = new BeeperTurnStreamCoordinator({
       client,
       roomId: "!room:example.com",
       turnId: "turn_replace",
@@ -133,19 +87,23 @@ describe("OpenClaw Beeper native stream publisher", () => {
     });
 
     await publisher.publish({ delta: "replace me", messageId: "turn_replace", type: "TEXT_MESSAGE_CONTENT" });
-    await publisher.finalize({
+    const result = await publisher.finalize({
       terminalPart: { finishReason: "stop", runId: "turn_replace", threadId: "turn_replace", type: "RUN_FINISHED" },
     });
 
+    expect(result).toEqual(expect.objectContaining({ eventId: "$target" }));
     expect(finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       body: "replace me",
+      eventId: "$target",
+      roomId: "!room:example.com",
       topLevelContent: { "com.beeper.dont_render_edited": true },
+      userId: "@bot:example.com",
     }));
   });
 
   it("finalizes run errors with a readable fallback body", async () => {
     const { client, finalizeMessage } = createClient();
-    const publisher = new BeeperStreamPublisher({
+    const publisher = new BeeperTurnStreamCoordinator({
       client,
       roomId: "!room:example.com",
       turnId: "turn_error",
@@ -170,7 +128,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
 
   it("preserves cancelled runs as abort terminal metadata", async () => {
     const { client, finalizeMessage } = createClient();
-    const publisher = new BeeperStreamPublisher({
+    const publisher = new BeeperTurnStreamCoordinator({
       client,
       roomId: "!room:example.com",
       turnId: "turn_abort",
@@ -196,7 +154,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
 
   it("accumulates reasoning, tool calls, and approval parts into final Beeper AI content", async () => {
     const { client, finalizeMessage } = createClient();
-    const publisher = new BeeperStreamPublisher({
+    const publisher = new BeeperTurnStreamCoordinator({
       client,
       roomId: "!room:example.com",
       turnId: "turn_rich",
@@ -252,6 +210,71 @@ describe("OpenClaw Beeper native stream publisher", () => {
 });
 
 function createClient() {
+  const runEvents = new Map<string, Record<string, unknown>[]>();
+  const snapshot = (runId: string, events: Record<string, unknown>[] = [], body = "...") => ({
+    body,
+    events,
+    finalAIMessage: {},
+    initialAIMessage: {
+      id: runId,
+      metadata: { turn_id: runId },
+      parts: [],
+      role: "assistant",
+    },
+    metadata: {
+      messageId: runId,
+      model: "openclaw/plugin",
+      protocol: "ag-ui",
+      runId,
+      schema: "com.beeper.ai.run.v1",
+      status: { state: "streaming" },
+      threadId: runId,
+    },
+    messageId: runId,
+    runId,
+    threadId: runId,
+  });
+  const begin = vi.fn(async (options: { runId?: string }) => {
+    const runId = options.runId ?? "run";
+    const events = [
+      { runId, threadId: runId, type: "RUN_STARTED" },
+      { messageId: runId, role: "assistant", type: "TEXT_MESSAGE_START" },
+    ];
+    runEvents.set(runId, events);
+    return snapshot(runId, events);
+  });
+  const appendEvent = vi.fn(async (options: { event: Record<string, unknown>; runId: string }) => {
+    const events = runEvents.get(options.runId) ?? [];
+    events.push(options.event);
+    runEvents.set(options.runId, events);
+    return snapshot(options.runId, [options.event], textFromEvents(events));
+  });
+  const finish = vi.fn(async (options: { finishReason?: string; runId: string }) => {
+    const terminal = {
+      finishReason: options.finishReason ?? "stop",
+      runId: options.runId,
+      threadId: options.runId,
+      type: "RUN_FINISHED",
+    };
+    const events = runEvents.get(options.runId) ?? [];
+    events.push(terminal);
+    runEvents.set(options.runId, events);
+    return snapshot(options.runId, [terminal], textFromEvents(events));
+  });
+  const error = vi.fn(async (options: { message?: string; runId: string; type?: "error" | "abort" }) => {
+    const terminal = {
+      message: options.message ?? "Run failed",
+      reason: options.message,
+      runId: options.runId,
+      terminalType: options.type === "abort" ? "abort" : undefined,
+      type: "RUN_ERROR",
+    };
+    const events = runEvents.get(options.runId) ?? [];
+    events.push(terminal);
+    runEvents.set(options.runId, events);
+    return snapshot(options.runId, [terminal], options.message ?? "Run failed");
+  });
+  const deleteRun = vi.fn(async () => undefined);
   const startMessage = vi.fn(async () => ({
     descriptor: { device_id: "DEVICE", type: "com.beeper.llm", user_id: "@bot:example.com" },
     eventId: "$target",
@@ -266,6 +289,13 @@ function createClient() {
   }));
   const client = {
     beeper: {
+      aiRuns: {
+        appendEvent,
+        begin,
+        delete: deleteRun,
+        error,
+        finish,
+      },
       streams: {
         finalizeMessage,
         publishPart,
@@ -274,4 +304,11 @@ function createClient() {
     },
   } as unknown as MatrixClient;
   return { client, finalizeMessage, publishPart, startMessage };
+}
+
+function textFromEvents(events: Record<string, unknown>[]): string {
+  return events
+    .filter((event) => event.type === "TEXT_MESSAGE_CONTENT")
+    .map((event) => (typeof event.delta === "string" ? event.delta : ""))
+    .join("") || "...";
 }

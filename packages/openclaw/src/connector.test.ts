@@ -1,8 +1,8 @@
-import type { MatrixCommand, MatrixEdit, MatrixMessage, MatrixReaction, MatrixReactionRemove, MatrixRedaction, UserLogin } from "@beeper/pickle-bridge";
+import type { MatrixEdit, MatrixMessage, MatrixReaction, MatrixReactionRemove, MatrixRedaction, UserLogin } from "@beeper/pickle-bridge";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
 import { createOpenClawConnector, OpenClawNetworkAPI, parseMatrixTextMessage, userLoginFromOpenClawConfig } from "./connector";
-import { OpenClawGatewayRuntime, type OpenClawGatewayEvent, type OpenClawTransport } from "./openclaw-runtime";
+import { OpenClawPluginRuntimeAdapter, type OpenClawGatewayEvent, type OpenClawRuntimeRequestSurface } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 
 describe("OpenClawBridgeConnector", () => {
@@ -55,33 +55,32 @@ describe("OpenClawBridgeConnector", () => {
     }));
   });
 
-  it("handles slash-prefixed OpenClaw commands through management command fallback", async () => {
+  it("registers the live Beeper runtime in OpenClaw channel runtime contexts", async () => {
+    const register = vi.fn();
     const connector = createOpenClawConnector({
-      config: createDefaultConfig({
-        dataDir: "/tmp/openclaw",
-        importSources: ["dashboard"],
-      }),
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      registry: new OpenClawBridgeRegistry("/tmp/openclaw-connector-runtime-context-test.json"),
+      runtime: {
+        channel: {
+          runtimeContexts: { register },
+        },
+      } as never,
     });
-    const response = await connector.handleCommand({} as never, {
-      args: [],
-      body: "/status",
-      command: "/status",
-      event: { eventId: "$status", kind: "message", roomId: "!management:example" },
-      prefix: "!openclaw",
-      room: { mxid: "!management:example" },
-      sender: { userId: "@alice:example.com" },
-      text: "/status",
-    } as MatrixCommand);
 
-    expect(response).toMatchObject({
-      content: {
-        format: "org.matrix.custom.html",
-        formatted_body: expect.stringContaining("<br><strong>Behavior</strong><br>"),
-        msgtype: "m.text",
+    await connector.init({
+      bridge: {
+        getOwnUserId: () => "@openclaw:example.com",
       },
-      handled: true,
-      text: expect.stringContaining("Import sources: dashboard"),
-    });
+      client: {},
+      log: vi.fn(),
+    } as never);
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: "default",
+      capability: "beeper.runtime",
+      channelId: "beeper",
+      context: connector.getChannelRuntime(),
+    }));
   });
 
   it("loads a network API that registers OpenClaw agents as ghosts", async () => {
@@ -395,7 +394,7 @@ describe("OpenClawBridgeConnector", () => {
     const runtime = runtimeWith({
       responses: {
         "sessions.create": { key: "agent:codex:session_1" },
-        "sessions.send": { runId: "run_1", sessionKey: "agent:codex:session_1" },
+        "beeper.turn": { runId: "run_1", sessionKey: "agent:codex:session_1" },
       },
     });
     runtime.config.allowedRoomIds = ["!allowed:example.com"];
@@ -442,7 +441,7 @@ describe("OpenClawBridgeConnector", () => {
     const runtime = runtimeWith({
       events: [{ event: "run.completed", payload: { runId: "run_owner", type: "run.completed" } }],
       responses: {
-        "sessions.send": { runId: "run_owner", sessionKey: "agent:main:main" },
+        "beeper.turn": { runId: "run_owner", sessionKey: "agent:main:main" },
       },
     });
     runtime.config.matrixUserId = "@owner:beeper-staging.com";
@@ -467,10 +466,10 @@ describe("OpenClawBridgeConnector", () => {
       text: "hello from owner",
     } as MatrixMessage);
 
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
-      key: sessionKey,
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      sessionKey,
       message: "hello from owner",
-    }), { expectFinal: false });
+    }));
   });
 
   it("dispatches Matrix text and native approval responses to OpenClaw", async () => {
@@ -480,7 +479,7 @@ describe("OpenClawBridgeConnector", () => {
       responses: {
         "exec.approval.resolve": { ok: true },
         "sessions.create": { key: "agent:codex:session_1" },
-        "sessions.send": { runId: "run_1", sessionKey: "agent:codex:session_1" },
+        "beeper.turn": { runId: "run_1", sessionKey: "agent:codex:session_1" },
       },
     });
     const api = new OpenClawNetworkAPI({
@@ -503,21 +502,22 @@ describe("OpenClawBridgeConnector", () => {
       receiver: "login",
     };
 
-    await expect(api.handleMatrixMessage({} as BridgeRequestContext, {
+    const queueRemoteEvent = vi.fn();
+    await expect(api.handleMatrixMessage({ queueRemoteEvent } as unknown as BridgeRequestContext, {
       event: { eventId: "$message" },
       portal,
       sender: { userId: "@alice:example.com" },
       text: "hello",
     } as MatrixMessage)).resolves.toEqual({ pending: false });
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
+    expect(runtime.sendMessage).toHaveBeenCalledWith({
       idempotencyKey: "$message",
-      key: "agent:codex:session_1",
       matrix: {
         roomId: "!room:example.com",
         sender: "@alice:example.com",
       },
       message: "hello",
-    }, { expectFinal: false });
+      sessionKey: "agent:codex:session_1",
+    });
 
     await expect(api.handleMatrixReaction({} as BridgeRequestContext, {
       content: {
@@ -545,7 +545,7 @@ describe("OpenClawBridgeConnector", () => {
       decision: "deny",
     });
 
-    await expect(api.handleMatrixMessage({} as BridgeRequestContext, {
+    await expect(api.handleMatrixMessage({ queueRemoteEvent } as unknown as BridgeRequestContext, {
       content: {
         approvalId: "approval_2",
         approved: true,
@@ -563,9 +563,9 @@ describe("OpenClawBridgeConnector", () => {
       decision: "approve_always",
       toolCallId: "tool_1",
     });
-    expect(runtime.transport.request).not.toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+    expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$native-approval",
-    }), expect.anything());
+    }));
   });
 
   it("parses Matrix replies and slash commands for OpenClaw turns", async () => {
@@ -667,7 +667,7 @@ describe("OpenClawBridgeConnector", () => {
       events: [{ event: "run.completed", payload: { runId: "run_2", type: "run.completed" } }],
       responses: {
         "sessions.create": { key: "agent:codex:session_2" },
-        "sessions.send": { runId: "run_2", sessionKey: "agent:codex:session_2" },
+        "beeper.turn": { runId: "run_2", sessionKey: "agent:codex:session_2" },
       },
     });
     const api = new OpenClawNetworkAPI({
@@ -702,10 +702,9 @@ describe("OpenClawBridgeConnector", () => {
       sender: { userId: "@alice:example.com" },
       text: "> <@alice> old\n\nnew text",
     } as MatrixMessage);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
+    expect(runtime.sendMessage).toHaveBeenCalledWith({
       attachments: [{ contentType: "image/png", contentUri: "mxc://example/photo", filename: "photo.png", kind: "image" }],
       idempotencyKey: "$reply",
-      key: "agent:codex:session_2",
       matrix: {
         attachments: [{ contentType: "image/png", contentUri: "mxc://example/photo", filename: "photo.png", kind: "image" }],
         relation: {
@@ -723,7 +722,8 @@ describe("OpenClawBridgeConnector", () => {
       },
       message: "new text",
       replyTo: { eventId: "$old", roomId: "!room:example.com" },
-    }, { expectFinal: false });
+      sessionKey: "agent:codex:session_2",
+    });
   });
 
   it("passes Matrix formatted body, mentions, and thread metadata to OpenClaw", async () => {
@@ -732,7 +732,7 @@ describe("OpenClawBridgeConnector", () => {
       events: [{ event: "run.completed", payload: { runId: "run_thread", type: "run.completed" } }],
       responses: {
         "sessions.create": { key: "agent:codex:session_thread" },
-        "sessions.send": { runId: "run_thread", sessionKey: "agent:codex:session_thread" },
+        "beeper.turn": { runId: "run_thread", sessionKey: "agent:codex:session_thread" },
       },
     });
     const api = new OpenClawNetworkAPI({
@@ -769,9 +769,8 @@ describe("OpenClawBridgeConnector", () => {
       text: "hello",
     } as MatrixMessage);
 
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
+    expect(runtime.sendMessage).toHaveBeenCalledWith({
       idempotencyKey: "$thread-message",
-      key: "agent:codex:session_thread",
       matrix: {
         formattedBody: "<strong>hello</strong>",
         mentions: { room: true, userIds: ["@bob:example.com"] },
@@ -786,51 +785,8 @@ describe("OpenClawBridgeConnector", () => {
       },
       message: "hello",
       replyTo: { eventId: "$thread-root", roomId: "!room:example.com" },
-    }, { expectFinal: false });
-  });
-
-  it("maps /stop and /abort slash commands to session abort", async () => {
-    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
-    registry.upsertBinding({
-      agentId: "codex",
-      createdAt: 1,
-      ghostUserId: "@codex:example.com",
-      id: "binding",
-      kind: "session",
-      lastRunId: "run_1",
-      owner: "bridge",
-      roomId: "!room:example.com",
-      sessionKey: "agent:codex:session_1",
-      updatedAt: 1,
+      sessionKey: "agent:codex:session_thread",
     });
-    const runtime = runtimeWith({
-      responses: {
-        "sessions.abort": { ok: true },
-      },
-    });
-    const api = new OpenClawNetworkAPI({
-      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
-      login: login(),
-      registry,
-      runtime,
-    });
-
-    await expect(api.handleMatrixMessage({} as BridgeRequestContext, {
-      event: { eventId: "$stop" },
-      portal: {
-        id: "agent:codex",
-        metadata: { openclaw: { agentId: "codex", ghostUserId: "@codex:example.com", sessionKey: "agent:codex:session_1" } },
-        mxid: "!room:example.com",
-        portalKey: { id: "agent:codex", receiver: "login" },
-        receiver: "login",
-      },
-      sender: { userId: "@alice:example.com" },
-      text: "/stop",
-    } as MatrixMessage)).resolves.toEqual({ pending: false });
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.abort", {
-      key: "agent:codex:session_1",
-      runId: "run_1",
-    }, undefined);
   });
 
   it("forwards Matrix edits, redactions, and non-approval reactions as session context", async () => {
@@ -857,7 +813,7 @@ describe("OpenClawBridgeConnector", () => {
       ],
       responses: {
         "sessions.create": { key: "agent:codex:session_1" },
-        "sessions.send": { runId: "run_edit", sessionKey: "agent:codex:session_1" },
+        "beeper.turn": { runId: "run_edit", sessionKey: "agent:codex:session_1" },
       },
     });
     const api = new OpenClawNetworkAPI({
@@ -893,7 +849,7 @@ describe("OpenClawBridgeConnector", () => {
       targetMessage: { id: "$old" },
       text: "* typo",
     } as MatrixEdit);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$edit:edit",
       matrix: {
         formattedBody: "<strong>corrected</strong>",
@@ -908,7 +864,7 @@ describe("OpenClawBridgeConnector", () => {
       },
       message: "corrected",
       replyTo: { eventId: "$old", roomId: "!room:example.com" },
-    }), { expectFinal: false });
+    }));
 
     await expect(api.handleMatrixReaction({} as BridgeRequestContext, {
       content: { "m.relates_to": { event_id: "$old", key: "👍", rel_type: "m.annotation" } },
@@ -919,7 +875,7 @@ describe("OpenClawBridgeConnector", () => {
       id: "$react",
       metadata: { openclaw: { reaction: "👍", targetMessageId: "$old" } },
     });
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$react",
       matrix: {
         relation: {
@@ -934,7 +890,7 @@ describe("OpenClawBridgeConnector", () => {
       },
       message: "Reacted 👍 to $old",
       replyTo: { eventId: "$old", roomId: "!room:example.com" },
-    }), { expectFinal: false });
+    }));
 
     await api.handleMatrixReactionRemove({} as BridgeRequestContext, {
       content: { "m.relates_to": { event_id: "$old", key: "👍", rel_type: "m.annotation" } },
@@ -943,7 +899,7 @@ describe("OpenClawBridgeConnector", () => {
       targetMessage: { id: "$old" },
       targetReaction: { id: "$react" },
     } as MatrixReactionRemove);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$react-redact",
       matrix: {
         relation: {
@@ -959,14 +915,14 @@ describe("OpenClawBridgeConnector", () => {
       },
       message: "Removed reaction 👍 from $old",
       replyTo: { eventId: "$old", roomId: "!room:example.com" },
-    }), { expectFinal: false });
+    }));
 
     await api.handleMatrixRedaction({} as BridgeRequestContext, {
       eventId: "$redact",
       portal,
       targetMessage: { id: "$old" },
     } as MatrixRedaction);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$redact",
       matrix: {
         relation: {
@@ -980,276 +936,7 @@ describe("OpenClawBridgeConnector", () => {
       },
       message: "Redacted message $old",
       replyTo: { eventId: "$old", roomId: "!room:example.com" },
-    }), { expectFinal: false });
-  });
-
-  it("handles bridge slash commands without forwarding them as chat turns", async () => {
-    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
-    registry.upsertBinding({
-      agentId: "codex",
-      createdAt: 1,
-      ghostUserId: "@codex:example.com",
-      id: "binding",
-      kind: "session",
-      owner: "bridge",
-      roomId: "!room:example.com",
-      sessionKey: "agent:codex:session_1",
-      updatedAt: 1,
-    });
-    const runtime = runtimeWith({
-      responses: {
-        "chat.history": { messages: [{ content: "hello", id: "m1", role: "user" }] },
-        "sessions.create": { key: "agent:codex:new" },
-        "sessions.list": {
-          sessions: [
-            { displayName: "Desktop chat", key: "agent:codex:desktop", origin: { surface: "mac-app" } },
-            { displayName: "Terminal chat", key: "agent:codex:tui", origin: { surface: "terminal" } },
-          ],
-        },
-      },
-    });
-    runtime.config.importSources = ["dashboard"];
-    runtime.config.backfillLimit = 5;
-    runtime.config.allowedRoomIds = ["!room:example.com"];
-    runtime.config.allowedUserIds = ["@alice:example.com"];
-    runtime.config.beeperEnv = "staging";
-    runtime.config.bridgeManagerPostState = false;
-    runtime.config.bridgeManagerToken = "hungry-token";
-    runtime.config.contactVisibility = "agents-and-users";
-    const api = new OpenClawNetworkAPI({
-      config: runtime.config,
-      login: login(),
-      registry,
-      runtime,
-    });
-    const queueRemoteEvent = vi.fn();
-    const createPortal = vi.fn(async (_login: UserLogin, options: { id: string }) => ({
-      id: options.id,
-      mxid: options.id.includes("ZGVza3RvcA") ? "!imported-desktop:example.com" : "!new-room:example.com",
-      portalKey: { id: options.id, receiver: "login" },
-      receiver: "login",
     }));
-    const backfillPortal = vi.fn();
-    const ctx = { bridge: { backfillPortal, createPortal }, queueRemoteEvent } as unknown as BridgeRequestContext;
-    const portal = {
-      id: "agent:codex",
-      metadata: { openclaw: { agentId: "codex", ghostUserId: "@codex:example.com", sessionKey: "agent:codex:session_1" } },
-      mxid: "!room:example.com",
-      portalKey: { id: "agent:codex", receiver: "login" },
-      receiver: "login",
-    };
-
-    await expect(api.handleMatrixMessage(ctx, {
-      event: { eventId: "$status" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/status",
-    } as MatrixMessage)).resolves.toEqual({ pending: false });
-    expect(queueRemoteEvent.mock.calls.at(-1)?.[1].getID()).toBe("$status:openclaw-command");
-    expect(queueRemoteEvent.mock.calls.at(-1)?.[1].getSender()).toEqual({
-      isFromMe: true,
-      sender: "@codex:example.com",
-    });
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: expect.stringContaining("Import sources: dashboard"), msgtype: "m.text" } }],
-    });
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: expect.stringContaining("Approvals: native Beeper UI"), msgtype: "m.text" } }],
-    });
-    const statusContent = (await queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).parts[0].content;
-    expect(statusContent).toMatchObject({
-      format: "org.matrix.custom.html",
-      formatted_body: expect.stringContaining("<br><strong>Behavior</strong><br>"),
-    });
-
-    await api.handleMatrixMessage(ctx, {
-      event: { eventId: "$settings" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/settings",
-    } as MatrixMessage);
-    const settingsBody = (await queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).parts[0].content.body;
-    expect(settingsBody).toContain("OpenClaw Beeper settings");
-    expect(settingsBody).toContain("Beeper environment: staging");
-    expect(settingsBody).toContain("Bridge manager token: configured");
-    expect(settingsBody).toContain("Post bridge state: disabled");
-    expect(settingsBody).toContain("Contact visibility: agents-and-users");
-    expect(settingsBody).toContain("Allowed rooms: !room:example.com");
-    expect(settingsBody).toContain("Allowed users: @alice:example.com");
-    const settingsContent = (await queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).parts[0].content;
-    expect(settingsContent.formatted_body).toContain("<strong>OpenClaw Beeper settings</strong><br>");
-    expect(settingsContent.formatted_body).toContain("<br><strong>Allowed rooms:</strong> !room:example.com<br>");
-
-    await api.handleMatrixMessage(ctx, {
-      event: { eventId: "$sessions" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/sessions",
-    } as MatrixMessage);
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: expect.stringContaining("Desktop chat") } }],
-    });
-    const sessionsBody = (await queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).parts[0].content.body;
-    expect(sessionsBody).not.toContain("Terminal chat");
-
-    await api.handleMatrixMessage(ctx, {
-      event: { eventId: "$backfill" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/backfill",
-    } as MatrixMessage);
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: "Queued backfill for 1 message." } }],
-    });
-    expect(runtime.transport.request).toHaveBeenCalledWith("chat.history", {
-      limit: 5,
-      sessionKey: "agent:codex:session_1",
-    });
-    expect(backfillPortal).toHaveBeenCalledWith(login(), portal, { limit: 5 });
-
-    await api.handleMatrixMessage(ctx, {
-      event: { eventId: "$import" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/import",
-    } as MatrixMessage);
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: "Imported 1 OpenClaw session.\nSkipped 0 already imported or unavailable sessions." } }],
-    });
-    expect(createPortal).toHaveBeenCalledWith(login(), expect.objectContaining({
-      id: "session:YWdlbnQ6Y29kZXg6ZGVza3RvcA",
-      name: "Desktop chat",
-      roomType: "dm",
-    }));
-    expect(backfillPortal).toHaveBeenCalledWith(login(), expect.objectContaining({
-      mxid: "!imported-desktop:example.com",
-    }), { limit: 5 });
-    expect(registry.getBindingBySessionKey("agent:codex:desktop")).toMatchObject({
-      owner: "imported",
-      roomId: "!imported-desktop:example.com",
-    });
-
-    await api.handleMatrixMessage(ctx, {
-      event: { eventId: "$new" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/new fresh",
-    } as MatrixMessage);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
-      agentId: "codex",
-      key: expect.stringMatching(/^agent:codex:beeper:/u),
-      label: "fresh",
-    }));
-    expect(createPortal).toHaveBeenCalledWith(login(), {
-      creationContent: { "m.federate": false },
-      id: "session:YWdlbnQ6Y29kZXg6bmV3",
-      metadata: {
-        openclaw: {
-          agentId: "codex",
-          ghostUserId: "@codex:example.com",
-          sessionKey: "agent:codex:new",
-        },
-      },
-      name: "fresh",
-      roomType: "dm",
-    });
-    expect(registry.getBindingByRoom("!new-room:example.com")).toMatchObject({
-      agentId: "codex",
-      label: "fresh",
-      sessionKey: "agent:codex:new",
-    });
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: "Created a new OpenClaw session room: !new-room:example.com" } }],
-    });
-    expect(runtime.transport.request).not.toHaveBeenCalledWith("sessions.send", expect.anything(), expect.anything());
-
-    await api.handleMatrixMessage(ctx, {
-      event: { eventId: "$new-default" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/new",
-    } as MatrixMessage);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
-      agentId: "codex",
-      key: expect.stringMatching(/^agent:codex:beeper:/u),
-      label: "New OpenClaw Session",
-    }));
-  });
-
-  it("binds unbound rooms to new OpenClaw sessions from slash commands", async () => {
-    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
-    registry.upsertAgent({ agentId: "codex", displayName: "Codex", ghostUserId: "@codex:example.com" });
-    const runtime = runtimeWith({
-      responses: {
-        "sessions.create": { key: "agent:codex:new-from-management" },
-      },
-    });
-    const api = new OpenClawNetworkAPI({
-      config: runtime.config,
-      login: login(),
-      registry,
-      runtime,
-    });
-    const queueRemoteEvent = vi.fn();
-    const registerPortal = vi.fn();
-    const ctx = { bridge: { registerPortal }, queueRemoteEvent } as unknown as BridgeRequestContext;
-    const portal = {
-      id: "management",
-      mxid: "!management:example.com",
-      portalKey: { id: "management", receiver: "login" },
-      receiver: "login",
-    };
-
-    await api.handleMatrixMessage(ctx, {
-      event: { eventId: "$new-unbound" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/new codex Deep work",
-    } as MatrixMessage);
-
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
-      agentId: "codex",
-      key: expect.stringMatching(/^agent:codex:beeper:/u),
-      label: "Deep work",
-    }));
-    expect(registry.getBindingByRoom("!management:example.com")).toMatchObject({
-      agentId: "codex",
-      label: "Deep work",
-      sessionKey: "agent:codex:new-from-management",
-    });
-    expect(registerPortal).toHaveBeenCalledWith(expect.objectContaining({
-      id: "session:YWdlbnQ6Y29kZXg6bmV3LWZyb20tbWFuYWdlbWVudA",
-      mxid: "!management:example.com",
-      portalKey: {
-        id: "session:YWdlbnQ6Y29kZXg6bmV3LWZyb20tbWFuYWdlbWVudA",
-        receiver: "openclaw:plugin",
-      },
-      receiver: "openclaw:plugin",
-    }));
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: expect.stringContaining("Created a new OpenClaw session in this room") } }],
-    });
-
-    await api.handleMatrixMessage(ctx, {
-      event: { eventId: "$new-missing-agent" },
-      portal: {
-        id: "fresh-management",
-        mxid: "!fresh-management:example.com",
-        portalKey: { id: "fresh-management", receiver: "login" },
-        receiver: "login",
-      },
-      sender: { userId: "@alice:example.com" },
-      text: "/new",
-    } as MatrixMessage);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
-      agentId: "main",
-      key: expect.stringMatching(/^agent:main:beeper:/u),
-      label: "New OpenClaw Session",
-    }));
-    expect(registry.getBindingByRoom("!fresh-management:example.com")).toMatchObject({
-      agentId: "main",
-      label: "New OpenClaw Session",
-    });
   });
 
   it("auto-binds unbound Beeper rooms before forwarding chat turns", async () => {
@@ -1257,7 +944,7 @@ describe("OpenClawBridgeConnector", () => {
     const runtime = runtimeWith({
       responses: {
         "sessions.create": { key: "agent:main:auto" },
-        "sessions.send": { runId: "run_auto", sessionKey: "agent:main:auto" },
+        "beeper.turn": { runId: "run_auto", sessionKey: "agent:main:auto" },
       },
     });
     const api = new OpenClawNetworkAPI({
@@ -1291,11 +978,11 @@ describe("OpenClawBridgeConnector", () => {
       key: expect.stringMatching(/^agent:main:beeper:/u),
       label: "New OpenClaw Session",
     }));
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$hello",
-      key: "agent:main:auto",
       message: "hey",
-    }), { expectFinal: false });
+      sessionKey: "agent:main:auto",
+    }));
     expect(registry.getBindingByRoom("!cloud-room:example.com")).toMatchObject({
       agentId: "main",
       label: "New OpenClaw Session",
@@ -1320,7 +1007,7 @@ describe("OpenClawBridgeConnector", () => {
     }));
   });
 
-  it("rejects reaction and slash approval fallbacks", async () => {
+  it("rejects reaction approvals and forwards slash approval text as regular turns", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     const runtime = runtimeWith({
       responses: {
@@ -1368,12 +1055,11 @@ describe("OpenClawBridgeConnector", () => {
       approvalId: "approval_native_disabled",
       decision: "approve",
     });
-    expect(runtime.transport.request).not.toHaveBeenCalledWith("sessions.send", expect.objectContaining({
+    expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$native-disabled",
-    }), expect.anything());
+    }));
 
-    const queueRemoteEvent = vi.fn();
-    await api.handleMatrixMessage({ queueRemoteEvent } as unknown as BridgeRequestContext, {
+    await api.handleMatrixMessage({} as BridgeRequestContext, {
       event: { eventId: "$approve" },
       portal,
       sender: { userId: "@alice:example.com" },
@@ -1383,11 +1069,13 @@ describe("OpenClawBridgeConnector", () => {
       approvalId: "approval_1",
       decision: "approve",
     });
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: "Approval slash commands are disabled for this bridge." } }],
-    });
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$approve",
+      message: "/approve approval_1",
+      sessionKey: "agent:codex:session_1",
+    }));
 
-    await api.handleMatrixMessage({ queueRemoteEvent } as unknown as BridgeRequestContext, {
+    await api.handleMatrixMessage({} as BridgeRequestContext, {
       content: {
         "m.relates_to": {
           "m.in_reply_to": { event_id: "approval_1_reply" },
@@ -1403,17 +1091,24 @@ describe("OpenClawBridgeConnector", () => {
       approvalId: "approval_1_reply",
       decision: "deny",
     });
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$deny-reply",
+      message: "/deny",
+      sessionKey: "agent:codex:session_1",
+    }));
 
     runtime.config.approvalBehavior = "disabled";
-    await api.handleMatrixMessage({ queueRemoteEvent } as unknown as BridgeRequestContext, {
+    await api.handleMatrixMessage({} as BridgeRequestContext, {
       event: { eventId: "$approve-disabled" },
       portal,
       sender: { userId: "@alice:example.com" },
       text: "/approve approval_2",
     } as MatrixMessage);
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: "Approval slash commands are disabled for this bridge." } }],
-    });
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$approve-disabled",
+      message: "/approve approval_2",
+      sessionKey: "agent:codex:session_1",
+    }));
 
   });
 
@@ -1422,7 +1117,7 @@ describe("OpenClawBridgeConnector", () => {
     const runtime = runtimeWith({
       events: [{ event: "run.completed", payload: { runId: "run_rebuilt", type: "run.completed" } }],
       responses: {
-        "sessions.send": { runId: "run_rebuilt", sessionKey: "agent:codex:dashboard:one" },
+        "beeper.turn": { runId: "run_rebuilt", sessionKey: "agent:codex:dashboard:one" },
       },
     });
     runtime.config.homeserverDomain = "example.com";
@@ -1453,10 +1148,10 @@ describe("OpenClawBridgeConnector", () => {
       owner: "imported",
       sessionKey,
     });
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
-      key: sessionKey,
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       message: "hello from persisted portal",
-    }), { expectFinal: false });
+      sessionKey,
+    }));
   });
 
   it("rebuilds an OpenClaw room binding from a cloud appservice session room id", async () => {
@@ -1464,7 +1159,7 @@ describe("OpenClawBridgeConnector", () => {
     const runtime = runtimeWith({
       events: [{ event: "run.completed", payload: { runId: "run_cloud", type: "run.completed" } }],
       responses: {
-        "sessions.send": { runId: "run_cloud", sessionKey: "agent:main:dashboard:abc" },
+        "beeper.turn": { runId: "run_cloud", sessionKey: "agent:main:dashboard:abc" },
       },
     });
     runtime.config.homeserverDomain = "beeper.local";
@@ -1496,10 +1191,10 @@ describe("OpenClawBridgeConnector", () => {
       owner: "imported",
       sessionKey,
     });
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", expect.objectContaining({
-      key: sessionKey,
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       message: "hello from cloud room",
-    }), { expectFinal: false });
+      sessionKey,
+    }));
   });
 
   it("fetches OpenClaw chat history for Pickle backfill", async () => {
@@ -1557,7 +1252,10 @@ function login(): UserLogin {
 function runtimeWith(options: {
   events?: OpenClawGatewayEvent[];
   responses: Record<string, unknown>;
-}): OpenClawGatewayRuntime & { transport: OpenClawTransport & { request: ReturnType<typeof vi.fn> } } {
+}): OpenClawPluginRuntimeAdapter & {
+  sendMessage: ReturnType<typeof vi.fn>;
+  transport: OpenClawRuntimeRequestSurface & { request: ReturnType<typeof vi.fn> };
+} {
   const transport = {
     async *events(filter?: (event: OpenClawGatewayEvent) => boolean) {
       for (const event of options.events ?? []) {
@@ -1566,8 +1264,17 @@ function runtimeWith(options: {
     },
     request: vi.fn(async (method: string) => options.responses[method]),
   };
-  return new OpenClawGatewayRuntime({
+  const runtime = new OpenClawPluginRuntimeAdapter({
     config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
     transport,
-  }) as OpenClawGatewayRuntime & { transport: OpenClawTransport & { request: ReturnType<typeof vi.fn> } };
+  }) as OpenClawPluginRuntimeAdapter & {
+    sendMessage: ReturnType<typeof vi.fn>;
+    transport: OpenClawRuntimeRequestSurface & { request: ReturnType<typeof vi.fn> };
+  };
+  runtime.sendMessage = vi.fn(async (params: { sessionKey: string }) => {
+    const response = options.responses["beeper.turn"];
+    if (response instanceof Error) throw response;
+    return response ?? { runId: "run_1", sessionKey: params.sessionKey };
+  });
+  return runtime;
 }

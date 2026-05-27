@@ -61,7 +61,6 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   const backfillLimit = overrides.backfillLimit ?? envNumber(process.env.PICKLE_OPENCLAW_BACKFILL_LIMIT);
   const contactVisibility = overrides.contactVisibility ?? envContactVisibility(process.env.PICKLE_OPENCLAW_CONTACT_VISIBILITY);
   const importSources = overrides.importSources ?? envImportSources(process.env.PICKLE_OPENCLAW_IMPORT_SOURCES);
-  const streamFinalization = overrides.streamFinalization ?? envStreamFinalization(process.env.PICKLE_OPENCLAW_STREAM_FINALIZATION);
   const approvalBehavior = overrides.approvalBehavior ?? envApprovalBehavior(process.env.PICKLE_OPENCLAW_APPROVAL_BEHAVIOR);
   const bridgeManagerPostState = overrides.bridgeManagerPostState ?? envBoolean(process.env.PICKLE_OPENCLAW_BRIDGE_MANAGER_POST_STATE);
   const allowedRoomIds = overrides.allowedRoomIds ?? envStringList(process.env.PICKLE_OPENCLAW_ALLOW_ROOMS);
@@ -80,7 +79,6 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   if (backfillLimit !== undefined) config.backfillLimit = backfillLimit;
   if (contactVisibility !== undefined) config.contactVisibility = contactVisibility;
   if (importSources !== undefined) config.importSources = importSources;
-  if (streamFinalization !== undefined) config.streamFinalization = streamFinalization;
   if (approvalBehavior !== undefined) config.approvalBehavior = approvalBehavior;
   if (bridgeManagerPostState !== undefined) config.bridgeManagerPostState = bridgeManagerPostState;
   if (allowedRoomIds) config.allowedRoomIds = allowedRoomIds;
@@ -144,11 +142,6 @@ function envStringList(value: string | undefined): string[] | undefined {
   if (!value) return undefined;
   const values = value.split(",").map((entry) => entry.trim()).filter(Boolean);
   return values.length > 0 ? values : undefined;
-}
-
-function envStreamFinalization(value: string | undefined): OpenClawBridgeConfig["streamFinalization"] | undefined {
-  if (value === "replace" || value === "append" || value === "native-only") return value;
-  return undefined;
 }
 
 function envApprovalBehavior(value: string | undefined): OpenClawBridgeConfig["approvalBehavior"] | undefined {

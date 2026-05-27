@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import extension, { openClawBeeperPlugin } from "./openclaw-extension";
 
 describe("OpenClaw plugin package metadata", () => {
@@ -17,7 +17,7 @@ describe("OpenClaw plugin package metadata", () => {
       },
     });
     expect(extension.id).toBe("beeper");
-    expect(extension.kind).toBe("bundled-channel-entry");
+    expect(extension.channelPlugin).toBe(registered[0]);
     expect(extension.loadChannelPlugin()).toBe(registered[0]);
     expect(resolveBundledRuntimeChannelRegistration(extension)).toMatchObject({
       id: "beeper",
@@ -30,7 +30,7 @@ describe("OpenClaw plugin package metadata", () => {
       expect.objectContaining({
         capabilities: expect.objectContaining({
           reactions: true,
-          threads: false,
+          threads: true,
         }),
         id: "beeper",
         message: expect.objectContaining({
@@ -42,10 +42,26 @@ describe("OpenClaw plugin package metadata", () => {
         setup: expect.any(Object),
         setupWizard: expect.any(Object),
       }),
-      expect.objectContaining({
-        id: "beeper",
-      }),
     ]);
+  });
+
+  it("honors SDK channel registration modes", () => {
+    const registerChannel = vi.fn();
+    openClawBeeperPlugin.register({
+      registerChannel,
+      registrationMode: "cli-metadata",
+    } as never);
+    expect(registerChannel).not.toHaveBeenCalled();
+
+    openClawBeeperPlugin.register({
+      registerChannel,
+      registrationMode: "discovery",
+      runtime: { marker: "runtime" },
+    } as never);
+    expect(registerChannel).toHaveBeenCalledTimes(1);
+    expect(registerChannel).toHaveBeenCalledWith({
+      plugin: expect.objectContaining({ id: "beeper" }),
+    });
   });
 
   it("declares ClawHub install metadata and a package manifest", async () => {
@@ -134,7 +150,6 @@ describe("OpenClaw plugin package metadata", () => {
       "senderLocalpart",
       "serviceBotLocalpart",
       "storePath",
-      "streamFinalization",
       "userLocalpartPrefix",
     ]);
     expect(manifest.channelConfigs?.beeper).toMatchObject({
@@ -196,11 +211,10 @@ function resolveBundledRuntimeChannelRegistration(moduleExport: unknown): { id?:
   if (!resolved || typeof resolved !== "object") return {};
   const entry = resolved as {
     id?: unknown;
-    kind?: unknown;
+    channelPlugin?: unknown;
     loadChannelPlugin?: unknown;
   };
   if (
-    entry.kind !== "bundled-channel-entry" ||
     typeof entry.id !== "string" ||
     typeof entry.loadChannelPlugin !== "function"
   ) {
@@ -208,7 +222,7 @@ function resolveBundledRuntimeChannelRegistration(moduleExport: unknown): { id?:
   }
   return {
     id: entry.id,
-    plugin: entry.loadChannelPlugin(),
+    plugin: entry.channelPlugin ?? entry.loadChannelPlugin(),
   };
 }
 

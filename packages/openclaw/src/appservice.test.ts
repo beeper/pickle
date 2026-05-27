@@ -2,7 +2,7 @@ import type { CreateNodeBeeperBridgeOptions, PickleBridge } from "@beeper/pickle
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
 import { accountFromOpenClawConfig, createOpenClawBeeperBridge, startOpenClawBeeperBridge } from "./appservice";
-import { OpenClawGatewayRuntime, type OpenClawTransport } from "./openclaw-runtime";
+import { OpenClawPluginRuntimeAdapter, type OpenClawRuntimeRequestSurface } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 
 describe("OpenClaw Beeper appservice runtime", () => {
@@ -289,13 +289,13 @@ function fakeBridge(options: { registry?: OpenClawBridgeRegistry } = {}): Pickle
 
 function runtimeWith(options: {
   responses: Record<string, unknown>;
-}): OpenClawGatewayRuntime & { transport: OpenClawTransport & { request: ReturnType<typeof vi.fn> } } {
+}): OpenClawPluginRuntimeAdapter & { transport: OpenClawRuntimeRequestSurface & { request: ReturnType<typeof vi.fn> } } {
   const transport = {
     async *events() {},
     request: vi.fn(async (method: string) => options.responses[method]),
   };
-  return new OpenClawGatewayRuntime({
+  return new OpenClawPluginRuntimeAdapter({
     config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
     transport,
-  }) as OpenClawGatewayRuntime & { transport: OpenClawTransport & { request: ReturnType<typeof vi.fn> } };
+  }) as OpenClawPluginRuntimeAdapter & { transport: OpenClawRuntimeRequestSurface & { request: ReturnType<typeof vi.fn> } };
 }

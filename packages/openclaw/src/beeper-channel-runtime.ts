@@ -15,9 +15,11 @@ import {
   type RemoteTyping,
   type UserLogin,
 } from "@beeper/pickle-bridge";
-import { BeeperStreamPublisher } from "./beeper-stream";
-import { AGUIEventType } from "./stream-map";
+import { BeeperTurnStreamCoordinator } from "./beeper-stream";
+import { AGUIEventType } from "./beeper-turn-events";
 import type { OpenClawAgentContact, OpenClawSessionBinding } from "./types";
+
+export const BEEPER_CHANNEL_RUNTIME_CONTEXT_CAPABILITY = "beeper.runtime";
 
 export interface BeeperChannelRuntimeOptions {
   bridge?: PickleBridge;
@@ -48,7 +50,7 @@ export class BeeperChannelRuntime {
   #getBindingBySessionKey: (sessionKey: string) => OpenClawSessionBinding | undefined;
   #login: UserLogin | undefined;
   #log: BeeperChannelRuntimeOptions["log"];
-  #activeStreams = new Map<string, BeeperStreamPublisher>();
+  #activeStreams = new Map<string, BeeperTurnStreamCoordinator>();
 
   constructor(options: BeeperChannelRuntimeOptions) {
     this.#bridge = options.bridge;
@@ -140,8 +142,8 @@ export class BeeperChannelRuntime {
     runId: string;
     sessionKey: string;
     threadRoot?: string;
-  }): BeeperStreamPublisher {
-    const publisher = new BeeperStreamPublisher({
+  }): BeeperTurnStreamCoordinator {
+    const publisher = new BeeperTurnStreamCoordinator({
       client: this.client,
       initialMessageMetadata: {
         agent_id: options.agentId,
@@ -157,7 +159,7 @@ export class BeeperChannelRuntime {
     return publisher;
   }
 
-  clearActiveStream(sessionKey: string, publisher: BeeperStreamPublisher): void {
+  clearActiveStream(sessionKey: string, publisher: BeeperTurnStreamCoordinator): void {
     if (this.#activeStreams.get(sessionKey) === publisher) this.#activeStreams.delete(sessionKey);
   }
 
@@ -347,6 +349,7 @@ export class BeeperChannelRuntime {
 }
 
 let currentRuntime: BeeperChannelRuntime | undefined;
+const runtimeByHost = new WeakMap<object, BeeperChannelRuntime>();
 
 export function setBeeperChannelRuntime(runtime: BeeperChannelRuntime | undefined): void {
   currentRuntime = runtime;
@@ -354,6 +357,15 @@ export function setBeeperChannelRuntime(runtime: BeeperChannelRuntime | undefine
 
 export function getBeeperChannelRuntime(): BeeperChannelRuntime | undefined {
   return currentRuntime;
+}
+
+export function setBeeperChannelRuntimeForHost(hostRuntime: object, runtime: BeeperChannelRuntime | undefined): void {
+  if (runtime) runtimeByHost.set(hostRuntime, runtime);
+  else runtimeByHost.delete(hostRuntime);
+}
+
+export function getBeeperChannelRuntimeForHost(hostRuntime: object | undefined): BeeperChannelRuntime | undefined {
+  return hostRuntime ? runtimeByHost.get(hostRuntime) : undefined;
 }
 
 export function requireBeeperChannelRuntime(): BeeperChannelRuntime {

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
 import { OpenClawMatrixBridgeAgent } from "./bridge-agent";
-import { OpenClawGatewayRuntime, type OpenClawGatewayEvent, type OpenClawTransport } from "./openclaw-runtime";
+import { OpenClawPluginRuntimeAdapter, type OpenClawGatewayEvent, type OpenClawRuntimeRequestSurface } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 import type { OpenClawSessionBinding } from "./types";
 
@@ -26,9 +26,10 @@ describe("OpenClawMatrixBridgeAgent", () => {
     const registry = await tempRegistry();
     registry.upsertBinding(testBinding());
     const runtime = runtimeWith({
-      responses: { "sessions.send": { runId: "run_1", sessionKey: "agent:codex:main" } },
+      responses: {},
     });
-    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime });
+    const sendTurn = vi.fn(async () => ({ runId: "run_1", sessionKey: "agent:codex:main" }));
+    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime, sendTurn });
 
     await agent.handleMatrixText({
       eventId: "$event",
@@ -37,38 +38,59 @@ describe("OpenClawMatrixBridgeAgent", () => {
       text: "hello",
     });
 
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
+    expect(sendTurn).toHaveBeenCalledWith({
       idempotencyKey: "$event",
-      key: "agent:codex:main",
       matrix: { roomId: "!room:example.com" },
       message: "hello",
-    }, { expectFinal: false });
+      sessionKey: "agent:codex:main",
+    });
     expect(registry.getBindingByRoom("!room:example.com")?.lastRunId).toBe("run_1");
   });
+
+  it("uses an injected Beeper turn sender for live Matrix room turns", async () => {
+    const registry = await tempRegistry();
+    registry.upsertBinding(testBinding());
+    const runtime = runtimeWith({});
+    const sendTurn = vi.fn(async () => ({ runId: "run_direct", sessionKey: "agent:codex:main" }));
+    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime, sendTurn });
+
+    await agent.handleMatrixText({
+      eventId: "$direct",
+      roomId: "!room:example.com",
+      sender: "@alice:example.com",
+      text: "hello",
+    });
+
+    expect(sendTurn).toHaveBeenCalledWith({
+      idempotencyKey: "$direct",
+      matrix: { roomId: "!room:example.com" },
+      message: "hello",
+      sessionKey: "agent:codex:main",
+    });
+    expect(runtime.transport.request).not.toHaveBeenCalledWith("sessions.send", expect.anything(), expect.anything());
+    expect(registry.getBindingByRoom("!room:example.com")?.lastRunId).toBe("run_direct");
+  });
+
 
   it("does not poison message dedupe when OpenClaw send fails before persistence", async () => {
     const registry = await tempRegistry();
     registry.upsertBinding(testBinding());
-    const runtime = runtimeWith({
-      responses: {
-        "sessions.send": new Error("gateway down"),
-      },
+    const runtime = runtimeWith({ responses: {} });
+    const sendTurn = vi.fn(async () => {
+      throw new Error("turn down");
     });
-    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime });
+    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime, sendTurn });
 
     await expect(agent.handleMatrixText({
       eventId: "$retryable",
       roomId: "!room:example.com",
       sender: "@alice:example.com",
       text: "hello",
-    })).rejects.toThrow("gateway down");
+    })).rejects.toThrow("turn down");
 
     expect(registry.hasDedupe("$retryable")).toBe(false);
 
-    runtime.transport.request.mockImplementation(async (method: string) => {
-      if (method === "sessions.send") return { runId: "run_retry", sessionKey: "agent:codex:main" };
-      return undefined;
-    });
+    sendTurn.mockResolvedValueOnce({ runId: "run_retry", sessionKey: "agent:codex:main" });
 
     await agent.handleMatrixText({
       eventId: "$retryable",
@@ -78,12 +100,12 @@ describe("OpenClawMatrixBridgeAgent", () => {
     });
 
     expect(registry.hasDedupe("$retryable")).toBe(true);
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
+    expect(sendTurn).toHaveBeenLastCalledWith({
       idempotencyKey: "$retryable",
-      key: "agent:codex:main",
       matrix: { roomId: "!room:example.com" },
       message: "hello",
-    }, { expectFinal: false });
+      sessionKey: "agent:codex:main",
+    });
   });
 
   it("creates an OpenClaw session before sending the first message in an agent contact DM", async () => {
@@ -98,10 +120,10 @@ describe("OpenClawMatrixBridgeAgent", () => {
       ],
       responses: {
         "sessions.create": { key: "agent:codex:session_1", sessionId: "session_1" },
-        "sessions.send": { runId: "run_1", sessionKey: "agent:codex:session_1" },
       },
     });
-    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime });
+    const sendTurn = vi.fn(async () => ({ runId: "run_1", sessionKey: "agent:codex:session_1" }));
+    const agent = new OpenClawMatrixBridgeAgent({ registry, runtime, sendTurn });
 
     await agent.handleMatrixText({
       eventId: "$event",
@@ -113,12 +135,12 @@ describe("OpenClawMatrixBridgeAgent", () => {
     expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", {
       agentId: "codex",
     });
-    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.send", {
+    expect(sendTurn).toHaveBeenCalledWith({
       idempotencyKey: "$event",
-      key: "agent:codex:session_1",
       matrix: { roomId: "!room:example.com" },
       message: "hello",
-    }, { expectFinal: false });
+      sessionKey: "agent:codex:session_1",
+    });
     expect(registry.getBindingByRoom("!room:example.com")?.sessionKey).toBe("agent:codex:session_1");
   });
 
@@ -192,7 +214,7 @@ function testBinding(): OpenClawSessionBinding {
 function runtimeWith(options: {
   events?: OpenClawGatewayEvent[];
   responses: Record<string, unknown>;
-}): OpenClawGatewayRuntime & { transport: OpenClawTransport & { request: ReturnType<typeof vi.fn> } } {
+}): OpenClawPluginRuntimeAdapter & { transport: OpenClawRuntimeRequestSurface & { request: ReturnType<typeof vi.fn> } } {
   const transport = {
     async *events(filter?: (event: OpenClawGatewayEvent) => boolean) {
       for (const event of options.events ?? []) {
@@ -205,8 +227,8 @@ function runtimeWith(options: {
       return response;
     }),
   };
-  return new OpenClawGatewayRuntime({
+  return new OpenClawPluginRuntimeAdapter({
     config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
     transport,
-  }) as OpenClawGatewayRuntime & { transport: OpenClawTransport & { request: ReturnType<typeof vi.fn> } };
+  }) as OpenClawPluginRuntimeAdapter & { transport: OpenClawRuntimeRequestSurface & { request: ReturnType<typeof vi.fn> } };
 }

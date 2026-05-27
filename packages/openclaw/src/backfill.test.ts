@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { backfillAllOpenClawSessions, buildBackfillImport, discoverOneToOneSessions, isOneToOneSession, shouldImportSession } from "./backfill";
 import { createDefaultConfig } from "./config";
-import { OpenClawGatewayRuntime, type OpenClawTransport } from "./openclaw-runtime";
+import { OpenClawPluginRuntimeAdapter, type OpenClawRuntimeRequestSurface } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 
 describe("OpenClaw backfill", () => {
@@ -518,15 +518,15 @@ describe("OpenClaw backfill", () => {
   });
 });
 
-function runtimeWith(responses: Record<string, unknown>): OpenClawGatewayRuntime & {
-  transport: OpenClawTransport & { request: ReturnType<typeof vi.fn> };
+function runtimeWith(responses: Record<string, unknown>): OpenClawPluginRuntimeAdapter & {
+  transport: OpenClawRuntimeRequestSurface & { request: ReturnType<typeof vi.fn> };
 } {
   const transport = {
     async *events() {},
     request: vi.fn(async (method: string) => responses[method]),
   };
-  return new OpenClawGatewayRuntime({
+  return new OpenClawPluginRuntimeAdapter({
     config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
     transport,
-  }) as OpenClawGatewayRuntime & { transport: OpenClawTransport & { request: ReturnType<typeof vi.fn> } };
+  }) as OpenClawPluginRuntimeAdapter & { transport: OpenClawRuntimeRequestSurface & { request: ReturnType<typeof vi.fn> } };
 }

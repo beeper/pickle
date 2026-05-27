@@ -4,7 +4,7 @@ import {
   toOpenClawApprovalResolvePayload,
   type ParsedApprovalResponse,
 } from "./approval";
-import type { OpenClawGatewayRuntime, OpenClawMatrixMessageMetadata } from "./openclaw-runtime";
+import type { OpenClawMatrixMessageMetadata, OpenClawRunRef, OpenClawSessionSendOptions, OpenClawSessionTurnRuntime } from "./openclaw-runtime";
 import type { OpenClawBridgeRegistry } from "./registry";
 import type { OpenClawSessionBinding } from "./types";
 
@@ -20,14 +20,17 @@ export interface MatrixTextTurn {
 
 export class OpenClawMatrixBridgeAgent {
   readonly registry: OpenClawBridgeRegistry;
-  readonly runtime: OpenClawGatewayRuntime;
+  readonly runtime: OpenClawSessionTurnRuntime;
+  readonly #sendTurn: (options: OpenClawSessionSendOptions) => Promise<OpenClawRunRef>;
 
   constructor(options: {
     registry: OpenClawBridgeRegistry;
-    runtime: OpenClawGatewayRuntime;
+    runtime: OpenClawSessionTurnRuntime;
+    sendTurn?: (options: OpenClawSessionSendOptions) => Promise<OpenClawRunRef>;
   }) {
     this.registry = options.registry;
     this.runtime = options.runtime;
+    this.#sendTurn = options.sendTurn ?? ((sendOptions) => this.runtime.sendMessage(sendOptions));
   }
 
   async syncAgentContacts(): Promise<void> {
@@ -50,7 +53,7 @@ export class OpenClawMatrixBridgeAgent {
       ...(turn.matrix ?? {}),
       roomId: turn.roomId,
     };
-    const run = await this.runtime.sendMessage({
+    const run = await this.#sendTurn({
       ...(turn.attachments && turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
       idempotencyKey: turn.eventId,
       matrix,

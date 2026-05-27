@@ -11,7 +11,7 @@ import { backfillAllOpenClawSessions } from "./backfill";
 import { beeperBaseDomain } from "./beeper-setup";
 import { DEFAULT_BEEPER_BRIDGE_TYPE } from "./ids";
 import { createOpenClawConnector, userLoginFromOpenClawConfig, type OpenClawConnectorOptions } from "./connector";
-import { createOpenClawHostTransport, OpenClawGatewayRuntime } from "./openclaw-runtime";
+import { createOpenClawHostRuntimeAdapter, OpenClawPluginRuntimeAdapter, type OpenClawSessionHistoryRuntime } from "./openclaw-runtime";
 import { createAppserviceRegistration } from "./registration";
 import { OpenClawBridgeRegistry } from "./registry";
 import type { OpenClawBridgeConfig } from "./types";
@@ -82,7 +82,7 @@ async function runStartupBackfill(options: CreateOpenClawBeeperBridgeOptions, br
     options.log?.("warn", "openclaw_backfill_skipped", { reason: "missing_registry" });
     return;
   }
-  const runtime = tryResolveOpenClawRuntime(options, config);
+  const runtime = tryResolveOpenClawHistoryRuntime(options, config);
   if (!runtime) {
     options.log?.("warn", "openclaw_backfill_skipped", { reason: "missing_runtime" });
     return;
@@ -162,26 +162,26 @@ function connectorOptions(options: CreateOpenClawBeeperBridgeOptions): OpenClawC
   return output;
 }
 
-function resolveOpenClawRuntime(options: CreateOpenClawBeeperBridgeOptions, config: OpenClawBridgeConfig): OpenClawGatewayRuntime {
-  if (options.runtime instanceof OpenClawGatewayRuntime) return options.runtime;
+function resolveOpenClawHistoryRuntime(options: CreateOpenClawBeeperBridgeOptions, config: OpenClawBridgeConfig): OpenClawSessionHistoryRuntime {
+  if (options.runtime instanceof OpenClawPluginRuntimeAdapter) return options.runtime;
   if (options.runtime !== undefined) {
-    return new OpenClawGatewayRuntime({ config, transport: createOpenClawHostTransport(options.runtime) });
+    return new OpenClawPluginRuntimeAdapter({ config, transport: createOpenClawHostRuntimeAdapter(options.runtime) });
   }
   if (options.runtimeFactory) return options.runtimeFactory(config);
   const connector = options.connector;
   if (connector && typeof connector === "object" && "runtime" in connector) {
     const runtime = (connector as { runtime?: unknown }).runtime;
-    if (runtime instanceof OpenClawGatewayRuntime) return runtime;
+    if (runtime instanceof OpenClawPluginRuntimeAdapter) return runtime;
   }
   throw new Error("OpenClaw direct plugin runtime is required");
 }
 
-function tryResolveOpenClawRuntime(
+function tryResolveOpenClawHistoryRuntime(
   options: CreateOpenClawBeeperBridgeOptions,
   config: OpenClawBridgeConfig
-): OpenClawGatewayRuntime | undefined {
+): OpenClawSessionHistoryRuntime | undefined {
   try {
-    return resolveOpenClawRuntime(options, config);
+    return resolveOpenClawHistoryRuntime(options, config);
   } catch {
     return undefined;
   }

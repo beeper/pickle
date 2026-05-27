@@ -26,7 +26,7 @@ describe("OpenClaw appservice registration", () => {
       rate_limited: false,
       receive_ephemeral: true,
       sender_localpart: "ocbot",
-      url: "http://127.0.0.1:29391",
+      url: "websocket",
     });
     expect(registration.namespaces.users).toEqual([
       { exclusive: true, regex: "^@oc_agent_.+:beeper\\.local$" },

@@ -35,6 +35,12 @@ export type {
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
   MatrixAppserviceUserOptions,
+  MatrixAppendBeeperAIRunEventOptions,
+  MatrixBeginBeeperAIRunOptions,
+  MatrixBeeperAIRunSnapshot,
+  MatrixDeleteBeeperAIRunOptions,
+  MatrixErrorBeeperAIRunOptions,
+  MatrixFinishBeeperAIRunOptions,
 } from "./runtime-types";
 export type {
   ApplySyncResponseOptions,

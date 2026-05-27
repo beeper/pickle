@@ -42,18 +42,16 @@ describe("OpenClaw gateway protocol coverage manifest", () => {
     expect(OPENCLAW_GATEWAY_EVENT_FAMILIES.every((family) => coveredEvents.has(family))).toBe(true);
   });
 
-  it("keeps broad feature access routed through generic gateway calls plus wrappers", () => {
-    expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.genericGatewayCall).toBe("OpenClawGatewayRuntime.call");
+  it("keeps broad feature access routed through plugin runtime surfaces", () => {
+    expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.beeperTurnDispatch).toBe("runtime.channel.turn.runAssembled");
     expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.managementSurface).toBe("OpenClaw in-process plugin runtime");
-    expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.bridgeSpecificWrappers).toEqual(expect.arrayContaining([
+    expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.pluginRuntimeAdapters).toEqual(expect.arrayContaining([
       "agents.list",
-      "sessions.send",
-      "sessions.steer",
-      "sessions.abort",
+      "sessions.list",
+      "sessions.create",
       "chat.history",
       "exec.approval.resolve",
-      "tools.invoke",
-      "artifacts.download",
+      "plugin.approval.resolve",
     ]));
     expect(OPENCLAW_GATEWAY_COMMON_METHODS).toEqual(expect.arrayContaining([
       "talk.session.create",
