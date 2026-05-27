@@ -94,6 +94,7 @@ describe("OpenClaw plugin package metadata", () => {
       uiHints?: Record<string, { sensitive?: boolean }>;
       channelEnvVars?: Record<string, string[]>;
     };
+    const schema = JSON.parse(await readFile(resolve("src/beeper-channel-config.schema.json"), "utf8"));
 
     expect(packageJson.files).toContain("openclaw.plugin.json");
     expect(packageJson.openclaw?.extensions).toEqual(["./src/plugin-entry.ts"]);
@@ -130,28 +131,22 @@ describe("OpenClaw plugin package metadata", () => {
       "appserviceId",
       "asToken",
       "backfillLimit",
-      "baseDomain",
       "beeperEnv",
       "bridgeId",
-      "bridgeManagerPostState",
       "bridgeManagerToken",
       "contactVisibility",
       "dataDir",
       "enabled",
-      "ghostLocalpartPrefix",
       "homeserver",
       "homeserverDomain",
       "hsToken",
       "importSources",
       "matrixDeviceId",
       "matrixUserId",
-      "nonFederatedRooms",
-      "registrationUrl",
-      "senderLocalpart",
-      "serviceBotLocalpart",
-      "storePath",
-      "userLocalpartPrefix",
     ]);
+    expect(manifest.configSchema).toEqual(schema);
+    expect(manifest.channelConfigs?.beeper?.schema).toEqual(schema);
+    expect(manifest.configSchema?.properties).not.toHaveProperty("streamFinalization");
     expect(manifest.channelConfigs?.beeper).toMatchObject({
       commands: {
         nativeCommandsAutoEnabled: true,

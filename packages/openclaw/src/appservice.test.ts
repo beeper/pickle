@@ -11,11 +11,9 @@ describe("OpenClaw Beeper appservice runtime", () => {
     const bridgeFactory = vi.fn(async (_options: CreateNodeBeeperBridgeOptions) => bridge);
     const config = createDefaultConfig({
       beeperEnv: "staging",
-      bridgeManagerPostState: false,
       bridgeManagerToken: "hungry-token",
       dataDir: "/tmp/openclaw",
       homeserverDomain: "beeper.local",
-      registrationUrl: "http://127.0.0.1:29391",
     });
 
     await expect(createOpenClawBeeperBridge({
@@ -28,10 +26,10 @@ describe("OpenClaw Beeper appservice runtime", () => {
 
     expect(bridgeFactory).toHaveBeenCalledWith(expect.objectContaining({
       account: account(),
-      address: "http://127.0.0.1:29391",
+      address: "websocket",
       baseDomain: "beeper-staging.com",
       bridge: "sh-openclaw",
-      bridgeManagerPostState: false,
+      bridgeManagerPostState: true,
       bridgeManagerToken: "hungry-token",
       bridgeType: "openclaw",
       connector: expect.objectContaining({
@@ -100,7 +98,6 @@ describe("OpenClaw Beeper appservice runtime", () => {
       hsToken: "hs-token",
       matrixDeviceId: "DEVICE",
       matrixUserId: "@batuhan:beeper-staging.com",
-      registrationUrl: "websocket",
     });
 
     await expect(startOpenClawBeeperBridge({
@@ -118,7 +115,7 @@ describe("OpenClaw Beeper appservice runtime", () => {
             asToken: "as-token",
             hsToken: "hs-token",
             id: "sh-openclaw-device",
-            senderLocalpart: "openclawbot",
+            senderLocalpart: "sh-openclaw-devicebot",
             url: "websocket",
           }),
         }),

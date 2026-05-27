@@ -10,7 +10,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
       initialMessageMetadata: { agent_id: "codex" },
       roomId: "!room:example.com",
       turnId: "turn_1",
-      userId: "@openclaw_agent_codex:example.com",
+      userId: "@sh-openclaw_agent_codex:example.com",
     });
 
     await publisher.publish({ messageId: "turn_1", role: "assistant", type: "TEXT_MESSAGE_START" });
@@ -42,7 +42,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
       },
       roomId: "!room:example.com",
       streamType: "com.beeper.llm",
-      userId: "@openclaw_agent_codex:example.com",
+      userId: "@sh-openclaw_agent_codex:example.com",
     });
     expect(publishPart.mock.calls.map(([options]) => options.part.type)).toEqual([
       "RUN_STARTED",

@@ -18,27 +18,18 @@
       "PICKLE_OPENCLAW_APPSERVICE_ID",
       "PICKLE_OPENCLAW_APPROVAL_BEHAVIOR",
       "PICKLE_OPENCLAW_BACKFILL_LIMIT",
-      "PICKLE_OPENCLAW_BASE_DOMAIN",
       "PICKLE_OPENCLAW_BEEPER_ENV",
       "PICKLE_OPENCLAW_BRIDGE_ID",
-      "PICKLE_OPENCLAW_BRIDGE_MANAGER_POST_STATE",
       "PICKLE_OPENCLAW_BRIDGE_MANAGER_TOKEN",
       "PICKLE_OPENCLAW_CONTACT_VISIBILITY",
       "PICKLE_OPENCLAW_DATA_DIR",
       "PICKLE_OPENCLAW_DEVICE_ID",
-      "PICKLE_OPENCLAW_GHOST_LOCALPART_PREFIX",
       "PICKLE_OPENCLAW_HOMESERVER",
       "PICKLE_OPENCLAW_HOMESERVER_DOMAIN",
       "PICKLE_OPENCLAW_HS_TOKEN",
       "PICKLE_OPENCLAW_IMPORT_SOURCES",
       "PICKLE_OPENCLAW_MATRIX_DEVICE_ID",
-      "PICKLE_OPENCLAW_MATRIX_USER_ID",
-      "PICKLE_OPENCLAW_NON_FEDERATED_ROOMS",
-      "PICKLE_OPENCLAW_REGISTRATION_URL",
-      "PICKLE_OPENCLAW_SENDER_LOCALPART",
-      "PICKLE_OPENCLAW_SERVICE_BOT_LOCALPART",
-      "PICKLE_OPENCLAW_STORE_PATH",
-      "PICKLE_OPENCLAW_USER_LOCALPART_PREFIX"
+      "PICKLE_OPENCLAW_MATRIX_USER_ID"
     ]
   },
   "uiHints": {
@@ -67,21 +58,45 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "enabled": {
-        "type": "boolean",
-        "description": "Enable the Beeper bridge channel."
-      },
       "accessToken": {
         "type": "string",
         "description": "Beeper Matrix access token returned by login."
+      },
+      "appserviceId": {
+        "type": "string",
+        "description": "Matrix appservice id used in registration namespaces."
       },
       "asToken": {
         "type": "string",
         "description": "Appservice token returned by Beeper bridge registration."
       },
-      "appserviceId": {
+      "allowedRoomIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional allow-list of Matrix rooms the bridge may import from."
+      },
+      "allowedUserIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional allow-list of Matrix users the bridge may accept commands from."
+      },
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable the Beeper bridge channel."
+      },
+      "beeperEnv": {
         "type": "string",
-        "description": "Matrix appservice id used in registration namespaces."
+        "enum": [
+          "production",
+          "staging",
+          "dev",
+          "local"
+        ],
+        "description": "Beeper environment for login and appservice registration."
       },
       "bridgeId": {
         "type": "string",
@@ -90,10 +105,6 @@
       "dataDir": {
         "type": "string",
         "description": "Directory for bridge config, registration, and runtime state."
-      },
-      "registrationUrl": {
-        "type": "string",
-        "description": "Public or LAN callback URL for the Matrix appservice."
       },
       "homeserver": {
         "type": "string",
@@ -111,19 +122,9 @@
         "type": "string",
         "description": "Beeper Matrix user id for this bridge."
       },
-      "allowedRoomIds": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "description": "Optional allow-list of Matrix rooms the bridge may import from."
-      },
-      "allowedUserIds": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "description": "Optional allow-list of Matrix users the bridge may accept commands from."
+      "bridgeManagerToken": {
+        "type": "string",
+        "description": "Beeper bridge-manager token used to register the self-hosted bridge."
       },
       "importSources": {
         "type": "array",
@@ -142,56 +143,6 @@
         "type": "number",
         "description": "Maximum OpenClaw messages to backfill per imported session."
       },
-      "nonFederatedRooms": {
-        "type": "boolean",
-        "description": "Create Matrix rooms with non-federated room creation content where supported."
-      },
-      "beeperEnv": {
-        "type": "string",
-        "enum": [
-          "production",
-          "staging",
-          "dev",
-          "local"
-        ],
-        "description": "Beeper environment for login and appservice registration."
-      },
-      "bridgeManagerToken": {
-        "type": "string",
-        "description": "Beeper bridge-manager token used to register the self-hosted bridge."
-      },
-      "bridgeManagerPostState": {
-        "type": "boolean",
-        "description": "Post Beeper bridge state after registering the self-hosted bridge."
-      },
-      "baseDomain": {
-        "type": "string",
-        "description": "Beeper API base domain for non-production environments."
-      },
-      "homeserverDomain": {
-        "type": "string",
-        "description": "Homeserver domain advertised in the Beeper appservice registration."
-      },
-      "ghostLocalpartPrefix": {
-        "type": "string",
-        "description": "Localpart prefix for deterministic OpenClaw ghost users."
-      },
-      "senderLocalpart": {
-        "type": "string",
-        "description": "Localpart for the Beeper bridge sender user."
-      },
-      "serviceBotLocalpart": {
-        "type": "string",
-        "description": "Localpart for the OpenClaw service bot user."
-      },
-      "storePath": {
-        "type": "string",
-        "description": "Path for Matrix client store state."
-      },
-      "userLocalpartPrefix": {
-        "type": "string",
-        "description": "Localpart prefix for imported OpenClaw user ghosts."
-      },
       "contactVisibility": {
         "type": "string",
         "enum": [
@@ -201,12 +152,14 @@
         ],
         "description": "Which OpenClaw identities should appear in Beeper contacts."
       },
+      "homeserverDomain": {
+        "type": "string",
+        "description": "Homeserver domain advertised in the Beeper appservice registration."
+      },
       "approvalBehavior": {
         "type": "string",
         "enum": [
           "native",
-          "reactions",
-          "slash",
           "disabled"
         ],
         "description": "How Beeper approval decisions resolve OpenClaw approval gates."
@@ -219,21 +172,45 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "enabled": {
-            "type": "boolean",
-            "description": "Enable the Beeper bridge channel."
-          },
           "accessToken": {
             "type": "string",
             "description": "Beeper Matrix access token returned by login."
+          },
+          "appserviceId": {
+            "type": "string",
+            "description": "Matrix appservice id used in registration namespaces."
           },
           "asToken": {
             "type": "string",
             "description": "Appservice token returned by Beeper bridge registration."
           },
-          "appserviceId": {
+          "allowedRoomIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional allow-list of Matrix rooms the bridge may import from."
+          },
+          "allowedUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional allow-list of Matrix users the bridge may accept commands from."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable the Beeper bridge channel."
+          },
+          "beeperEnv": {
             "type": "string",
-            "description": "Matrix appservice id used in registration namespaces."
+            "enum": [
+              "production",
+              "staging",
+              "dev",
+              "local"
+            ],
+            "description": "Beeper environment for login and appservice registration."
           },
           "bridgeId": {
             "type": "string",
@@ -242,10 +219,6 @@
           "dataDir": {
             "type": "string",
             "description": "Directory for bridge config, registration, and runtime state."
-          },
-          "registrationUrl": {
-            "type": "string",
-            "description": "Public or LAN callback URL for the Matrix appservice."
           },
           "homeserver": {
             "type": "string",
@@ -263,19 +236,9 @@
             "type": "string",
             "description": "Beeper Matrix user id for this bridge."
           },
-          "allowedRoomIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional allow-list of Matrix rooms the bridge may import from."
-          },
-          "allowedUserIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Optional allow-list of Matrix users the bridge may accept commands from."
+          "bridgeManagerToken": {
+            "type": "string",
+            "description": "Beeper bridge-manager token used to register the self-hosted bridge."
           },
           "importSources": {
             "type": "array",
@@ -294,56 +257,6 @@
             "type": "number",
             "description": "Maximum OpenClaw messages to backfill per imported session."
           },
-          "nonFederatedRooms": {
-            "type": "boolean",
-            "description": "Create Matrix rooms with non-federated room creation content where supported."
-          },
-          "beeperEnv": {
-            "type": "string",
-            "enum": [
-              "production",
-              "staging",
-              "dev",
-              "local"
-            ],
-            "description": "Beeper environment for login and appservice registration."
-          },
-          "bridgeManagerToken": {
-            "type": "string",
-            "description": "Beeper bridge-manager token used to register the self-hosted bridge."
-          },
-          "bridgeManagerPostState": {
-            "type": "boolean",
-            "description": "Post Beeper bridge state after registering the self-hosted bridge."
-          },
-          "baseDomain": {
-            "type": "string",
-            "description": "Beeper API base domain for non-production environments."
-          },
-          "homeserverDomain": {
-            "type": "string",
-            "description": "Homeserver domain advertised in the Beeper appservice registration."
-          },
-          "ghostLocalpartPrefix": {
-            "type": "string",
-            "description": "Localpart prefix for deterministic OpenClaw ghost users."
-          },
-          "senderLocalpart": {
-            "type": "string",
-            "description": "Localpart for the Beeper bridge sender user."
-          },
-          "serviceBotLocalpart": {
-            "type": "string",
-            "description": "Localpart for the OpenClaw service bot user."
-          },
-          "storePath": {
-            "type": "string",
-            "description": "Path for Matrix client store state."
-          },
-          "userLocalpartPrefix": {
-            "type": "string",
-            "description": "Localpart prefix for imported OpenClaw user ghosts."
-          },
           "contactVisibility": {
             "type": "string",
             "enum": [
@@ -353,12 +266,14 @@
             ],
             "description": "Which OpenClaw identities should appear in Beeper contacts."
           },
+          "homeserverDomain": {
+            "type": "string",
+            "description": "Homeserver domain advertised in the Beeper appservice registration."
+          },
           "approvalBehavior": {
             "type": "string",
             "enum": [
               "native",
-              "reactions",
-              "slash",
               "disabled"
             ],
             "description": "How Beeper approval decisions resolve OpenClaw approval gates."

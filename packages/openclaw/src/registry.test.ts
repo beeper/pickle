@@ -13,18 +13,18 @@ describe("OpenClawBridgeRegistry", () => {
     registry.upsertAgent({
       agentId: "codex",
       displayName: "Codex",
-      ghostUserId: "@openclaw_agent_codex:example.com",
+      ghostUserId: "@sh-openclaw_agent_codex:example.com",
     });
     registry.upsertUser({
       displayName: "Alice",
-      ghostUserId: "@openclaw_user_alice:example.com",
+      ghostUserId: "@sh-openclaw_user_alice:example.com",
       source: "whatsapp",
       userId: "alice",
     });
     registry.upsertBinding({
       agentId: "codex",
       createdAt: 1,
-      ghostUserId: "@openclaw_agent_codex:example.com",
+      ghostUserId: "@sh-openclaw_agent_codex:example.com",
       id: "binding",
       kind: "session",
       owner: "bridge",
@@ -38,7 +38,7 @@ describe("OpenClawBridgeRegistry", () => {
     const loaded = new OpenClawBridgeRegistry(path);
     await loaded.load();
     expect(loaded.getAgent("codex")?.displayName).toBe("Codex");
-    expect(loaded.getUser("alice")?.ghostUserId).toBe("@openclaw_user_alice:example.com");
+    expect(loaded.getUser("alice")?.ghostUserId).toBe("@sh-openclaw_user_alice:example.com");
     expect(loaded.getBindingByRoom("!room:example.com")?.sessionKey).toBe("agent:codex:main");
     expect(loaded.getBindingBySessionKey("agent:codex:main")?.id).toBe("binding");
     expect(loaded.getBindingsByAgent("codex")).toHaveLength(1);

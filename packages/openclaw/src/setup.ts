@@ -3,7 +3,8 @@ import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/channel-
 import type { ChatType } from "openclaw/plugin-sdk/core";
 import type { ChannelAccountSnapshot, ChannelCapabilities, ChannelGatewayContext, ChannelMessageActionName } from "openclaw/plugin-sdk/channel-contract";
 import type { BridgeLogger } from "@beeper/pickle-bridge";
-import { createConfigFromOpenClawSetup, DEFAULT_REGISTRATION_URL, defaultDataDir } from "./config";
+import { createConfigFromOpenClawSetup, defaultDataDir } from "./config";
+import beeperChannelConfigSchema from "./beeper-channel-config.schema.json";
 import type { setupOpenClawBeeperBridge, SetupOpenClawBeeperBridgeOptions } from "./beeper-setup";
 import { createBeeperApprovalNotice } from "./approval";
 import { requireBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
@@ -21,27 +22,18 @@ export interface BeeperChannelSettings {
   asToken?: string;
   approvalBehavior?: "native" | "disabled";
   backfillLimit?: number;
-  baseDomain?: string;
   beeperEnv?: "production" | "staging" | "dev" | "local";
   bridgeManagerToken?: string;
-  bridgeManagerPostState?: boolean;
   bridgeId?: string;
   contactVisibility?: "agents" | "agents-and-users" | "none";
   dataDir?: string;
   enabled?: boolean;
-  ghostLocalpartPrefix?: string;
   homeserver?: string;
   hsToken?: string;
   importSources?: BeeperImportSource[];
   matrixDeviceId?: string;
   matrixUserId?: string;
   homeserverDomain?: string;
-  nonFederatedRooms?: boolean;
-  registrationUrl?: string;
-  senderLocalpart?: string;
-  serviceBotLocalpart?: string;
-  storePath?: string;
-  userLocalpartPrefix?: string;
 }
 
 export interface BeeperSetupInput {
@@ -52,7 +44,6 @@ export interface BeeperSetupInput {
   asToken?: string;
   approvalBehavior?: string;
   backfillLimit?: number | string;
-  baseDomain?: string;
   beeperEnv?: string;
   bridgeManagerToken?: string;
   bridgeId?: string;
@@ -61,19 +52,12 @@ export interface BeeperSetupInput {
   dataDir?: string;
   email?: string;
   getOnly?: boolean | string;
-  ghostLocalpartPrefix?: string;
   homeserverDomain?: string;
   importSources?: string[] | string;
-  nonFederatedRooms?: boolean | string;
   postState?: boolean | string;
   push?: boolean | string;
-  registrationUrl?: string;
-  senderLocalpart?: string;
-  serviceBotLocalpart?: string;
   selfHosted?: boolean | string;
-  storePath?: string;
   username?: string;
-  userLocalpartPrefix?: string;
 }
 
 export interface BeeperSetupRuntime {
@@ -134,43 +118,7 @@ function requireBeeperChannelRuntime() {
   return requireBeeperChannelRuntimeForHost(openClawPluginRuntime);
 }
 
-export const BeeperChannelConfigSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    accessToken: { type: "string" },
-    appserviceId: { type: "string" },
-    asToken: { type: "string" },
-    allowedRoomIds: { type: "array", items: { type: "string" } },
-    allowedUserIds: { type: "array", items: { type: "string" } },
-    enabled: { type: "boolean" },
-    baseDomain: { type: "string" },
-    beeperEnv: { type: "string", enum: ["production", "staging", "dev", "local"] },
-    bridgeId: { type: "string" },
-    dataDir: { type: "string" },
-    ghostLocalpartPrefix: { type: "string" },
-    homeserver: { type: "string" },
-    hsToken: { type: "string" },
-    matrixDeviceId: { type: "string" },
-    matrixUserId: { type: "string" },
-    registrationUrl: { type: "string" },
-    bridgeManagerToken: { type: "string" },
-    bridgeManagerPostState: { type: "boolean" },
-    importSources: {
-      type: "array",
-      items: { type: "string", enum: ["dashboard", "tui", "channels", "archived"] },
-    },
-    backfillLimit: { type: "number" },
-    nonFederatedRooms: { type: "boolean" },
-    senderLocalpart: { type: "string" },
-    serviceBotLocalpart: { type: "string" },
-    storePath: { type: "string" },
-    contactVisibility: { type: "string", enum: ["agents", "agents-and-users", "none"] },
-    homeserverDomain: { type: "string" },
-    approvalBehavior: { type: "string", enum: ["native", "disabled"] },
-    userLocalpartPrefix: { type: "string" },
-  },
-} as const;
+export const BeeperChannelConfigSchema = beeperChannelConfigSchema;
 
 export const BeeperChannelUiHints = {
   accessToken: {
@@ -639,7 +587,7 @@ export const beeperSetupWizard = {
       configured,
       statusLines: [
         "Runtime: OpenClaw plugin",
-        `Registration URL: ${settings.registrationUrl ?? "not configured"}`,
+        "Registration transport: websocket",
         `Import sources: ${(settings.importSources ?? []).join(", ") || "none"}`,
       ],
       selectionHint: configured ? "Beeper bridge configured" : "Beeper login and bridge registration required",
@@ -671,11 +619,6 @@ export const beeperSetupWizard = {
       sensitive: true,
       validate: (value) => (value.trim() ? undefined : "Beeper login code is required."),
     });
-    const registrationUrl = await ctx.prompter.text({
-      message: "Appservice callback URL",
-      initialValue: current.registrationUrl ?? DEFAULT_REGISTRATION_URL,
-      validate: (value) => (value.trim() ? undefined : "Appservice callback URL is required."),
-    });
     const beeperEnv = await ctx.prompter.select<BeeperChannelSettings["beeperEnv"]>({
       message: "Beeper environment",
       initialValue: current.beeperEnv ?? "production",
@@ -685,12 +628,6 @@ export const beeperSetupWizard = {
         { value: "dev", label: "Development" },
         { value: "local", label: "Local" },
       ],
-    });
-    const defaultBaseDomain = current.baseDomain ?? setupBeeperBaseDomain(beeperEnv);
-    const baseDomain = await ctx.prompter.text({
-      message: "Beeper API base domain",
-      ...(defaultBaseDomain ? { initialValue: defaultBaseDomain } : {}),
-      placeholder: "leave empty for production default",
     });
     const bridgeManagerToken = await ctx.prompter.text({
       message: "Bridge manager token",
@@ -735,14 +672,6 @@ export const beeperSetupWizard = {
         { value: "disabled", label: "Disabled" },
       ],
     });
-    const nonFederatedRooms = await ctx.prompter.confirm({
-      message: "Create non-federated Matrix rooms",
-      initialValue: current.nonFederatedRooms ?? true,
-    });
-    const postState = await ctx.prompter.confirm({
-      message: "Post bridge state to Beeper",
-      initialValue: current.bridgeManagerPostState ?? true,
-    });
     const progress = ctx.prompter.progress?.("Setting up Beeper bridge");
     progress?.update("Logging in and registering appservice");
     try {
@@ -751,12 +680,8 @@ export const beeperSetupWizard = {
         code,
         email,
         importSources,
-        nonFederatedRooms,
-        postState,
-        registrationUrl,
       };
       if (approvalBehavior !== undefined) input.approvalBehavior = approvalBehavior;
-      if (baseDomain.trim()) input.baseDomain = baseDomain.trim();
       if (beeperEnv !== undefined) input.beeperEnv = beeperEnv;
       if (bridgeManagerToken.trim()) input.bridgeManagerToken = bridgeManagerToken.trim();
       if (contactVisibility !== undefined) input.contactVisibility = contactVisibility;
@@ -794,7 +719,7 @@ export const beeperChannelConfig = {
     name: "Beeper",
     configured: account.configured === true,
     extra: {
-      registrationUrl: account.settings?.registrationUrl,
+      registrationUrl: "websocket",
     },
   }),
 };
@@ -829,7 +754,7 @@ export const beeperStatusAdapter = {
         homeserver: settings.homeserver,
         importSources: settings.importSources ?? [],
         mode: "self-hosted-appservice",
-        registrationUrl: settings.registrationUrl,
+        registrationUrl: "websocket",
       },
       name: "Beeper",
       running: runtime?.running === true,
@@ -866,22 +791,17 @@ export async function applyBeeperSetupConfig(params: {
   const setupSettings: Partial<BeeperChannelSettings> = {
     ...baseSettings,
     enabled: true,
-    registrationUrl: result.config.registrationUrl,
   };
   if (result.config.homeserver) setupSettings.homeserver = result.config.homeserver;
   if (result.config.accessToken) setupSettings.accessToken = result.config.accessToken;
   if (result.config.appserviceId) setupSettings.appserviceId = result.config.appserviceId;
   if (result.config.asToken) setupSettings.asToken = result.config.asToken;
   if (result.config.bridgeId) setupSettings.bridgeId = result.config.bridgeId;
-  if (result.config.ghostLocalpartPrefix) setupSettings.ghostLocalpartPrefix = result.config.ghostLocalpartPrefix;
   if (result.config.homeserverDomain) setupSettings.homeserverDomain = result.config.homeserverDomain;
   else if (params.input.homeserverDomain) setupSettings.homeserverDomain = params.input.homeserverDomain;
   if (result.config.hsToken) setupSettings.hsToken = result.config.hsToken;
   if (result.config.matrixDeviceId) setupSettings.matrixDeviceId = result.config.matrixDeviceId;
   if (result.config.matrixUserId) setupSettings.matrixUserId = result.config.matrixUserId;
-  if (result.config.senderLocalpart) setupSettings.senderLocalpart = result.config.senderLocalpart;
-  if (result.config.serviceBotLocalpart) setupSettings.serviceBotLocalpart = result.config.serviceBotLocalpart;
-  if (result.config.userLocalpartPrefix) setupSettings.userLocalpartPrefix = result.config.userLocalpartPrefix;
   return applyBeeperChannelSettings(params.cfg, setupSettings);
 }
 
@@ -925,7 +845,7 @@ export const beeperChannelPlugin: ChannelPlugin<BeeperResolvedAccount> & { uiHin
         quickstartAllowFrom: true,
       },
       capabilities: BeeperChannelCapabilities,
-      reload: { configPrefixes: ["channels.beeper", "plugins.entries.beeper"] },
+      reload: { configPrefixes: ["channels.beeper"] },
       commands: beeperCommandAdapter,
       configSchema: BeeperChannelConfigSchemaForSdk,
       config: beeperChannelConfig,
@@ -1234,13 +1154,8 @@ export async function stopBeeperGatewayAccount(ctx: BeeperGatewayContext | Chann
 }
 
 export function getBeeperChannelSettings(cfg: OpenClawSetupConfig): BeeperChannelSettings {
-  const pluginEntry = recordValue(cfg.plugins?.entries?.[BEEPER_CHANNEL_ID]);
-  const pluginSettings = recordValue(pluginEntry?.config);
   const channelSettings = recordValue(cfg.channels?.[BEEPER_CHANNEL_ID]);
-  return {
-    ...(pluginSettings as BeeperChannelSettings | undefined),
-    ...(channelSettings as BeeperChannelSettings | undefined),
-  };
+  return (channelSettings as BeeperChannelSettings | undefined) ?? {};
 }
 
 export function isBeeperChannelConfigured(cfg: OpenClawSetupConfig): boolean {
@@ -1252,8 +1167,7 @@ export function isBeeperChannelConfigured(cfg: OpenClawSetupConfig): boolean {
     settings.homeserver &&
     settings.hsToken &&
     settings.matrixDeviceId &&
-    settings.matrixUserId &&
-    settings.registrationUrl
+    settings.matrixUserId
   );
 }
 
@@ -1272,16 +1186,6 @@ export function applyBeeperChannelSettings(
       ...cfg.channels,
       [BEEPER_CHANNEL_ID]: nextSettings,
     },
-    plugins: {
-      ...cfg.plugins,
-      entries: {
-        ...cfg.plugins?.entries,
-        [BEEPER_CHANNEL_ID]: {
-          ...(recordValue(cfg.plugins?.entries?.[BEEPER_CHANNEL_ID]) ?? {}),
-          config: nextSettings,
-        },
-      },
-    },
   };
 }
 
@@ -1294,8 +1198,6 @@ export function defaultBeeperChannelSettings(): BeeperChannelSettings {
     dataDir: defaultDataDir(),
     enabled: true,
     importSources: ["dashboard", "tui"],
-    nonFederatedRooms: true,
-    registrationUrl: DEFAULT_REGISTRATION_URL,
   };
 }
 
@@ -1318,8 +1220,6 @@ export function normalizeBeeperSetupInput(input: BeeperSetupInput): Partial<Beep
   const beeperEnv = normalizeBeeperEnv(input.beeperEnv);
   const contactVisibility = normalizeContactVisibility(input.contactVisibility);
   const importSources = normalizeImportSources(input.importSources);
-  const nonFederatedRooms = normalizeOptionalBoolean(input.nonFederatedRooms);
-  const bridgeManagerPostState = normalizeOptionalBoolean(input.postState);
   if (input.accessToken) settings.accessToken = input.accessToken;
   if (input.appserviceId) settings.appserviceId = input.appserviceId;
   if (input.asToken) settings.asToken = input.asToken;
@@ -1327,22 +1227,13 @@ export function normalizeBeeperSetupInput(input: BeeperSetupInput): Partial<Beep
   if (allowedUserIds) settings.allowedUserIds = allowedUserIds;
   if (approvalBehavior) settings.approvalBehavior = approvalBehavior;
   if (backfillLimit !== undefined) settings.backfillLimit = backfillLimit;
-  if (input.baseDomain) settings.baseDomain = input.baseDomain;
   if (beeperEnv) settings.beeperEnv = beeperEnv;
   if (contactVisibility) settings.contactVisibility = contactVisibility;
   if (input.bridgeManagerToken) settings.bridgeManagerToken = input.bridgeManagerToken;
   if (input.bridgeId) settings.bridgeId = input.bridgeId;
-  if (bridgeManagerPostState !== undefined) settings.bridgeManagerPostState = bridgeManagerPostState;
   if (input.dataDir) settings.dataDir = input.dataDir;
-  if (input.ghostLocalpartPrefix) settings.ghostLocalpartPrefix = input.ghostLocalpartPrefix;
   if (input.homeserverDomain) settings.homeserverDomain = input.homeserverDomain;
   if (importSources) settings.importSources = importSources;
-  if (nonFederatedRooms !== undefined) settings.nonFederatedRooms = nonFederatedRooms;
-  if (input.registrationUrl) settings.registrationUrl = input.registrationUrl;
-  if (input.senderLocalpart) settings.senderLocalpart = input.senderLocalpart;
-  if (input.serviceBotLocalpart) settings.serviceBotLocalpart = input.serviceBotLocalpart;
-  if (input.storePath) settings.storePath = input.storePath;
-  if (input.userLocalpartPrefix) settings.userLocalpartPrefix = input.userLocalpartPrefix;
   return settings;
 }
 
@@ -1353,18 +1244,14 @@ export function setupOptionsFromInput(input: BeeperSetupInput): SetupOpenClawBee
   };
   const env = normalizeBeeperEnv(input.beeperEnv);
   const getOnly = normalizeOptionalBoolean(input.getOnly);
-  const postState = normalizeOptionalBoolean(input.postState);
   const push = normalizeOptionalBoolean(input.push);
   const selfHosted = normalizeOptionalBoolean(input.selfHosted);
   if (env) options.env = env;
-  if (input.baseDomain) options.baseDomain = input.baseDomain;
   if (input.bridgeManagerToken) options.bridgeManagerToken = input.bridgeManagerToken;
   if (input.code) options.getLoginCode = () => input.code!;
   if (getOnly !== undefined) options.getOnly = getOnly;
   if (input.homeserverDomain) options.homeserverDomain = input.homeserverDomain;
-  if (postState !== undefined) options.postState = postState;
   if (push !== undefined) options.push = push;
-  if (input.registrationUrl) options.address = input.registrationUrl;
   if (selfHosted !== undefined) options.selfHosted = selfHosted;
   if (input.username) options.username = input.username;
   return options;

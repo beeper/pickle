@@ -21,13 +21,6 @@ describe("OpenClaw bridge config", () => {
     expect(config).toMatchObject({
       appserviceId: "sh-openclaw",
       dataDir: "/tmp/openclaw-bridge",
-      ghostLocalpartPrefix: "openclaw_agent_",
-      nonFederatedRooms: true,
-      registrationUrl: "websocket",
-      senderLocalpart: "openclawbot",
-      serviceBotLocalpart: "openclawbot",
-      storePath: "/tmp/openclaw-bridge/matrix-store",
-      userLocalpartPrefix: "openclaw_user_",
     });
   });
 
@@ -42,9 +35,7 @@ describe("OpenClaw bridge config", () => {
   it("accepts dashboard-derived bridge behavior settings", () => {
     expect(createDefaultConfig({
       backfillLimit: 25,
-      baseDomain: "beeper-staging.com",
       beeperEnv: "staging",
-      bridgeManagerPostState: false,
       bridgeManagerToken: "hungry-token",
       asToken: "as-token",
       contactVisibility: "agents-and-users",
@@ -55,9 +46,7 @@ describe("OpenClaw bridge config", () => {
     })).toMatchObject({
       approvalBehavior: "native",
       backfillLimit: 25,
-      baseDomain: "beeper-staging.com",
       beeperEnv: "staging",
-      bridgeManagerPostState: false,
       bridgeManagerToken: "hungry-token",
       asToken: "as-token",
       contactVisibility: "agents-and-users",
@@ -72,11 +61,6 @@ describe("OpenClaw bridge config", () => {
         beeper: {
           appserviceId: "custom-openclaw",
           dataDir: "/tmp/openclaw-bridge",
-          ghostLocalpartPrefix: "oc_agent_",
-          senderLocalpart: "ocbot",
-          serviceBotLocalpart: "ocservice",
-          storePath: "/tmp/openclaw-store",
-          userLocalpartPrefix: "oc_user_",
         },
       },
     });
@@ -84,11 +68,6 @@ describe("OpenClaw bridge config", () => {
     expect(config).toMatchObject({
       appserviceId: "custom-openclaw",
       dataDir: "/tmp/openclaw-bridge",
-      ghostLocalpartPrefix: "oc_agent_",
-      senderLocalpart: "ocbot",
-      serviceBotLocalpart: "ocservice",
-      storePath: "/tmp/openclaw-store",
-      userLocalpartPrefix: "oc_user_",
     });
   });
 

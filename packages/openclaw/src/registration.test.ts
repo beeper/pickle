@@ -12,11 +12,9 @@ describe("OpenClaw appservice registration", () => {
   it("reserves bridge bot, OpenClaw agent, and human ghost namespaces", () => {
     const config = createDefaultConfig({
       appserviceId: "sh-openclaw-device",
+      bridgeId: "sh-openclaw-device",
       dataDir: "/tmp/openclaw",
-      ghostLocalpartPrefix: "oc_agent_",
       homeserverDomain: "beeper.local",
-      senderLocalpart: "ocbot",
-      userLocalpartPrefix: "oc_user_",
     });
     const registration = createAppserviceRegistration(config, { asToken: "as", hsToken: "hs" });
     expect(registration).toMatchObject({
@@ -25,13 +23,13 @@ describe("OpenClaw appservice registration", () => {
       id: "sh-openclaw-device",
       rate_limited: false,
       receive_ephemeral: true,
-      sender_localpart: "ocbot",
+      sender_localpart: "sh-openclaw-devicebot",
       url: "websocket",
     });
     expect(registration.namespaces.users).toEqual([
-      { exclusive: true, regex: "^@oc_agent_.+:beeper\\.local$" },
-      { exclusive: true, regex: "^@oc_user_.+:beeper\\.local$" },
-      { exclusive: true, regex: "^@ocbot:beeper\\.local$" },
+      { exclusive: true, regex: "^@sh-openclaw-device_agent_.+:beeper\\.local$" },
+      { exclusive: true, regex: "^@sh-openclaw-device_user_.+:beeper\\.local$" },
+      { exclusive: true, regex: "^@sh-openclaw-devicebot:beeper\\.local$" },
     ]);
     expect(registration.namespaces.aliases).toEqual([
       { exclusive: true, regex: "^#sh-openclaw-device_.+:.*$" },
@@ -40,8 +38,8 @@ describe("OpenClaw appservice registration", () => {
 
   it("derives Matrix-safe localparts and non-federated room presets", () => {
     const config = createDefaultConfig({ dataDir: "/tmp/openclaw" });
-    expect(openClawAgentGhostLocalpart(config, "Codex/Main Agent")).toBe("openclaw_agent_codex/main_agent");
-    expect(openClawUserGhostLocalpart(config, "@alice:beeper.local")).toBe("openclaw_user_alice_beeper.local");
+    expect(openClawAgentGhostLocalpart(config, "Codex/Main Agent")).toBe("sh-openclaw_agent_codex/main_agent");
+    expect(openClawUserGhostLocalpart(config, "@alice:beeper.local")).toBe("sh-openclaw_user_alice_beeper.local");
     expect(openClawAliasLocalpart(config, "session 1")).toBe("sh-openclaw_session_1");
     expect(openClawRoomCreationPreset(config)).toEqual({
       creation_content: { "m.federate": false },

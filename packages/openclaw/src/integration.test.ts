@@ -15,7 +15,7 @@ describe("OpenClaw bridge integration", () => {
     const config = createDefaultConfig({
       dataDir: dir,
       homeserver: "https://matrix.example",
-      matrixUserId: "@openclawbot:example",
+      matrixUserId: "@sh-openclawbot:example",
     });
     const transport = fakeTransport({
       responses: {
@@ -43,7 +43,7 @@ describe("OpenClaw bridge integration", () => {
       metadata: {
         openclaw: {
           agentId: "codex",
-          ghostUserId: "@openclaw_agent_codex:matrix.example",
+          ghostUserId: "@sh-openclaw_agent_codex:matrix.example",
           sessionKey: "agent:codex",
         },
       },
@@ -84,7 +84,7 @@ describe("OpenClaw bridge integration", () => {
     const config = createDefaultConfig({
       dataDir: dir,
       homeserver: "https://matrix.example",
-      matrixUserId: "@openclawbot:example",
+      matrixUserId: "@sh-openclawbot:example",
     });
     const transport = fakeTransport({
       responses: {
@@ -110,7 +110,7 @@ describe("OpenClaw bridge integration", () => {
       metadata: {
         openclaw: {
           agentId: "codex",
-          ghostUserId: "@openclaw_agent_codex:matrix.example",
+          ghostUserId: "@sh-openclaw_agent_codex:matrix.example",
           sessionKey: "agent:codex",
         },
       },
@@ -143,7 +143,7 @@ describe("OpenClaw bridge integration", () => {
     const config = createDefaultConfig({
       dataDir: dir,
       homeserver: "https://matrix.example",
-      matrixUserId: "@openclawbot:example",
+      matrixUserId: "@sh-openclawbot:example",
     });
     const transport = fakeTransport({
       responses: {
@@ -169,7 +169,7 @@ describe("OpenClaw bridge integration", () => {
       metadata: {
         openclaw: {
           agentId: "codex",
-          ghostUserId: "@openclaw_agent_codex:matrix.example",
+          ghostUserId: "@sh-openclaw_agent_codex:matrix.example",
           sessionKey: "agent:codex:session_1",
         },
       },
@@ -248,7 +248,7 @@ describe("OpenClaw bridge integration", () => {
       homeserver: "https://matrix.example",
       importSources: ["dashboard"],
       matrixDeviceId: "DEVICE",
-      matrixUserId: "@openclawbot:example",
+      matrixUserId: "@sh-openclawbot:example",
     });
     const transport = fakeTransport({
       responses: {
@@ -282,7 +282,7 @@ describe("OpenClaw bridge integration", () => {
     })).resolves.toMatchObject({
       ghost: {
         displayName: "Codex",
-        mxid: "@openclaw_agent_codex:matrix.example",
+        mxid: "@sh-openclaw_agent_codex:matrix.example",
       },
     });
 
@@ -362,7 +362,7 @@ function matrixConfig() {
       accessToken: "matrix-token",
       deviceId: "DEVICE",
       homeserver: "https://matrix.example",
-      userId: "@openclawbot:example",
+      userId: "@sh-openclawbot:example",
     },
     store: {} as never,
   };
@@ -503,11 +503,11 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
       createRoom: vi.fn(async () => ({ raw: {}, roomId: "!created:example" })),
       ensureJoined: vi.fn(async () => {}),
       ensureRegistered: vi.fn(async () => {}),
-      init: vi.fn(async () => ({ botUserId: "@openclawbot:example", id: "openclaw" })),
+      init: vi.fn(async () => ({ botUserId: "@sh-openclawbot:example", id: "openclaw" })),
       sendMessage: vi.fn(async () => ({ eventId: "$sent", raw: {}, roomId: "!room:example" })),
     },
     beeper: { streams: beeperStreams } as unknown as MatrixClient["beeper"],
-    boot: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@openclawbot:example" })),
+    boot: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@sh-openclawbot:example" })),
     close: vi.fn(async () => {}),
     crypto: {} as MatrixClient["crypto"],
     logout: vi.fn(async () => {}),
@@ -532,6 +532,6 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
       setOwnAvatarUrl: vi.fn(async () => {}),
       setOwnDisplayName: vi.fn(async () => {}),
     },
-    whoami: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@openclawbot:example" })),
+    whoami: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@sh-openclawbot:example" })),
   };
 }

@@ -45,26 +45,17 @@ export interface OpenClawBridgeConfig {
   appserviceId: string;
   approvalBehavior?: "native" | "disabled";
   backfillLimit?: number;
-  baseDomain?: string;
   beeperEnv?: "production" | "staging" | "dev" | "local";
   bridgeId?: string;
-  bridgeManagerPostState?: boolean;
   bridgeManagerToken?: string;
   contactVisibility?: "agents" | "agents-and-users" | "none";
   dataDir: string;
-  ghostLocalpartPrefix: string;
   homeserver?: string;
   hsToken?: string;
   homeserverDomain?: string;
   importSources?: OpenClawImportSource[];
   matrixDeviceId?: string;
   matrixUserId?: string;
-  nonFederatedRooms: boolean;
-  registrationUrl: string;
-  senderLocalpart: string;
-  serviceBotLocalpart: string;
-  storePath: string;
-  userLocalpartPrefix: string;
 }
 
 export interface OpenClawBridgeRegistryData {

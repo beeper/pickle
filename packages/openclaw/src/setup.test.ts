@@ -51,7 +51,7 @@ describe("OpenClaw Beeper setup surface", () => {
       },
       threading: expect.any(Object),
       reload: {
-        configPrefixes: ["channels.beeper", "plugins.entries.beeper"],
+        configPrefixes: ["channels.beeper"],
       },
       gateway: {
         startAccount: expect.any(Function),
@@ -248,14 +248,10 @@ describe("OpenClaw Beeper setup surface", () => {
     const cfg = beeperSetupAdapter.applyAccountConfig({
       accountId: "default",
       cfg: {},
-      input: {
-        registrationUrl: "http://127.0.0.1:29391",
-      },
+      input: {},
     });
     expect(cfg).not.toHaveProperty("then");
-    expect(getBeeperChannelSettings(cfg)).toMatchObject({
-      registrationUrl: "http://127.0.0.1:29391",
-    });
+    expect(getBeeperChannelSettings(cfg)).toMatchObject({ enabled: true });
   });
 
   it("starts the Beeper bridge from OpenClaw gateway lifecycle and stops on abort", async () => {
@@ -274,7 +270,6 @@ describe("OpenClaw Beeper setup surface", () => {
       importSources: ["dashboard", "tui"],
       matrixDeviceId: "DEV",
       matrixUserId: "@alice:example",
-      registrationUrl: "http://bridge",
     });
 
     const task = startBeeperGatewayAccount({
@@ -312,7 +307,6 @@ describe("OpenClaw Beeper setup surface", () => {
       accountId: "default",
       cfg: applyBeeperChannelSettings({}, {
         enabled: true,
-        registrationUrl: "http://bridge",
       }),
     })).rejects.toThrow("not fully configured");
   });
@@ -334,19 +328,11 @@ describe("OpenClaw Beeper setup surface", () => {
         appserviceId: "custom-openclaw",
         approvalBehavior: "native",
         backfillLimit: "42",
-        baseDomain: "beeper-staging.com",
         beeperEnv: "staging",
         bridgeId: "sh-openclaw-custom",
         bridgeManagerToken: "hungry",
         contactVisibility: "agents-and-users",
-        ghostLocalpartPrefix: "oc_agent_",
         importSources: "dashboard,tui",
-        nonFederatedRooms: "false",
-        registrationUrl: "http://127.0.0.1:29391",
-        senderLocalpart: "ocbot",
-        serviceBotLocalpart: "ocservice",
-        storePath: "/tmp/openclaw-store",
-        userLocalpartPrefix: "oc_user_",
       },
     });
     expect(getBeeperChannelSettings(cfg)).toEqual({
@@ -356,25 +342,15 @@ describe("OpenClaw Beeper setup surface", () => {
       appserviceId: "custom-openclaw",
       approvalBehavior: "native",
       backfillLimit: 42,
-      baseDomain: "beeper-staging.com",
       beeperEnv: "staging",
       bridgeId: "sh-openclaw-custom",
       bridgeManagerToken: "hungry",
       contactVisibility: "agents-and-users",
       enabled: true,
-      ghostLocalpartPrefix: "oc_agent_",
       importSources: ["dashboard", "tui"],
-      nonFederatedRooms: false,
-      registrationUrl: "http://127.0.0.1:29391",
-      senderLocalpart: "ocbot",
-      serviceBotLocalpart: "ocservice",
-      storePath: "/tmp/openclaw-store",
-      userLocalpartPrefix: "oc_user_",
     });
     expect(isBeeperChannelConfigured(cfg)).toBe(false);
-    expect(cfg.plugins?.entries?.beeper).toEqual({
-      config: getBeeperChannelSettings(cfg),
-    });
+    expect(cfg.plugins?.entries?.beeper).toBeUndefined();
   });
 
   it("keeps async Beeper login out of the synchronous OpenClaw setup adapter", () => {
@@ -425,12 +401,9 @@ describe("OpenClaw Beeper setup surface", () => {
         setupBridge: async (options) => {
           expect(options.email).toBe("alice@example.com");
           expect(options.env).toBe("dev");
-          expect(options.baseDomain).toBe("beeper.localtest.me");
           expect(options.bridgeManagerToken).toBe("hungry");
           expect(options.homeserverDomain).toBe("beeper.local");
-          expect(options.postState).toBe(false);
           expect(await options.getLoginCode?.()).toBe("123456");
-          expect(options.address).toBe("http://127.0.0.1:29391");
           return {
             account: {
               accessToken: "at",
@@ -447,7 +420,6 @@ describe("OpenClaw Beeper setup surface", () => {
               hsToken: "hs",
               matrixDeviceId: "DEV",
               matrixUserId: "@alice:example",
-              registrationUrl: "http://127.0.0.1:29391",
             },
             init: {
               homeserver: "https://matrix.example",
@@ -468,8 +440,6 @@ describe("OpenClaw Beeper setup surface", () => {
       enabled: true,
       accessToken: "at",
       asToken: "as",
-      baseDomain: "beeper.localtest.me",
-      bridgeManagerPostState: false,
       bridgeManagerToken: "hungry",
       bridgeId: "sh-openclaw-dev",
       homeserver: "https://matrix.example",
@@ -477,7 +447,6 @@ describe("OpenClaw Beeper setup surface", () => {
       hsToken: "hs",
       matrixDeviceId: "DEV",
       matrixUserId: "@alice:example",
-      registrationUrl: "http://127.0.0.1:29391",
     });
   });
 
@@ -488,20 +457,17 @@ describe("OpenClaw Beeper setup surface", () => {
       input: {
         accessToken: "at",
         asToken: "as",
-        registrationUrl: "http://127.0.0.1:29391",
       },
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       accessToken: "at",
       asToken: "as",
-      registrationUrl: "http://127.0.0.1:29391",
     });
   });
 
   it("does not report configured until login, appservice, and gateway details are present", async () => {
     expect(isBeeperChannelConfigured(applyBeeperChannelSettings({}, {
       enabled: true,
-      registrationUrl: "http://bridge",
     }))).toBe(false);
     const cfg = applyBeeperChannelSettings({}, {
       accessToken: "at",
@@ -511,7 +477,6 @@ describe("OpenClaw Beeper setup surface", () => {
       hsToken: "hs",
       matrixDeviceId: "DEV",
       matrixUserId: "@alice:example",
-      registrationUrl: "http://bridge",
     });
     expect(isBeeperChannelConfigured(cfg)).toBe(true);
   });
@@ -524,18 +489,14 @@ describe("OpenClaw Beeper setup surface", () => {
         beeperEnv: "dev",
         code: "123456",
         email: "alice@example.com",
-        registrationUrl: "http://127.0.0.1:29391",
       },
       runtime: {
         setupBridge: async (options) => {
           expect(options.email).toBe("alice@example.com");
           expect(options.env).toBe("dev");
-          expect(options.baseDomain).toBeUndefined();
           expect(options.bridgeManagerToken).toBeUndefined();
           expect(options.homeserverDomain).toBeUndefined();
-          expect(options.postState).toBeUndefined();
           expect(await options.getLoginCode?.()).toBe("123456");
-          expect(options.address).toBe("http://127.0.0.1:29391");
           return {
             account: {
               accessToken: "at",
@@ -552,7 +513,6 @@ describe("OpenClaw Beeper setup surface", () => {
               hsToken: "hs",
               matrixDeviceId: "DEV",
               matrixUserId: "@alice:example",
-              registrationUrl: "http://127.0.0.1:29391",
             },
             init: {
               homeserver: "https://matrix.example",
@@ -577,7 +537,6 @@ describe("OpenClaw Beeper setup surface", () => {
       hsToken: "hs",
       matrixDeviceId: "DEV",
       matrixUserId: "@alice:example",
-      registrationUrl: "http://127.0.0.1:29391",
     });
   });
 
@@ -599,7 +558,6 @@ describe("OpenClaw Beeper setup surface", () => {
     const cfg = applyBeeperChannelSettings({}, {
       enabled: true,
       importSources: ["dashboard"],
-      registrationUrl: "http://bridge",
     });
     await expect(beeperSetupWizard.getStatus({ cfg })).resolves.toMatchObject({
       channel: "beeper",
@@ -612,7 +570,6 @@ describe("OpenClaw Beeper setup surface", () => {
     const account = beeperChannelConfig.resolveAccount(applyBeeperChannelSettings({}, {
       enabled: true,
       importSources: ["dashboard", "tui"],
-      registrationUrl: "http://bridge",
     }));
     const snapshot = beeperStatusAdapter.buildAccountSnapshot({ account });
 
@@ -623,7 +580,7 @@ describe("OpenClaw Beeper setup surface", () => {
       extra: {
         importSources: ["dashboard", "tui"],
         mode: "self-hosted-appservice",
-        registrationUrl: "http://bridge",
+        registrationUrl: "websocket",
       },
       running: false,
     });
@@ -651,8 +608,6 @@ describe("OpenClaw Beeper setup surface", () => {
           hsToken: "hs",
           matrixDeviceId: "DEV",
           matrixUserId: "@alice:example",
-          nonFederatedRooms: false,
-          registrationUrl: "http://bridge",
         },
       },
     });
@@ -662,8 +617,6 @@ describe("OpenClaw Beeper setup surface", () => {
       hsToken: "hs",
       matrixDeviceId: "DEV",
       matrixUserId: "@alice:example",
-      nonFederatedRooms: false,
-      registrationUrl: "http://bridge",
     });
   });
 
@@ -801,29 +754,16 @@ describe("OpenClaw Beeper setup surface", () => {
           beeper: {
             config: {
               enabled: true,
-              registrationUrl: "http://bridge",
             },
           },
         },
       },
     })).toEqual({
-      enabled: true,
       importSources: ["dashboard"],
-      registrationUrl: "http://bridge",
     });
 
-    expect(createConfigFromOpenClawSetup({
-      plugins: {
-        entries: {
-          beeper: {
-            config: {
-              registrationUrl: "http://bridge",
-            },
-          },
-        },
-      },
-    })).toMatchObject({
-      registrationUrl: "http://bridge",
+    expect(createConfigFromOpenClawSetup({ plugins: { entries: { beeper: { config: { enabled: true } } } } })).toMatchObject({
+      appserviceId: "sh-openclaw",
     });
   });
 });

@@ -77,6 +77,7 @@ import {
 } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 import { agentContactFromOpenClawAgent, agentGhostUserId, serviceBotUserId } from "./rooms";
+import { matrixDomainFromHomeserver } from "./rooms";
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
 
 const DEFAULT_NEW_SESSION_LABEL = "New OpenClaw Session";
@@ -736,8 +737,8 @@ function approvalNativeEnabled(config: OpenClawBridgeConfig): boolean {
   return config.approvalBehavior === undefined || config.approvalBehavior === "native";
 }
 
-function openClawPortalCreationContent(config: OpenClawBridgeConfig): Record<string, unknown> | undefined {
-  return config.nonFederatedRooms ? { "m.federate": false } : undefined;
+function openClawPortalCreationContent(_config: OpenClawBridgeConfig): Record<string, unknown> | undefined {
+  return { "m.federate": false };
 }
 
 function streamTargetRelationPatch(
@@ -921,7 +922,7 @@ export function userLoginFromOpenClawConfig(config: OpenClawBridgeConfig): UserL
     id: "openclaw:plugin",
     metadata: {},
     remoteName: "OpenClaw",
-    userId: config.matrixUserId ?? config.serviceBotLocalpart,
+    userId: config.matrixUserId ?? serviceBotUserId(config, config.homeserverDomain ?? matrixDomainFromHomeserver(config.homeserver)),
   };
 }
 

@@ -1,6 +1,6 @@
 import type { MatrixClient } from "@beeper/pickle";
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
-import { openClawAgentGhostLocalpart, openClawRoomCreationPreset } from "./registration";
+import { openClawAgentGhostLocalpart, openClawRoomCreationPreset, openClawSenderLocalpart, openClawUserGhostLocalpart } from "./registration";
 
 export function bindingIdForRoom(roomId: string): string {
   return Buffer.from(roomId).toString("base64url");
@@ -24,11 +24,11 @@ export function agentGhostUserId(config: OpenClawBridgeConfig, agentId: string, 
 }
 
 export function userGhostUserId(config: OpenClawBridgeConfig, userId: string, domain = matrixDomainFromConfig(config)): string {
-  return `@${config.userLocalpartPrefix}${encodeLocalpartSegment(userId)}:${domain}`;
+  return `@${openClawUserGhostLocalpart(config, userId)}:${domain}`;
 }
 
 export function serviceBotUserId(config: OpenClawBridgeConfig, domain = matrixDomainFromConfig(config)): string {
-  return `@${config.serviceBotLocalpart}:${domain}`;
+  return `@${openClawSenderLocalpart(config)}:${domain}`;
 }
 
 export function agentContactFromOpenClawAgent(
@@ -122,8 +122,4 @@ export async function createSessionRoom(
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function encodeLocalpartSegment(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9._=-]/g, (char) => `=${char.codePointAt(0)?.toString(16) ?? "00"}`);
 }

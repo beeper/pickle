@@ -103,10 +103,10 @@ describe("OpenClawBridgeConnector", () => {
         openclaw: {
           agentId: "codex",
           displayName: "Codex",
-          ghostUserId: "@openclaw_agent_codex:localhost",
+          ghostUserId: "@sh-openclaw_agent_codex:localhost",
         },
       },
-      mxid: "@openclaw_agent_codex:localhost",
+      mxid: "@sh-openclaw_agent_codex:localhost",
     });
   });
 
@@ -332,12 +332,12 @@ describe("OpenClawBridgeConnector", () => {
             openclaw: {
               agentId: "codex",
               displayName: "Codex",
-              ghostUserId: "@openclaw_agent_codex:localhost",
+              ghostUserId: "@sh-openclaw_agent_codex:localhost",
             },
           },
-          mxid: "@openclaw_agent_codex:localhost",
+          mxid: "@sh-openclaw_agent_codex:localhost",
         },
-        userId: "@openclaw_agent_codex:localhost",
+        userId: "@sh-openclaw_agent_codex:localhost",
       }],
     });
   });
@@ -346,7 +346,7 @@ describe("OpenClawBridgeConnector", () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-contacts-test.json");
     registry.upsertUser({
       displayName: "Alice from Telegram",
-      ghostUserId: "@openclaw_user_alice:example.com",
+      ghostUserId: "@sh-openclaw_user_alice:example.com",
       source: "telegram",
       userId: "alice",
     });
@@ -373,14 +373,14 @@ describe("OpenClawBridgeConnector", () => {
           metadata: {
             openclaw: {
               displayName: "Alice from Telegram",
-              ghostUserId: "@openclaw_user_alice:example.com",
+              ghostUserId: "@sh-openclaw_user_alice:example.com",
               source: "telegram",
               userId: "alice",
             },
           },
-          mxid: "@openclaw_user_alice:example.com",
+          mxid: "@sh-openclaw_user_alice:example.com",
         },
-        userId: "@openclaw_user_alice:example.com",
+        userId: "@sh-openclaw_user_alice:example.com",
       }],
     });
 
@@ -399,7 +399,7 @@ describe("OpenClawBridgeConnector", () => {
     });
     runtime.config.allowedRoomIds = ["!allowed:example.com"];
     runtime.config.allowedUserIds = ["@alice:example.com"];
-    runtime.config.matrixUserId = "@openclawbot:example.com";
+    runtime.config.matrixUserId = "@sh-openclawbot:example.com";
     const api = new OpenClawNetworkAPI({
       config: runtime.config,
       login: login(),
@@ -993,7 +993,7 @@ describe("OpenClawBridgeConnector", () => {
       metadata: {
         openclaw: {
           agentId: "main",
-          ghostUserId: "@openclaw_agent_main:localhost",
+          ghostUserId: "@sh-openclaw_agent_main:localhost",
           label: "New OpenClaw Session",
           sessionKey: "agent:main:auto",
         },
@@ -1144,7 +1144,7 @@ describe("OpenClawBridgeConnector", () => {
 
     expect(registry.getBindingByRoom("!session-room:example.com")).toMatchObject({
       agentId: "codex",
-      ghostUserId: "@openclaw_agent_codex:example.com",
+      ghostUserId: "@sh-openclaw_agent_codex:example.com",
       owner: "imported",
       sessionKey,
     });
@@ -1187,7 +1187,7 @@ describe("OpenClawBridgeConnector", () => {
 
     expect(registry.getBindingByRoom(roomId)).toMatchObject({
       agentId: "main",
-      ghostUserId: "@openclaw_agent_main:beeper.local",
+      ghostUserId: "@sh-openclaw_agent_main:beeper.local",
       owner: "imported",
       sessionKey,
     });
@@ -1233,7 +1233,7 @@ describe("OpenClawBridgeConnector", () => {
     expect(response.hasMore).toBe(false);
     expect(response.messages).toHaveLength(2);
     expect(response.messages.map((message) => message.event.getID())).toEqual(["m1", "m2"]);
-    expect(response.messages.map((message) => message.event.getSender().sender)).toEqual(["@openclawbot:localhost", "@codex:example.com"]);
+    expect(response.messages.map((message) => message.event.getSender().sender)).toEqual(["@sh-openclawbot:localhost", "@codex:example.com"]);
     expect(response.messages.map((message) => message.event.getTimestamp())).toEqual([
       new Date("2026-05-16T11:59:00.000Z"),
       new Date(1_779_000_000_000),

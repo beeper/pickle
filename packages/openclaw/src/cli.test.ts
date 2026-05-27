@@ -41,7 +41,6 @@ describe("pickle-openclaw CLI", () => {
         hsToken: "hs-token",
         matrixDeviceId: "DEVICE",
         matrixUserId: "@batuhan:beeper.com",
-        registrationUrl: "http://127.0.0.1:29391",
       },
       init: {
         homeserver: "https://matrix.beeper.com",
@@ -49,8 +48,8 @@ describe("pickle-openclaw CLI", () => {
           asToken: "as-token",
           hsToken: "hs-token",
           id: "sh-openclaw-device",
-          senderLocalpart: "openclawbot",
-          url: "http://127.0.0.1:29391",
+          senderLocalpart: "sh-openclaw-devicebot",
+          url: "websocket",
         },
       },
     }));
@@ -71,12 +70,10 @@ describe("pickle-openclaw CLI", () => {
     ], io, { setupBridge })).resolves.toBe(0);
 
     expect(setupBridge).toHaveBeenCalledWith(expect.objectContaining({
-      baseDomain: "beeper-staging.com",
       bridgeManagerToken: "bridge-manager-token",
       email: "you@example.com",
       env: "staging",
       getLoginCode: expect.any(Function),
-      postState: true,
       push: false,
       selfHosted: true,
     }));
@@ -127,7 +124,6 @@ describe("pickle-openclaw CLI", () => {
         hsToken: "hs-token",
         matrixDeviceId: "DEVICE",
         matrixUserId: "@alice:beeper.com",
-        registrationUrl: "http://127.0.0.1:29391",
       },
       init: {
         homeserver: "https://matrix.beeper.com",
@@ -135,8 +131,8 @@ describe("pickle-openclaw CLI", () => {
           asToken: "as-token",
           hsToken: "hs-token",
           id: "sh-openclaw-device",
-          senderLocalpart: "openclawbot",
-          url: "http://127.0.0.1:29391",
+          senderLocalpart: "sh-openclaw-devicebot",
+          url: "websocket",
         },
       },
     }));
@@ -172,11 +168,10 @@ describe("pickle-openclaw CLI", () => {
       appserviceId: "sh-openclaw-device",
       beeperEnv: "production",
       bridgeId: "sh-openclaw-device",
-      bridgeManagerPostState: true,
       canConnect: true,
       deviceId: "DEVICE",
       homeserver: "https://matrix.beeper.com",
-      registrationUrl: "http://127.0.0.1:29391",
+      registrationUrl: "websocket",
       userId: "@batuhan:beeper.com",
     });
   });
@@ -212,7 +207,6 @@ function successfulSetupBridge() {
       hsToken: "hs-token",
       matrixDeviceId: "DEVICE",
       matrixUserId: "@batuhan:beeper.com",
-      registrationUrl: "http://127.0.0.1:29391",
     },
     init: {
       homeserver: "https://matrix.beeper.com",
@@ -220,8 +214,8 @@ function successfulSetupBridge() {
         asToken: "as-token",
         hsToken: "hs-token",
         id: "sh-openclaw-device",
-        senderLocalpart: "openclawbot",
-        url: "http://127.0.0.1:29391",
+        senderLocalpart: "sh-openclaw-devicebot",
+        url: "websocket",
       },
     },
   }));

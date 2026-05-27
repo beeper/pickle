@@ -52,7 +52,7 @@ describe("OpenClaw backfill", () => {
         agentId: "main",
         human: {
           displayName: "user-1",
-          ghostUserId: "@openclaw_user_user-1:localhost",
+          ghostUserId: "@sh-openclaw_user_user-1:localhost",
           userId: "user-1",
         },
         label: "agent:main:whatsapp:user-1",
@@ -79,7 +79,7 @@ describe("OpenClaw backfill", () => {
         agentId: "main",
         human: {
           displayName: "Alice",
-          ghostUserId: "@openclaw_user_alice:localhost",
+          ghostUserId: "@sh-openclaw_user_alice:localhost",
           userId: "alice",
         },
         label: "Terminal",
@@ -92,8 +92,8 @@ describe("OpenClaw backfill", () => {
       })).resolves.toMatchObject({
         binding: {
           agentId: "main",
-          ghostUserId: "@openclaw_agent_main:localhost",
-          humanGhostUserId: "@openclaw_user_alice:localhost",
+          ghostUserId: "@sh-openclaw_agent_main:localhost",
+          humanGhostUserId: "@sh-openclaw_user_alice:localhost",
           label: "Terminal",
           owner: "imported",
           roomId: "!room:example.com",
@@ -101,7 +101,7 @@ describe("OpenClaw backfill", () => {
         },
         human: {
           displayName: "Alice",
-          ghostUserId: "@openclaw_user_alice:localhost",
+          ghostUserId: "@sh-openclaw_user_alice:localhost",
           userId: "alice",
         },
         messages: [
@@ -219,8 +219,8 @@ describe("OpenClaw backfill", () => {
       metadata: {
         openclaw: {
           agentId: "codex",
-          ghostUserId: "@openclaw_agent_codex:localhost",
-          humanGhostUserId: "@openclaw_user_alice:localhost",
+          ghostUserId: "@sh-openclaw_agent_codex:localhost",
+          humanGhostUserId: "@sh-openclaw_user_alice:localhost",
           sessionKey: "agent:codex:whatsapp:alice",
           source: "channel",
         },
@@ -231,12 +231,12 @@ describe("OpenClaw backfill", () => {
     expect(bridge.backfillPortal).toHaveBeenCalledWith(login, expect.objectContaining({
       mxid: "!room:example.com",
     }), { limit: 25 });
-    expect(registry.getUser("alice")?.ghostUserId).toBe("@openclaw_user_alice:localhost");
-    expect(registry.getBindingByRoom("!room:example.com")?.humanGhostUserId).toBe("@openclaw_user_alice:localhost");
+    expect(registry.getUser("alice")?.ghostUserId).toBe("@sh-openclaw_user_alice:localhost");
+    expect(registry.getBindingByRoom("!room:example.com")?.humanGhostUserId).toBe("@sh-openclaw_user_alice:localhost");
     const persisted = new OpenClawBridgeRegistry(registryPath);
     await persisted.load();
     expect(persisted.getBindingBySessionKey("agent:codex:whatsapp:alice")).toMatchObject({
-      humanGhostUserId: "@openclaw_user_alice:localhost",
+      humanGhostUserId: "@sh-openclaw_user_alice:localhost",
       roomId: "!room:example.com",
     });
   });
@@ -253,7 +253,7 @@ describe("OpenClaw backfill", () => {
     registry.upsertBinding({
       agentId: "codex",
       createdAt: 1,
-      ghostUserId: "@openclaw_agent_codex:localhost",
+      ghostUserId: "@sh-openclaw_agent_codex:localhost",
       id: "room:existing",
       kind: "session",
       label: "Alice",
@@ -362,7 +362,7 @@ describe("OpenClaw backfill", () => {
     expect(registry.getBindingBySessionKey("agent:codex:terminal:alice")).toBeUndefined();
   });
 
-  it("omits non-federation creation content when federated rooms are enabled", async () => {
+  it("always creates non-federated Beeper appservice rooms", async () => {
     const runtime = runtimeWith({
       "chat.history": { messages: [] },
       "sessions.list": {
@@ -371,7 +371,6 @@ describe("OpenClaw backfill", () => {
         ],
       },
     });
-    runtime.config.nonFederatedRooms = false;
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-backfill-federated-test.json");
     const bridge = {
       backfillPortal: vi.fn(async () => ({ eventIds: [] })),
@@ -392,7 +391,7 @@ describe("OpenClaw backfill", () => {
       runtime,
     });
 
-    expect(bridge.createPortal.mock.calls[0]?.[1]).not.toHaveProperty("creationContent");
+    expect(bridge.createPortal.mock.calls[0]?.[1]).toHaveProperty("creationContent", { "m.federate": false });
   });
 
   it("creates an initial agent DM when no importable sessions exist", async () => {
@@ -450,12 +449,12 @@ describe("OpenClaw backfill", () => {
     registry.upsertAgent({
       agentId: "main",
       displayName: "Main Agent",
-      ghostUserId: "@openclaw_agent_main:matrix.beeper-staging.com",
+      ghostUserId: "@sh-openclaw_agent_main:matrix.beeper-staging.com",
     });
     registry.upsertBinding({
       agentId: "main",
       createdAt: 1,
-      ghostUserId: "@openclaw_agent_main:matrix.beeper-staging.com",
+      ghostUserId: "@sh-openclaw_agent_main:matrix.beeper-staging.com",
       id: "existing",
       kind: "session",
       label: "Main Agent",
@@ -478,8 +477,8 @@ describe("OpenClaw backfill", () => {
     });
 
     expect(bridge.createPortal).not.toHaveBeenCalled();
-    expect(registry.getAgent("main")?.ghostUserId).toBe("@openclaw_agent_main:beeper.local");
-    expect(registry.getBindingBySessionKey("agent:main")?.ghostUserId).toBe("@openclaw_agent_main:beeper.local");
+    expect(registry.getAgent("main")?.ghostUserId).toBe("@sh-openclaw_agent_main:beeper.local");
+    expect(registry.getBindingBySessionKey("agent:main")?.ghostUserId).toBe("@sh-openclaw_agent_main:beeper.local");
   });
 
   it("rebuilds the registry from an existing bridge portal before creating an initial DM", async () => {

@@ -26,7 +26,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         agentId: "codex",
         description: "Code",
         displayName: "Codex",
-        ghostUserId: "@openclaw_agent_codex:matrix.example",
+        ghostUserId: "@sh-openclaw_agent_codex:matrix.example",
       },
     ]);
     expect(transport.request).toHaveBeenCalledWith("agents.list", {});

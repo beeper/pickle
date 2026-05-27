@@ -66,7 +66,7 @@ describe("OpenClaw Beeper setup", () => {
             hsToken: "hs",
             id: "appservice-uuid",
             namespaces: { aliases: [], rooms: [], users: [] },
-            senderLocalpart: "openclawbot",
+            senderLocalpart: "sh-openclawbot",
             url: "http://127.0.0.1:29391",
           },
         };
@@ -85,14 +85,9 @@ describe("OpenClaw Beeper setup", () => {
       appserviceId: "appservice-uuid",
       asToken: "as",
       bridgeId: "sh-openclaw-dev",
-      ghostLocalpartPrefix: "sh-openclaw-dev_agent_",
       homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
       homeserverDomain: "beeper.local",
       hsToken: "hs",
-      registrationUrl: "http://127.0.0.1:29391",
-      senderLocalpart: "openclawbot",
-      serviceBotLocalpart: "openclawbot",
-      userLocalpartPrefix: "sh-openclaw-dev_user_",
     });
   });
 
@@ -111,7 +106,7 @@ describe("OpenClaw Beeper setup", () => {
             hsToken: "hs",
             id: "appservice-uuid",
             namespaces: { aliases: [], rooms: [], users: [] },
-            senderLocalpart: "openclawbot",
+            senderLocalpart: "sh-openclawbot",
             url: "http://127.0.0.1:29391",
           },
         };
@@ -152,7 +147,7 @@ describe("OpenClaw Beeper setup", () => {
             hsToken: "hs",
             id: "appservice-uuid",
             namespaces: { aliases: [], rooms: [], users: [] },
-            senderLocalpart: "openclawbot",
+            senderLocalpart: "sh-openclawbot",
             url: "http://127.0.0.1:29391",
           },
         };
@@ -164,15 +159,10 @@ describe("OpenClaw Beeper setup", () => {
       appserviceId: "appservice-uuid",
       asToken: "as",
       bridgeId: "sh-openclaw-openclaw-device",
-      ghostLocalpartPrefix: "sh-openclaw-openclaw-device_agent_",
       homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
       hsToken: "hs",
       matrixDeviceId: "DEV",
       matrixUserId: "@batuhan:beeper-staging.com",
-      registrationUrl: "http://127.0.0.1:29391",
-      senderLocalpart: "openclawbot",
-      serviceBotLocalpart: "openclawbot",
-      userLocalpartPrefix: "sh-openclaw-openclaw-device_user_",
     });
   });
 });

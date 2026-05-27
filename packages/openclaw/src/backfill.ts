@@ -364,6 +364,6 @@ function stripUndefined<T extends Record<string, unknown>>(value: T): T {
   return value;
 }
 
-function openClawBackfillRoomCreationContent(config: OpenClawBridgeConfig): Record<string, unknown> | undefined {
-  return config.nonFederatedRooms ? { "m.federate": false } : undefined;
+function openClawBackfillRoomCreationContent(_config: OpenClawBridgeConfig): Record<string, unknown> | undefined {
+  return { "m.federate": false };
 }

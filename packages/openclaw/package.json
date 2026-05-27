@@ -164,9 +164,10 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown && node scripts/copy-runtime-assets.mjs",
+    "build": "node scripts/sync-manifest-schema.mjs && tsdown && node scripts/copy-runtime-assets.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "node ../../scripts/guard-pnpm-publish.mjs",
+    "sync:schema": "node scripts/sync-manifest-schema.mjs",
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },

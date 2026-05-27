@@ -7,11 +7,7 @@ import { openClawBeeperBridgeId } from "./ids";
 import type { OpenClawBridgeConfig } from "./types";
 
 export const DEFAULT_APPSERVICE_ID = "sh-openclaw";
-export const DEFAULT_GHOST_LOCALPART_PREFIX = "openclaw_agent_";
 export const DEFAULT_REGISTRATION_URL = "websocket";
-export const DEFAULT_SENDER_LOCALPART = "openclawbot";
-export const DEFAULT_SERVICE_BOT_LOCALPART = "openclawbot";
-export const DEFAULT_USER_LOCALPART_PREFIX = "openclaw_user_";
 
 export function defaultDataDir(): string {
   return resolve(homedir(), ".openclaw", "pickle-bridge");
@@ -31,25 +27,9 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
       process.env.PICKLE_OPENCLAW_APP_SERVICE_ID ??
       DEFAULT_APPSERVICE_ID,
     dataDir,
-    ghostLocalpartPrefix:
-      overrides.ghostLocalpartPrefix ??
-      process.env.PICKLE_OPENCLAW_GHOST_LOCALPART_PREFIX ??
-      DEFAULT_GHOST_LOCALPART_PREFIX,
-    nonFederatedRooms: overrides.nonFederatedRooms ?? envBoolean(process.env.PICKLE_OPENCLAW_NON_FEDERATED_ROOMS) ?? true,
-    registrationUrl:
-      overrides.registrationUrl ?? process.env.PICKLE_OPENCLAW_REGISTRATION_URL ?? DEFAULT_REGISTRATION_URL,
-    senderLocalpart: overrides.senderLocalpart ?? process.env.PICKLE_OPENCLAW_SENDER_LOCALPART ?? DEFAULT_SENDER_LOCALPART,
-    serviceBotLocalpart:
-      overrides.serviceBotLocalpart ??
-      process.env.PICKLE_OPENCLAW_SERVICE_BOT_LOCALPART ??
-      DEFAULT_SERVICE_BOT_LOCALPART,
-    storePath: overrides.storePath ?? process.env.PICKLE_OPENCLAW_STORE_PATH ?? resolve(dataDir, "matrix-store"),
-    userLocalpartPrefix:
-      overrides.userLocalpartPrefix ?? process.env.PICKLE_OPENCLAW_USER_LOCALPART_PREFIX ?? DEFAULT_USER_LOCALPART_PREFIX,
   };
   const accessToken = overrides.accessToken ?? process.env.PICKLE_OPENCLAW_ACCESS_TOKEN;
   const asToken = overrides.asToken ?? process.env.PICKLE_OPENCLAW_AS_TOKEN;
-  const baseDomain = overrides.baseDomain ?? process.env.PICKLE_OPENCLAW_BASE_DOMAIN;
   const beeperEnv = overrides.beeperEnv ?? envBeeperEnv(process.env.PICKLE_OPENCLAW_BEEPER_ENV);
   const bridgeManagerToken = overrides.bridgeManagerToken ?? process.env.PICKLE_OPENCLAW_BRIDGE_MANAGER_TOKEN;
   const openClawDeviceId = process.env.PICKLE_OPENCLAW_DEVICE_ID ?? process.env.OPENCLAW_DEVICE_ID;
@@ -62,12 +42,10 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   const contactVisibility = overrides.contactVisibility ?? envContactVisibility(process.env.PICKLE_OPENCLAW_CONTACT_VISIBILITY);
   const importSources = overrides.importSources ?? envImportSources(process.env.PICKLE_OPENCLAW_IMPORT_SOURCES);
   const approvalBehavior = overrides.approvalBehavior ?? envApprovalBehavior(process.env.PICKLE_OPENCLAW_APPROVAL_BEHAVIOR);
-  const bridgeManagerPostState = overrides.bridgeManagerPostState ?? envBoolean(process.env.PICKLE_OPENCLAW_BRIDGE_MANAGER_POST_STATE);
   const allowedRoomIds = overrides.allowedRoomIds ?? envStringList(process.env.PICKLE_OPENCLAW_ALLOW_ROOMS);
   const allowedUserIds = overrides.allowedUserIds ?? envStringList(process.env.PICKLE_OPENCLAW_ALLOW_USERS);
   if (accessToken) config.accessToken = accessToken;
   if (asToken) config.asToken = asToken;
-  if (baseDomain) config.baseDomain = baseDomain;
   if (beeperEnv) config.beeperEnv = beeperEnv;
   if (bridgeId) config.bridgeId = bridgeId;
   if (bridgeManagerToken) config.bridgeManagerToken = bridgeManagerToken;
@@ -80,7 +58,6 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
   if (contactVisibility !== undefined) config.contactVisibility = contactVisibility;
   if (importSources !== undefined) config.importSources = importSources;
   if (approvalBehavior !== undefined) config.approvalBehavior = approvalBehavior;
-  if (bridgeManagerPostState !== undefined) config.bridgeManagerPostState = bridgeManagerPostState;
   if (allowedRoomIds) config.allowedRoomIds = allowedRoomIds;
   if (allowedUserIds) config.allowedUserIds = allowedUserIds;
   return config;

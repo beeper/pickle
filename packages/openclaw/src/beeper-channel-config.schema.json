@@ -1,0 +1,88 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "accessToken": {
+      "type": "string",
+      "description": "Beeper Matrix access token returned by login."
+    },
+    "appserviceId": {
+      "type": "string",
+      "description": "Matrix appservice id used in registration namespaces."
+    },
+    "asToken": {
+      "type": "string",
+      "description": "Appservice token returned by Beeper bridge registration."
+    },
+    "allowedRoomIds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional allow-list of Matrix rooms the bridge may import from."
+    },
+    "allowedUserIds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional allow-list of Matrix users the bridge may accept commands from."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Enable the Beeper bridge channel."
+    },
+    "beeperEnv": {
+      "type": "string",
+      "enum": ["production", "staging", "dev", "local"],
+      "description": "Beeper environment for login and appservice registration."
+    },
+    "bridgeId": {
+      "type": "string",
+      "description": "Beeper self-hosted bridge id, derived as sh-openclaw-$deviceid by login setup."
+    },
+    "dataDir": {
+      "type": "string",
+      "description": "Directory for bridge config, registration, and runtime state."
+    },
+    "homeserver": {
+      "type": "string",
+      "description": "Beeper Matrix homeserver URL returned by login."
+    },
+    "hsToken": {
+      "type": "string",
+      "description": "Homeserver token returned by Beeper bridge registration."
+    },
+    "matrixDeviceId": {
+      "type": "string",
+      "description": "Beeper Matrix device id for this bridge."
+    },
+    "matrixUserId": {
+      "type": "string",
+      "description": "Beeper Matrix user id for this bridge."
+    },
+    "bridgeManagerToken": {
+      "type": "string",
+      "description": "Beeper bridge-manager token used to register the self-hosted bridge."
+    },
+    "importSources": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["dashboard", "tui", "channels", "archived"] },
+      "description": "OpenClaw session sources to import and backfill."
+    },
+    "backfillLimit": {
+      "type": "number",
+      "description": "Maximum OpenClaw messages to backfill per imported session."
+    },
+    "contactVisibility": {
+      "type": "string",
+      "enum": ["agents", "agents-and-users", "none"],
+      "description": "Which OpenClaw identities should appear in Beeper contacts."
+    },
+    "homeserverDomain": {
+      "type": "string",
+      "description": "Homeserver domain advertised in the Beeper appservice registration."
+    },
+    "approvalBehavior": {
+      "type": "string",
+      "enum": ["native", "disabled"],
+      "description": "How Beeper approval decisions resolve OpenClaw approval gates."
+    }
+  }
+}

@@ -27,19 +27,14 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       const email = requiredStringOption(options, "email");
       const setupOptions: Parameters<typeof setupOpenClawBeeperBridge>[0] = {
         email,
-        postState: !booleanOption(options, "no-post-state"),
         push: booleanOption(options, "push"),
         selfHosted: !booleanOption(options, "not-self-hosted"),
       };
-      const address = stringOption(options, "registration-url");
-      const baseDomain = stringOption(options, "base-domain") ?? beeperBaseDomainOption(options);
       const bridgeManagerToken = stringOption(options, "bridge-manager-token");
       const bridgeType = stringOption(options, "bridge-type");
       const env = beeperEnvOption(options);
       const homeserverDomain = stringOption(options, "homeserver-domain");
       const username = stringOption(options, "username");
-      if (address !== undefined) setupOptions.address = address;
-      if (baseDomain !== undefined) setupOptions.baseDomain = baseDomain;
       if (bridgeManagerToken !== undefined) setupOptions.bridgeManagerToken = bridgeManagerToken;
       if (bridgeType !== undefined) setupOptions.bridgeType = bridgeType;
       if (env !== undefined) setupOptions.env = env;
@@ -83,7 +78,6 @@ function helpText(): string {
     "  --config <path>",
     "  --data-dir <path>",
     "  --email <address>",
-    "  --registration-url <url>",
     "  --bridge-manager-token <token>",
     "  --env <production|staging|dev|local>",
     "",
@@ -93,24 +87,18 @@ function helpText(): string {
 function configOverridesFromOptions(options: Map<string, string | boolean>): Partial<OpenClawBridgeConfig> {
   const overrides: Partial<OpenClawBridgeConfig> = {};
   const dataDir = stringOption(options, "data-dir");
-  const registrationUrl = stringOption(options, "registration-url");
   if (dataDir) overrides.dataDir = dataDir;
-  if (registrationUrl) overrides.registrationUrl = registrationUrl;
   return overrides;
 }
 
 function beeperRuntimeOverridesFromOptions(options: Map<string, string | boolean>): Partial<OpenClawBridgeConfig> {
   const overrides: Partial<OpenClawBridgeConfig> = {};
-  const baseDomain = stringOption(options, "base-domain") ?? beeperBaseDomainOption(options);
   const bridgeManagerToken = stringOption(options, "bridge-manager-token");
   const env = beeperEnvOption(options);
   const homeserverDomain = stringOption(options, "homeserver-domain");
-  if (baseDomain !== undefined) overrides.baseDomain = baseDomain;
   if (bridgeManagerToken !== undefined) overrides.bridgeManagerToken = bridgeManagerToken;
   if (env !== undefined) overrides.beeperEnv = env;
   if (homeserverDomain !== undefined) overrides.homeserverDomain = homeserverDomain;
-  if (options.has("no-post-state")) overrides.bridgeManagerPostState = false;
-  else if (options.has("post-state")) overrides.bridgeManagerPostState = true;
   return overrides;
 }
 
@@ -125,19 +113,17 @@ function whoamiPayload(config: OpenClawBridgeConfig): Record<string, unknown> {
     appserviceId: config.appserviceId,
     beeperEnv: config.beeperEnv ?? "production",
     bridgeId: config.bridgeId ?? null,
-    bridgeManagerPostState: config.bridgeManagerPostState ?? true,
     canConnect: Boolean(
       config.accessToken &&
       config.asToken &&
       config.homeserver &&
       config.hsToken &&
       config.matrixDeviceId &&
-      config.matrixUserId &&
-      config.registrationUrl
+      config.matrixUserId
     ),
     deviceId: config.matrixDeviceId ?? null,
     homeserver: config.homeserver ?? null,
-    registrationUrl: config.registrationUrl,
+    registrationUrl: "websocket",
     userId: config.matrixUserId ?? null,
   };
 }
@@ -179,14 +165,6 @@ function beeperEnvOption(options: Map<string, string | boolean>): BeeperEnvironm
   if (env === undefined) return undefined;
   if (env === "production" || env === "staging" || env === "dev" || env === "local") return env;
   throw new Error(`Invalid --env: ${env}`);
-}
-
-function beeperBaseDomainOption(options: Map<string, string | boolean>): string | undefined {
-  const env = beeperEnvOption(options);
-  if (env === "dev") return "beeper-dev.com";
-  if (env === "local") return "beeper.localtest.me";
-  if (env === "staging") return "beeper-staging.com";
-  return undefined;
 }
 
 async function promptForLoginCode(io: CliIO): Promise<string> {

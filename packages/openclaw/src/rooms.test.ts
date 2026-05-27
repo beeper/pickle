@@ -16,9 +16,9 @@ describe("OpenClaw room and contact helpers", () => {
   it("derives ghost identities for every OpenClaw agent", () => {
     const config = createDefaultConfig({ dataDir: "/tmp/openclaw", homeserver: "https://matrix.example.com" });
     expect(matrixDomainFromHomeserver(config.homeserver)).toBe("matrix.example.com");
-    expect(agentGhostUserId(config, "Codex Main")).toBe("@openclaw_agent_codex_main:matrix.example.com");
-    expect(userGhostUserId(config, "whatsapp:+1 555")).toBe("@openclaw_user_whatsapp=3a=2b1=20555:matrix.example.com");
-    expect(serviceBotUserId(config)).toBe("@openclawbot:matrix.example.com");
+    expect(agentGhostUserId(config, "Codex Main")).toBe("@sh-openclaw_agent_codex_main:matrix.example.com");
+    expect(userGhostUserId(config, "whatsapp:+1 555")).toBe("@sh-openclaw_user_whatsapp_1_555:matrix.example.com");
+    expect(serviceBotUserId(config)).toBe("@sh-openclawbot:matrix.example.com");
     expect(agentContactFromOpenClawAgent(config, {
       avatarMxc: "mxc://example/avatar",
       description: "Local code agent",
@@ -29,7 +29,7 @@ describe("OpenClaw room and contact helpers", () => {
       avatarMxc: "mxc://example/avatar",
       description: "Local code agent",
       displayName: "Codex",
-      ghostUserId: "@openclaw_agent_codex:matrix.example.com",
+      ghostUserId: "@sh-openclaw_agent_codex:matrix.example.com",
     });
     expect(userContactFromOpenClawSession(config, {
       displayName: "Alice",
@@ -37,7 +37,7 @@ describe("OpenClaw room and contact helpers", () => {
       lastTo: "whatsapp:+1 555",
     })).toEqual({
       displayName: "Alice",
-      ghostUserId: "@openclaw_user_whatsapp=3a=2b1=20555:matrix.example.com",
+      ghostUserId: "@sh-openclaw_user_whatsapp_1_555:matrix.example.com",
       source: "whatsapp",
       userId: "whatsapp:+1 555",
     });
@@ -59,7 +59,7 @@ describe("OpenClaw room and contact helpers", () => {
         agent: {
           agentId: "codex",
           displayName: "Codex",
-          ghostUserId: "@openclaw_agent_codex:example.com",
+          ghostUserId: "@sh-openclaw_agent_codex:example.com",
         },
         cwd: "/repo",
         label: "Fix tests",
@@ -74,14 +74,14 @@ describe("OpenClaw room and contact helpers", () => {
         name: "Fix tests",
         preset: "private_chat",
         topic: "OpenClaw agent: codex\nsession: agent:codex:main\ncwd: /repo",
-        userId: "@openclawbot:example.com",
+        userId: "@sh-openclawbot:example.com",
         visibility: "private",
       });
       expect(binding).toEqual({
         agentId: "codex",
         createdAt: Date.parse("2026-05-16T12:00:00.000Z"),
         cwd: "/repo",
-        ghostUserId: "@openclaw_agent_codex:example.com",
+        ghostUserId: "@sh-openclaw_agent_codex:example.com",
         id: bindingIdForRoom("!session:example.com"),
         kind: "session",
         label: "Fix tests",

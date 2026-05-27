@@ -41,14 +41,11 @@ export async function createOpenClawBeeperBridge(options: CreateOpenClawBeeperBr
     bridgeType: options.bridgeType ?? DEFAULT_BEEPER_BRIDGE_TYPE,
     connector,
   };
-  if (config?.registrationUrl !== undefined) bridgeOptions.address = config.registrationUrl;
-  if (config?.baseDomain !== undefined) bridgeOptions.baseDomain = config.baseDomain;
-  else {
-    const baseDomain = beeperBaseDomain(config?.beeperEnv);
-    if (baseDomain !== undefined) bridgeOptions.baseDomain = baseDomain;
-  }
+  bridgeOptions.address = "websocket";
+  const baseDomain = beeperBaseDomain(config?.beeperEnv);
+  if (baseDomain !== undefined) bridgeOptions.baseDomain = baseDomain;
   if (config?.bridgeManagerToken !== undefined) bridgeOptions.bridgeManagerToken = config.bridgeManagerToken;
-  if (config?.bridgeManagerPostState !== undefined) bridgeOptions.bridgeManagerPostState = config.bridgeManagerPostState;
+  bridgeOptions.bridgeManagerPostState = true;
   if (config?.homeserverDomain !== undefined) bridgeOptions.homeserverDomain = config.homeserverDomain;
   if (options.dataDir !== undefined) bridgeOptions.dataDir = options.dataDir;
   if (options.getOnly !== undefined) bridgeOptions.getOnly = options.getOnly;
@@ -116,7 +113,7 @@ async function postOpenClawBridgeRunningState(options: CreateOpenClawBeeperBridg
   const config = options.config;
   const bridge = options.bridge ?? config?.bridgeId ?? config?.appserviceId;
   if (!config?.accessToken || !config.asToken || !bridge) return;
-  const baseDomain = config.baseDomain ?? beeperBaseDomain(config.beeperEnv);
+  const baseDomain = beeperBaseDomain(config.beeperEnv);
   const factory = options.bridgeStateClientFactory ?? createBeeperBridgeManagerClient;
   const clientOptions: { baseDomain?: string; token: string } = { token: config.accessToken };
   if (baseDomain !== undefined) clientOptions.baseDomain = baseDomain;

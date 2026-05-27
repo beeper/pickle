@@ -33,7 +33,6 @@ export interface BeeperLoginForOpenClawResult {
 
 export interface CreateOpenClawBeeperAppServiceOptions {
   accessToken: string;
-  address?: string;
   baseDomain?: string;
   bridge?: string;
   bridgeManagerToken?: string;
@@ -44,7 +43,6 @@ export interface CreateOpenClawBeeperAppServiceOptions {
   homeserver?: string;
   homeserverDomain?: string;
   matrixDeviceId?: string;
-  postState?: boolean;
   push?: boolean;
   selfHosted?: boolean;
   username?: string;
@@ -59,13 +57,11 @@ export type CreateOpenClawBeeperAppServiceRequest = CreateAppServiceOptions & {
 };
 
 export interface CreateOpenClawBeeperAppServiceResult {
-  config: Pick<OpenClawBridgeConfig, "appserviceId" | "asToken" | "bridgeId" | "ghostLocalpartPrefix" | "homeserver" | "homeserverDomain" | "hsToken" | "registrationUrl" | "senderLocalpart" | "serviceBotLocalpart" | "userLocalpartPrefix">;
+  config: Pick<OpenClawBridgeConfig, "appserviceId" | "asToken" | "bridgeId" | "homeserver" | "homeserverDomain" | "hsToken">;
   init: MatrixAppserviceInitOptions;
 }
 
 export interface SetupOpenClawBeeperBridgeOptions extends BeeperLoginForOpenClawOptions {
-  address?: string;
-  baseDomain?: string;
   bridge?: string;
   bridgeManagerToken?: string;
   bridgeType?: string;
@@ -73,7 +69,6 @@ export interface SetupOpenClawBeeperBridgeOptions extends BeeperLoginForOpenClaw
   getOnly?: boolean;
   homeserverDomain?: string;
   openClawDeviceId?: string;
-  postState?: boolean;
   push?: boolean;
   selfHosted?: boolean;
   username?: string;
@@ -81,7 +76,7 @@ export interface SetupOpenClawBeeperBridgeOptions extends BeeperLoginForOpenClaw
 
 export interface SetupOpenClawBeeperBridgeResult {
   account: BeeperSetupAccount;
-  config: Pick<OpenClawBridgeConfig, "accessToken" | "appserviceId" | "asToken" | "bridgeId" | "ghostLocalpartPrefix" | "homeserver" | "homeserverDomain" | "hsToken" | "matrixDeviceId" | "matrixUserId" | "registrationUrl" | "senderLocalpart" | "serviceBotLocalpart" | "userLocalpartPrefix">;
+  config: Pick<OpenClawBridgeConfig, "accessToken" | "appserviceId" | "asToken" | "bridgeId" | "homeserver" | "homeserverDomain" | "hsToken" | "matrixDeviceId" | "matrixUserId">;
   init: MatrixAppserviceInitOptions;
 }
 
@@ -121,14 +116,14 @@ export async function createOpenClawBeeperAppService(
     selfHosted: options.selfHosted ?? true,
     token: options.accessToken,
   };
-  if (options.address && options.address !== DEFAULT_REGISTRATION_URL) request.address = options.address;
+  request.address = DEFAULT_REGISTRATION_URL;
   if (options.baseDomain !== undefined) request.baseDomain = options.baseDomain;
   if (options.bridgeManagerToken !== undefined) request.hungryToken = options.bridgeManagerToken;
   if (options.fetch !== undefined) request.fetch = options.fetch;
   if (options.getOnly !== undefined) request.getOnly = options.getOnly;
   if (options.homeserver !== undefined) request.homeserver = options.homeserver;
   if (options.homeserverDomain !== undefined) request.homeserverDomain = options.homeserverDomain;
-  if (options.postState !== undefined) request.postState = options.postState;
+  request.postState = true;
   if (options.push !== undefined) request.push = options.push;
   if (options.username !== undefined) request.username = options.username;
   const init = await createInit(request);
@@ -136,13 +131,8 @@ export async function createOpenClawBeeperAppService(
       appserviceId: init.registration.id,
       asToken: init.registration.asToken,
       bridgeId: bridge,
-      ghostLocalpartPrefix: `${bridge}_agent_`,
       homeserver: init.homeserver,
       hsToken: init.registration.hsToken,
-      registrationUrl: init.registration.url || options.address || DEFAULT_REGISTRATION_URL,
-      senderLocalpart: init.registration.senderLocalpart,
-      serviceBotLocalpart: init.registration.senderLocalpart,
-      userLocalpartPrefix: `${bridge}_user_`,
   };
   if (init.homeserverDomain !== undefined) config.homeserverDomain = init.homeserverDomain;
   return {
@@ -161,8 +151,7 @@ export async function setupOpenClawBeeperBridge(
     accessToken: login.account.accessToken,
     bridge: bridgeId,
   };
-  const baseDomain = options.baseDomain ?? beeperBaseDomain(options.env);
-  if (options.address !== undefined) appserviceOptions.address = options.address;
+  const baseDomain = beeperBaseDomain(options.env);
   if (baseDomain !== undefined) appserviceOptions.baseDomain = baseDomain;
   if (options.bridgeManagerToken !== undefined) appserviceOptions.bridgeManagerToken = options.bridgeManagerToken;
   if (options.bridgeType !== undefined) appserviceOptions.bridgeType = options.bridgeType;
@@ -170,7 +159,6 @@ export async function setupOpenClawBeeperBridge(
   if (options.fetch !== undefined) appserviceOptions.fetch = options.fetch;
   if (options.getOnly !== undefined) appserviceOptions.getOnly = options.getOnly;
   if (options.homeserverDomain !== undefined) appserviceOptions.homeserverDomain = options.homeserverDomain;
-  if (options.postState !== undefined) appserviceOptions.postState = options.postState;
   if (options.push !== undefined) appserviceOptions.push = options.push;
   if (options.selfHosted !== undefined) appserviceOptions.selfHosted = options.selfHosted;
   if (options.username !== undefined) appserviceOptions.username = options.username;

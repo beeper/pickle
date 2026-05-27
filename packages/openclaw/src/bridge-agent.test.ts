@@ -19,7 +19,7 @@ describe("OpenClawMatrixBridgeAgent", () => {
     });
 
     await agent.syncAgentContacts();
-    expect(registry.getAgent("codex")?.ghostUserId).toBe("@openclaw_agent_codex:localhost");
+    expect(registry.getAgent("codex")?.ghostUserId).toBe("@sh-openclaw_agent_codex:localhost");
   });
 
   it("sends Matrix room text to the bound OpenClaw session", async () => {
@@ -200,7 +200,7 @@ function testBinding(): OpenClawSessionBinding {
   return {
     agentId: "codex",
     createdAt: 1,
-    ghostUserId: "@openclaw_agent_codex:example.com",
+    ghostUserId: "@sh-openclaw_agent_codex:example.com",
     id: "binding",
     kind: "session",
     owner: "bridge",
