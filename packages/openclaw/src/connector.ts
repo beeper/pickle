@@ -761,6 +761,7 @@ function matrixMetadataFromParsed(
 ): OpenClawMatrixMessageMetadata {
   const metadata: OpenClawMatrixMessageMetadata = { sender };
   if (parsed.attachments.length > 0) metadata.attachments = parsed.attachments as NonNullable<OpenClawMatrixMessageMetadata["attachments"]>;
+  if (parsed.command) metadata.command = parsed.command;
   if (parsed.formattedBody) metadata.formattedBody = parsed.formattedBody;
   if (parsed.mentions) metadata.mentions = parsed.mentions;
   if (parsed.threadRootEventId) metadata.threadRootEventId = parsed.threadRootEventId;

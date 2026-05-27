@@ -7,7 +7,7 @@ import { createConfigFromOpenClawSetup, defaultDataDir } from "./config";
 import beeperChannelConfigSchema from "./beeper-channel-config.schema.json";
 import type { setupOpenClawBeeperBridge, SetupOpenClawBeeperBridgeOptions } from "./beeper-setup";
 import { createBeeperApprovalNotice } from "./approval";
-import { requireBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
+import { requireBeeperChannelRuntimeForHost, setBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
 import type { OpenClawHostRuntime } from "./openclaw-runtime";
 
 export type OpenClawSetupConfig = OpenClawConfig;
@@ -72,6 +72,7 @@ type BeeperGatewayContext = {
   abortSignal: AbortSignal;
   accountId: string;
   cfg: OpenClawSetupConfig;
+  channelRuntime?: unknown;
   hostRuntime?: unknown;
   log?: {
     info?: (message: string) => void;
@@ -1078,6 +1079,9 @@ export async function startBeeperGatewayAccount(ctx: BeeperGatewayContext | Chan
       log: bridgeLoggerFromChannelContext(ctx),
       ...(hostRuntime ? { runtime: hostRuntime } : {}),
     });
+    if (hostRuntime && openClawPluginRuntime && hostRuntime !== openClawPluginRuntime) {
+      setBeeperChannelRuntimeForHost(openClawPluginRuntime, requireBeeperChannelRuntimeForHost(hostRuntime));
+    }
     const key = gatewayAccountKey(ctx.accountId);
     startedBridges.set(key, bridge as StartedBeeperBridge);
     ctx.setStatus?.({
@@ -1091,6 +1095,9 @@ export async function startBeeperGatewayAccount(ctx: BeeperGatewayContext | Chan
       await waitForAbort(ctx.abortSignal);
     } finally {
       startedBridges.delete(key);
+      if (hostRuntime && openClawPluginRuntime && hostRuntime !== openClawPluginRuntime) {
+        setBeeperChannelRuntimeForHost(openClawPluginRuntime, undefined);
+      }
       await bridge.stop?.();
       ctx.setStatus?.({
         accountId: ctx.accountId,
@@ -1129,17 +1136,51 @@ function formatStartupError(error: unknown): string {
 
 function resolveBeeperHostRuntime(ctx: BeeperGatewayContext): OpenClawHostRuntime | undefined {
   if (ctx.hostRuntime && typeof ctx.hostRuntime === "object" && hasOpenClawSessionRuntime(ctx.hostRuntime)) return ctx.hostRuntime;
-  if (ctx.runtime && typeof ctx.runtime === "object" && hasOpenClawSessionRuntime(ctx.runtime)) return ctx.runtime;
+  if (ctx.channelRuntime && typeof ctx.channelRuntime === "object" && hasOpenClawChannelRuntime(ctx.channelRuntime)) {
+    const channel: NonNullable<OpenClawHostRuntime["channel"]> = ctx.channelRuntime;
+    const runtime = (openClawPluginRuntime ?? (ctx.runtime && typeof ctx.runtime === "object" ? ctx.runtime : {})) as OpenClawHostRuntime;
+    return {
+      ...runtime,
+      channel,
+      config: {
+        ...runtime.config,
+        current: runtime.config?.current ?? (() => ctx.cfg),
+      },
+    };
+  }
+  if (openClawPluginRuntime && hasOpenClawSessionRuntime(openClawPluginRuntime)) return withConfigFallback(openClawPluginRuntime, ctx.cfg);
+  if (ctx.runtime && typeof ctx.runtime === "object" && hasOpenClawSessionRuntime(ctx.runtime)) return withConfigFallback(ctx.runtime, ctx.cfg);
   return undefined;
 }
 
+function withConfigFallback(runtime: object, cfg: OpenClawSetupConfig): OpenClawHostRuntime {
+  const hostRuntime = runtime as OpenClawHostRuntime;
+  return {
+    ...hostRuntime,
+    config: {
+      ...hostRuntime.config,
+      current: hostRuntime.config?.current ?? (() => cfg),
+    },
+  };
+}
+
 function hasOpenClawSessionRuntime(value: object): value is OpenClawHostRuntime {
+  if (hasOpenClawChannelRuntime((value as { channel?: unknown }).channel)) return true;
   const agent = (value as { agent?: unknown }).agent;
   if (!agent || typeof agent !== "object") return false;
   const session = (agent as { session?: unknown }).session;
   if (!session || typeof session !== "object") return false;
   return typeof (session as { listSessionEntries?: unknown }).listSessionEntries === "function"
     || typeof (session as { getSessionEntry?: unknown }).getSessionEntry === "function";
+}
+
+function hasOpenClawChannelRuntime(value: unknown): value is NonNullable<OpenClawHostRuntime["channel"]> {
+  if (!value || typeof value !== "object") return false;
+  const channel = value as NonNullable<OpenClawHostRuntime["channel"]>;
+  return typeof channel.turn?.buildContext === "function"
+    && typeof channel.turn.runAssembled === "function"
+    && typeof channel.session?.recordInboundSession === "function"
+    && typeof channel.reply?.dispatchReplyWithBufferedBlockDispatcher === "function";
 }
 
 export async function stopBeeperGatewayAccount(ctx: BeeperGatewayContext | ChannelGatewayContext<{ accountId: string; configured: boolean; settings: BeeperChannelSettings }>): Promise<void> {

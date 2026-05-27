@@ -724,6 +724,24 @@ describe("OpenClawBridgeConnector", () => {
       replyTo: { eventId: "$old", roomId: "!room:example.com" },
       sessionKey: "agent:codex:session_2",
     });
+
+    await api.handleMatrixMessage({} as BridgeRequestContext, {
+      content: {},
+      event: { eventId: "$status" },
+      portal,
+      sender: { userId: "@alice:example.com" },
+      text: "/status",
+    } as MatrixMessage);
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$status",
+      matrix: expect.objectContaining({
+        command: { args: "", name: "status" },
+        roomId: "!room:example.com",
+        sender: "@alice:example.com",
+      }),
+      message: "/status",
+      sessionKey: "agent:codex:session_2",
+    }));
   });
 
   it("passes Matrix formatted body, mentions, and thread metadata to OpenClaw", async () => {

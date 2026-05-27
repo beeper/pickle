@@ -29,6 +29,7 @@ export interface BeeperStreamSubscriber {
 
 export interface CreateBeeperTurnStreamCoordinatorOptions {
   agentId?: string;
+  agentName?: string;
   client: BeeperTurnStreamCoordinatorClient;
   initialMessageMetadata?: Record<string, unknown>;
   roomId: string;
@@ -65,6 +66,7 @@ export class BeeperTurnStreamCoordinator {
   #anchors = new Map<string, BeeperStreamAnchor>();
   #anchorOrder: string[] = [];
   #agentId: string | undefined;
+  #agentName: string | undefined;
   #client: BeeperTurnStreamCoordinatorClient;
   #currentAnchorId: string;
   #finalized = false;
@@ -77,6 +79,7 @@ export class BeeperTurnStreamCoordinator {
 
   constructor(options: CreateBeeperTurnStreamCoordinatorOptions) {
     this.#agentId = options.agentId;
+    this.#agentName = options.agentName;
     this.#client = options.client;
     this.#initialMessageMetadata = options.initialMessageMetadata ?? {};
     this.roomId = options.roomId;
@@ -187,6 +190,7 @@ export class BeeperTurnStreamCoordinator {
       this.#runBegun = true;
       const snapshot = await this.#beginRun({
         ...(this.#agentId ? { agentId: this.#agentId } : {}),
+        ...(this.#agentName ? { agentName: this.#agentName } : {}),
         model: "openclaw/plugin",
         runId: this.turnId,
         threadId: this.turnId,
@@ -219,9 +223,11 @@ export class BeeperTurnStreamCoordinator {
       ...this.#initialMessageMetadata,
       ...(recordValue(initialAIMessage.metadata) ?? {}),
     };
+    const perMessageProfile = this.#perMessageProfile();
     const target = await this.#client.beeper.streams.startMessage({
       content: {
         body: snapshot.body || "...",
+        ...(perMessageProfile ? { "com.beeper.per_message_profile": perMessageProfile } : {}),
         [BEEPER_AI_KEY]: initialAIMessage,
         [BEEPER_AI_METADATA_KEY]: metadata,
         [BEEPER_STREAM_DESCRIPTOR_KEY]: this.#streamDescriptor(),
@@ -246,7 +252,7 @@ export class BeeperTurnStreamCoordinator {
     await this.#publishSnapshotEvents(anchor, snapshot);
   }
 
-  async #beginRun(options: { agentId?: string; model?: string; runId: string; threadId: string }): Promise<MatrixBeeperAIRunSnapshot> {
+  async #beginRun(options: { agentId?: string; agentName?: string; model?: string; runId: string; threadId: string }): Promise<MatrixBeeperAIRunSnapshot> {
     return this.#client.beeper.aiRuns.begin(options);
   }
 
@@ -302,6 +308,7 @@ export class BeeperTurnStreamCoordinator {
       aiMessage: finalMessage,
       body: finalText,
     });
+    const perMessageProfile = this.#perMessageProfile();
     const finalMetadata = {
       ...this.#runMetadata(terminalPart.type === AGUIEventType.RUN_ERROR ? "error" : "complete", terminalPart),
       ...(recordValue(snapshot.metadata) ?? {}),
@@ -312,6 +319,7 @@ export class BeeperTurnStreamCoordinator {
       body: finalContent.body || "...",
       content: {
         body: finalContent.body || "...",
+        ...(perMessageProfile ? { "com.beeper.per_message_profile": perMessageProfile } : {}),
         [BEEPER_AI_KEY]: finalContent.aiMessage,
         [BEEPER_AI_METADATA_KEY]: finalMetadata,
         [BEEPER_STREAM_DESCRIPTOR_KEY]: anchor.descriptor ?? this.#streamDescriptor(),
@@ -338,6 +346,7 @@ export class BeeperTurnStreamCoordinator {
   #runMetadata(state: "streaming" | "complete" | "error", terminalPart?: AGUIEvent): Record<string, unknown> {
     return stripUndefined({
       agent: stripUndefined({
+        displayName: this.#agentName,
         id: this.#agentId,
       }),
       data: this.#initialMessageMetadata,
@@ -363,6 +372,14 @@ export class BeeperTurnStreamCoordinator {
         totalTokens: 0,
       },
       usageDetails: {},
+    });
+  }
+
+  #perMessageProfile(): Record<string, unknown> | undefined {
+    if (!this.#agentId && !this.#agentName) return undefined;
+    return stripUndefined({
+      id: this.#agentId,
+      displayname: this.#agentName,
     });
   }
 

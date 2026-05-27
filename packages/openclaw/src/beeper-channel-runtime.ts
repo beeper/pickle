@@ -143,17 +143,22 @@ export class BeeperChannelRuntime {
     sessionKey: string;
     threadRoot?: string;
   }): BeeperTurnStreamCoordinator {
+    const binding = this.#resolveBinding(options.roomId) ?? this.#getBindingBySessionKey(options.sessionKey);
+    const agent = options.agentId ? this.#getAgents().find((candidate) => candidate.agentId === options.agentId) : undefined;
+    const userId = binding?.ghostUserId ?? agent?.ghostUserId ?? this.userId;
     const publisher = new BeeperTurnStreamCoordinator({
       client: this.client,
       initialMessageMetadata: {
         agent_id: options.agentId,
+        ...(agent?.displayName ? { agent_name: agent.displayName } : {}),
         session_key: options.sessionKey,
       },
       roomId: options.roomId,
       turnId: options.runId,
       ...(options.agentId ? { agentId: options.agentId } : {}),
+      ...(agent?.displayName ? { agentName: agent.displayName } : {}),
       ...(options.threadRoot ? { threadRoot: options.threadRoot } : {}),
-      ...(this.userId ? { userId: this.userId } : {}),
+      ...(userId ? { userId } : {}),
     });
     this.#activeStreams.set(options.sessionKey, publisher);
     return publisher;

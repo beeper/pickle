@@ -9,7 +9,6 @@ import {
   AGUIEventType,
   closeReasoningPart,
   createStreamRunState,
-  finishRunEvents,
   mapOpenClawApprovalRequest,
   mapOpenClawApprovalResponse,
   mapOpenClawCustom,
@@ -133,6 +132,10 @@ export interface OpenClawMatrixAttachmentMetadata {
 
 export interface OpenClawMatrixMessageMetadata {
   attachments?: OpenClawMatrixAttachmentMetadata[];
+  command?: {
+    args?: string;
+    name: string;
+  };
   formattedBody?: string;
   mentions?: {
     room?: boolean;
@@ -766,6 +769,10 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
   const sender = recordValue(recordValue(params.record.matrix)?.sender) ?? {};
   const matrix = recordValue(params.record.matrix) ?? {};
   const senderId = stringValue(matrix.sender) ?? stringValue(sender.id) ?? "beeper";
+  const command = recordValue(matrix.command);
+  const commandName = stringValue(command?.name);
+  const commandArgs = stringValue(command?.args) ?? "";
+  const commandBody = commandName ? `/${commandName}${commandArgs ? ` ${commandArgs}` : ""}` : params.message;
   const roomId = stringValue(recordValue(params.record.matrix)?.roomId) ?? stringValue(params.record.roomId) ?? params.sessionKey;
   const eventId = stringValue(params.record.idempotencyKey) ?? params.runId;
   const sessionConfig = recordValue(recordValue(params.cfg)?.session);
@@ -810,11 +817,21 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
       body: params.message,
       rawBody: params.message,
       bodyForAgent: params.message,
-      commandBody: params.message,
+      commandBody,
       envelopeFrom: senderId,
       senderLabel: senderId,
       preview: params.message.slice(0, 280),
     },
+    ...(commandName
+      ? {
+          command: {
+            authorized: true,
+            body: commandBody,
+            kind: "text-slash",
+            name: commandName,
+          },
+        }
+      : {}),
     access: {
       commands: {
         authorized: true,
@@ -856,12 +873,20 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
   const unsubscribeAgentEvents = forwardAgentRuntimeStreamEvents({
     runId: params.runId,
     runtime: params.runtime,
+    sessionKey: params.sessionKey,
     stream,
   });
+  let streamStartError: unknown;
   try {
     params.localEvents.emit({ event: "stream.starting", payload: { agentId: params.agentId, roomId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
-    await stream.start();
-    params.localEvents.emit({ event: "stream.started", payload: { agentId: params.agentId, roomId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
+    const streamStarted = stream.start().then(
+      () => {
+        params.localEvents.emit({ event: "stream.started", payload: { agentId: params.agentId, roomId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
+      },
+      (error) => {
+        streamStartError = error;
+      },
+    );
     await turn.runAssembled({
       cfg: params.cfg,
       channel: "beeper",
@@ -920,6 +945,8 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
       },
       messageId: eventId,
     });
+    await streamStarted;
+    if (streamStartError !== undefined) throw streamStartError;
     await stream.finish();
     params.localEvents.emit({ event: "stream.finished", payload: { agentId: params.agentId, roomId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
     params.localEvents.emit({ event: "run.completed", payload: { agentId: params.agentId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
@@ -934,19 +961,57 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
 function forwardAgentRuntimeStreamEvents(params: {
   runId: string;
   runtime: OpenClawHostRuntime;
+  sessionKey: string;
   stream: ReturnType<typeof createBeeperReplyStreamEmitter>;
 }): (() => void) | undefined {
   const onAgentEvent = typeof params.runtime.events === "object" ? params.runtime.events?.onAgentEvent : undefined;
-  if (!onAgentEvent) return undefined;
+  if (!onAgentEvent) {
+    params.stream.debug("openclaw_beeper_agent_event_subscription_missing", {
+      runId: params.runId,
+      sessionKey: params.sessionKey,
+    });
+    return undefined;
+  }
+  params.stream.debug("openclaw_beeper_agent_event_subscription_started", {
+    runId: params.runId,
+    sessionKey: params.sessionKey,
+  });
   return onAgentEvent((event) => {
-    if (event.runId !== params.runId) return;
     const data = recordValue(event.data) ?? {};
-    switch (event.stream) {
+    const matched = matchesAgentStreamEvent({ data, event, runId: params.runId, sessionKey: params.sessionKey });
+    const stream = normalizeAgentStream(event.stream);
+    params.stream.debug("openclaw_beeper_agent_event_seen", {
+      dataKeys: Object.keys(data).slice(0, 12),
+      eventRunId: stringValue(event.runId) ?? stringValue(data.runId) ?? stringValue(data.run_id),
+      eventSessionKey: stringValue(event.sessionKey) ?? stringValue(data.sessionKey) ?? stringValue(data.session_key),
+      matched,
+      stream: event.stream,
+      normalizedStream: stream,
+    });
+    if (!matched) return;
+    switch (stream) {
       case "assistant":
         void params.stream.textPayload(data, "partial");
         break;
       case "thinking":
+      case "reasoning":
         void params.stream.reasoningPayload(data);
+        break;
+      case "item":
+        void params.stream.itemEvent(data);
+        break;
+      case "plan":
+        void params.stream.planUpdate(data);
+        break;
+      case "approval":
+        void params.stream.approvalEvent(data);
+        break;
+      case "command_output":
+      case "command-output":
+        void params.stream.commandOutput(data);
+        break;
+      case "patch":
+        void params.stream.patchSummary(data);
         break;
       case "state":
       case "snapshot":
@@ -966,12 +1031,38 @@ function forwardAgentRuntimeStreamEvents(params: {
         void params.stream.customData("data", data);
         break;
       case "raw":
-        void params.stream.raw(event.stream, data);
+        void params.stream.raw(stream, data);
         break;
       default:
         break;
     }
   });
+}
+
+function matchesAgentStreamEvent(params: {
+  data: Record<string, unknown>;
+  event: OpenClawAgentRuntimeEvent;
+  runId: string;
+  sessionKey: string;
+}): boolean {
+  const eventRunId = stringValue(params.event.runId) ?? stringValue(params.data.runId) ?? stringValue(params.data.run_id);
+  if (eventRunId) return eventRunId === params.runId;
+  const eventSessionKey = stringValue(params.event.sessionKey) ?? stringValue(params.data.sessionKey) ?? stringValue(params.data.session_key);
+  return eventSessionKey === params.sessionKey;
+}
+
+function normalizeAgentStream(stream: string | undefined): string | undefined {
+  const prefix = "codex_app_server.";
+  return stream?.startsWith(prefix) ? stream.slice(prefix.length) : stream;
+}
+
+function specificToolName(value: string | undefined): string | undefined {
+  if (!value || value === "tool" || value === "item" || value === "tool_call" || value === "tool-call") return undefined;
+  return value;
+}
+
+function isCompletePhase(value: string | undefined): boolean {
+  return value === "complete" || value === "completed" || value === "end" || value === "ended" || value === "finish" || value === "finished" || value === "done";
 }
 
 function createBeeperReplyStreamEmitter(base: {
@@ -1000,8 +1091,10 @@ function createBeeperReplyStreamEmitter(base: {
   let finalized = false;
   let lastVisibleText = "";
   let lastReasoningText = "";
+  let startPromise: Promise<void> | undefined;
   const toolInputs = new Map<string, unknown>();
   const toolNames = new Map<string, string>();
+  const startedToolCalls = new Set<string>();
   const emit = (event: string, payload: Record<string, unknown>) => {
     base.localEvents.emit({
       event,
@@ -1016,23 +1109,32 @@ function createBeeperReplyStreamEmitter(base: {
   };
   const ensureStarted = async () => {
     if (hasPublished || finalized) return;
-    hasPublished = true;
-    channelRuntime.debug("openclaw_beeper_stream_starting", {
-      agentId: base.agentId,
-      roomId: base.roomId,
-      runId: base.runId,
-      sessionId: base.sessionId,
-      sessionKey: base.sessionKey,
-    });
-    await publisher.start();
-    channelRuntime.debug("openclaw_beeper_stream_started", {
-      agentId: base.agentId,
-      eventId: publisher.targetEventId,
-      roomId: base.roomId,
-      runId: base.runId,
-      sessionId: base.sessionId,
-      sessionKey: base.sessionKey,
-    });
+    if (!startPromise) {
+      startPromise = (async () => {
+        channelRuntime.debug("openclaw_beeper_stream_starting", {
+          agentId: base.agentId,
+          roomId: base.roomId,
+          runId: base.runId,
+          sessionId: base.sessionId,
+          sessionKey: base.sessionKey,
+        });
+        await publisher.start();
+        hasPublished = true;
+        state.textStarted = true;
+        channelRuntime.debug("openclaw_beeper_stream_started", {
+          agentId: base.agentId,
+          eventId: publisher.targetEventId,
+          roomId: base.roomId,
+          runId: base.runId,
+          sessionId: base.sessionId,
+          sessionKey: base.sessionKey,
+        });
+      })().catch((error) => {
+        startPromise = undefined;
+        throw error;
+      });
+    }
+    await startPromise;
   };
   const publish = async (parts: Iterable<AGUIEvent>) => {
     if (finalized) return;
@@ -1092,6 +1194,11 @@ function createBeeperReplyStreamEmitter(base: {
     if (input !== undefined) toolInputs.set(toolCallId, input);
   };
   const rememberedToolName = (toolCallId: string, fallback?: string) => toolNames.get(toolCallId) ?? fallback;
+  const startToolCall = (event: Parameters<typeof mapOpenClawToolInput>[0]) => {
+    if (startedToolCalls.has(event.toolCallId)) return [];
+    startedToolCalls.add(event.toolCallId);
+    return mapOpenClawToolInput(event);
+  };
   return {
     start: ensureStarted,
     assistantMessageStart: () => {
@@ -1117,7 +1224,7 @@ function createBeeperReplyStreamEmitter(base: {
         toolCallId,
         toolName,
       });
-      await publish(mapOpenClawToolInput(stripUndefined({
+      await publish(startToolCall(stripUndefined({
         approval: recordValue(data.approval),
         index: numberValue(data.index),
         input: data.args ?? data.input,
@@ -1151,25 +1258,39 @@ function createBeeperReplyStreamEmitter(base: {
     itemEvent: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
       const toolCallId = toolIdFor(data, stringValue(data.kind) ?? "item");
-      const output = stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.title);
-      if (!output) return;
+      const rawToolName = stringValue(data.name) ?? stringValue(data.toolName);
+      const itemType = stringValue(data.type);
+      const kind = stringValue(data.kind);
+      const toolName = rememberedToolName(toolCallId, rawToolName ?? specificToolName(kind) ?? specificToolName(itemType) ?? "tool");
+      const title = stringValue(data.title) ?? stringValue(data.progressText) ?? stringValue(data.summary) ?? rawToolName ?? itemType ?? kind;
+      const output = stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.error);
       const phase = stringValue(data.phase);
       const status = stringValue(data.status);
-      const preliminary = phase !== "complete" && phase !== "end" && status !== "complete" && status !== "completed";
-      const toolName = rememberedToolName(toolCallId, stringValue(data.name) ?? stringValue(data.kind));
+      const preliminary = !isCompletePhase(phase) && !isCompletePhase(status);
       rememberTool(toolCallId, toolName);
-      emit("tool.call.completed", {
+      emit("tool.call.updated", {
         output,
+        phase,
         preliminary,
         toolCallId,
         toolName,
       });
-      await publish(mapOpenClawToolOutput(stripUndefined({
-        output,
-        preliminary,
-        toolCallId,
-        toolName,
-      })));
+      await publish([
+        ...startToolCall(stripUndefined({ title, toolCallId, toolName })),
+        ...(output ? mapOpenClawToolOutput(stripUndefined({
+          error: data.error,
+          output,
+          preliminary,
+          toolCallId,
+          toolName,
+        })) : []),
+        ...(!preliminary ? mapOpenClawToolEnd(stripUndefined({
+          error: data.error,
+          result: output,
+          toolCallId,
+          toolName,
+        })) : []),
+      ]);
     },
     planUpdate: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
@@ -1244,12 +1365,21 @@ function createBeeperReplyStreamEmitter(base: {
         }))]);
       }
     },
+    debug: (event: string, payload: Record<string, unknown>) => {
+      channelRuntime.debug(event, {
+        roomId: base.roomId,
+        runId: base.runId,
+        sessionId: base.sessionId,
+        sessionKey: base.sessionKey,
+        ...payload,
+      });
+    },
     commandOutput: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
       const toolName = stringValue(data.name) ?? stringValue(data.title) ?? "command";
       const phase = stringValue(data.phase);
       const status = stringValue(data.status);
-      const complete = phase === "complete" || phase === "end" || status === "complete" || status === "completed";
+      const complete = isCompletePhase(phase) || isCompletePhase(status);
       const toolCallId = toolIdFor(data, fallbackToolIdForName(toolName, "command"));
       const output = stringValue(data.output) ?? data;
       rememberTool(toolCallId, toolName);
@@ -1296,21 +1426,14 @@ function createBeeperReplyStreamEmitter(base: {
     finish: async (payload?: unknown) => {
       if (payload !== undefined) await textPayload(payload, "final");
       if (!hasPublished || finalized) return;
-      const events = finishRunEvents(state, "stop", {
-        agent_id: base.agentId,
-        run_id: base.runId,
-        session_id: base.sessionId,
-        session_key: base.sessionKey,
-      });
-      const terminal = events.at(-1);
-      const preTerminal = events.slice(0, -1);
+      const preTerminal = closeReasoningPart(state);
       if (preTerminal.length > 0) await publisher.publishMany(preTerminal);
       finalized = true;
       channelRuntime.debug("openclaw_beeper_stream_finalizing", {
         roomId: base.roomId,
         runId: base.runId,
       });
-      await publisher.finalize(stripUndefined({ terminalPart: terminal, finishReason: "stop" }));
+      await publisher.finalize({ finishReason: "stop" });
       channelRuntime.clearActiveStream(base.sessionKey, publisher);
       channelRuntime.debug("openclaw_beeper_stream_finalized", {
         eventId: publisher.targetEventId,

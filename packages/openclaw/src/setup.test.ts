@@ -259,6 +259,11 @@ describe("OpenClaw Beeper setup surface", () => {
     appserviceMocks.startOpenClawBeeperBridge.mockResolvedValueOnce({ stop });
     const abort = new AbortController();
     const statuses: unknown[] = [];
+    const channelRuntime = {
+      reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
+      session: { recordInboundSession: vi.fn() },
+      turn: { buildContext: vi.fn(), runAssembled: vi.fn() },
+    };
     const cfg = applyBeeperChannelSettings({}, {
       accessToken: "at",
       asToken: "as",
@@ -276,8 +281,9 @@ describe("OpenClaw Beeper setup surface", () => {
       abortSignal: abort.signal,
       accountId: "default",
       cfg,
+      channelRuntime,
       setStatus: (next) => statuses.push(next),
-    });
+    } as never);
     await vi.waitFor(() => expect(appserviceMocks.startOpenClawBeeperBridge).toHaveBeenCalledOnce());
     expect(appserviceMocks.accountFromOpenClawConfig).toHaveBeenCalledWith(expect.objectContaining({
       accessToken: "at",
@@ -293,7 +299,13 @@ describe("OpenClaw Beeper setup surface", () => {
         importSources: ["dashboard", "tui"],
       }),
       dataDir: "/tmp/openclaw-beeper",
+      runtime: expect.objectContaining({
+        channel: channelRuntime,
+        config: expect.objectContaining({ current: expect.any(Function) }),
+      }),
     }));
+    const runtime = appserviceMocks.startOpenClawBeeperBridge.mock.calls[0]?.[0]?.runtime as { config?: { current?: () => unknown } };
+    expect(runtime.config?.current?.()).toBe(cfg);
     expect(statuses).toContainEqual(expect.objectContaining({ running: true }));
     abort.abort();
     await task;

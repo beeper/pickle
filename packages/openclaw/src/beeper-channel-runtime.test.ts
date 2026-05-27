@@ -30,6 +30,51 @@ function createClient() {
   };
 }
 
+function createStreamingClient() {
+  return {
+    ...createClient(),
+    beeper: {
+      aiRuns: {
+        begin: vi.fn(async ({ agentId, agentName, runId }: { agentId?: string; agentName?: string; runId: string }) => ({
+          body: "...",
+          events: [
+            { runId, threadId: runId, type: "RUN_STARTED" },
+            { messageId: runId, role: "assistant", type: "TEXT_MESSAGE_START" },
+          ],
+          finalAIMessage: {},
+          initialAIMessage: {
+            id: runId,
+            metadata: { turn_id: runId },
+            parts: [],
+            role: "assistant",
+          },
+          metadata: {
+            agent: { displayName: agentName, id: agentId },
+            runId,
+            status: { state: "streaming" },
+            threadId: runId,
+          },
+          messageId: runId,
+          runId,
+          threadId: runId,
+        })),
+        appendEvent: vi.fn(),
+        error: vi.fn(),
+        finish: vi.fn(),
+      },
+      streams: {
+        finalizeMessage: vi.fn(),
+        publishPart: vi.fn(async () => undefined),
+        startMessage: vi.fn(async () => ({
+          descriptor: { type: "com.beeper.llm", user_id: "@codex:example" },
+          eventId: "$stream",
+          roomId: "!room",
+        })),
+      },
+    },
+  };
+}
+
 describe("BeeperChannelRuntime", () => {
   it("requires bridge portal routing for outbound message operations", async () => {
     const client = createClient();
@@ -174,6 +219,53 @@ describe("BeeperChannelRuntime", () => {
       getSender: () => { sender: string };
     };
     expect(messageEvent.getSender()).toEqual({ isFromMe: true, sender: "@main:example" });
+  });
+
+  it("starts native streams as the bound assistant ghost", async () => {
+    const client = createStreamingClient();
+    const runtime = new BeeperChannelRuntime({
+      client: client as never,
+      getAgents: () => [{
+        agentId: "codex",
+        displayName: "Codex",
+        ghostUserId: "@codex:example",
+      }],
+      getBindingByRoom: () => ({
+        agentId: "codex",
+        createdAt: 1,
+        ghostUserId: "@codex:example",
+        id: "binding",
+        kind: "session",
+        owner: "bridge",
+        roomId: "!room",
+        sessionKey: "agent:codex:desktop",
+        updatedAt: 1,
+      }),
+      userId: "@bot:example",
+    });
+
+    const stream = runtime.createStreamPublisher({
+      agentId: "codex",
+      roomId: "!room",
+      runId: "run_1",
+      sessionKey: "agent:codex:desktop",
+    });
+    await stream.start();
+
+    expect(client.beeper.aiRuns.begin).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: "codex",
+      agentName: "Codex",
+      runId: "run_1",
+    }));
+    expect(client.beeper.streams.startMessage).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.objectContaining({
+        "com.beeper.per_message_profile": {
+          displayname: "Codex",
+          id: "codex",
+        },
+      }),
+      userId: "@codex:example",
+    }));
   });
 
   it("stores Beeper runtimes by OpenClaw host runtime", () => {

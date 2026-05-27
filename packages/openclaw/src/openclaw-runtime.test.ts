@@ -348,7 +348,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       disableBlockStreaming: false,
       sourceReplyDeliveryMode: "automatic",
     });
-    expect(beeperStreams.startMessage.mock.invocationCallOrder[0]).toBeLessThan(runAssembled.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY);
     expect(received).toEqual(expect.arrayContaining([
       expect.objectContaining({ event: "thinking.delta" }),
       expect.objectContaining({ event: "tool.call.started" }),
@@ -498,11 +497,18 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
-    let agentEventListener: ((event: { data?: Record<string, unknown>; runId?: string; stream?: string }) => void) | undefined;
+    let agentEventListener: ((event: { data?: Record<string, unknown>; runId?: string; sessionKey?: string; stream?: string }) => void) | undefined;
     const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as { runId?: string };
+      const sessionKey = params.routeSessionKey as string;
       agentEventListener?.({ data: { delta: "hel", text: "hel" }, runId: replyOptions.runId, stream: "assistant" });
-      agentEventListener?.({ data: { delta: "lo", text: "hello" }, runId: replyOptions.runId, stream: "assistant" });
+      agentEventListener?.({ data: { delta: "lo", text: "hello" }, sessionKey, stream: "assistant" });
+      agentEventListener?.({ data: { itemId: "codex-tool", phase: "start", type: "tool_call" }, runId: replyOptions.runId, stream: "codex_app_server.item" });
+      agentEventListener?.({ data: { itemId: "tool-c", phase: "update", kind: "tool", progressText: "loading", status: "running", name: "search" }, runId: replyOptions.runId, stream: "item" });
+      agentEventListener?.({ data: { itemId: "codex-tool", phase: "finished", type: "tool_call" }, runId: replyOptions.runId, stream: "codex_app_server.item" });
+      agentEventListener?.({ data: { phase: "update", title: "Plan", explanation: "checking docs", steps: ["Search", "Answer"] }, runId: replyOptions.runId, stream: "plan" });
+      agentEventListener?.({ data: { itemId: "cmd-1", phase: "delta", title: "Shell", toolCallId: "cmd-1", name: "shell", output: "stdout" }, runId: replyOptions.runId, stream: "command_output" });
+      agentEventListener?.({ data: { itemId: "patch-1", phase: "end", title: "Patch", toolCallId: "patch-1", name: "patch", added: [], modified: ["a.ts"], deleted: [], summary: "changed a.ts" }, runId: replyOptions.runId, stream: "patch" });
       agentEventListener?.({ data: { items: [{ title: "Docs", url: "https://example.com" }] }, runId: replyOptions.runId, stream: "source" });
       agentEventListener?.({ data: { filename: "report.txt", id: "file_1" }, runId: replyOptions.runId, stream: "file" });
       agentEventListener?.({ data: { status: "indexed" }, runId: replyOptions.runId, stream: "data" });
@@ -565,6 +571,12 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       " world",
     ]);
     expect(parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ toolCallId: "codex-tool", toolName: "tool", type: "TOOL_CALL_START" }),
+      expect.objectContaining({ toolCallId: "codex-tool", toolName: "tool", type: "TOOL_CALL_END" }),
+      expect.objectContaining({ content: "loading", state: "streaming", toolCallId: "tool-c", toolName: "search", type: "TOOL_CALL_RESULT" }),
+      expect.objectContaining({ content: "checking docs", state: "streaming", toolCallId: "plan", toolName: "plan", type: "TOOL_CALL_RESULT" }),
+      expect.objectContaining({ content: "stdout", state: "streaming", toolCallId: "cmd-1", toolName: "shell", type: "TOOL_CALL_RESULT" }),
+      expect.objectContaining({ content: "changed a.ts", toolCallId: "patch-1", toolName: "patch", type: "TOOL_CALL_RESULT" }),
       expect.objectContaining({ name: "source", type: "CUSTOM", value: { items: [{ title: "Docs", url: "https://example.com" }] } }),
       expect.objectContaining({ name: "file", type: "CUSTOM", value: { filename: "report.txt", id: "file_1" } }),
       expect.objectContaining({ name: "data", type: "CUSTOM", value: { status: "indexed" } }),

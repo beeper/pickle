@@ -2,10 +2,7 @@ export { EventType as AGUIEventType } from "@beeper/pickle-ag-ui";
 export type { AGUIEvent } from "@beeper/pickle-ag-ui";
 
 import { EventType as AGUIEventType, type AGUIEvent } from "@beeper/pickle-ag-ui";
-import type { RunFinishedEvent } from "@beeper/pickle-ag-ui";
 import { defaultBeeperApprovalActions, defaultBeeperApprovalChoices } from "./approval";
-
-type FinishReason = NonNullable<RunFinishedEvent["finishReason"]>;
 
 export interface StreamRunState {
   messageStarted: boolean;
@@ -27,27 +24,6 @@ export function createStreamRunState(turnId: string): StreamRunState {
 
 export function createTurnId(): string {
   return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export function finishRunEvents(
-  state: StreamRunState,
-  finishReason: FinishReason = "stop",
-  metadata: Record<string, unknown> = {}
-): AGUIEvent[] {
-  return [
-    ...closeOpenMessageParts(state),
-    {
-      messageId: state.turnId,
-      type: AGUIEventType.TEXT_MESSAGE_END,
-    },
-    {
-      finishReason,
-      runId: state.turnId,
-      threadId: state.turnId,
-      type: AGUIEventType.RUN_FINISHED,
-      ...(Object.keys(metadata).length > 0 ? { metadata: { finish_reason: finishReason, turn_id: state.turnId, ...metadata } } : {}),
-    },
-  ];
 }
 
 export function mapOpenClawMessageDelta(
@@ -74,10 +50,6 @@ export function mapOpenClawMessageDelta(
   ];
 }
 
-export function closeOpenMessageParts(state: StreamRunState): AGUIEvent[] {
-  return [...closeReasoningPart(state), ...closeTextPart(state)];
-}
-
 export function openTextPart(state: StreamRunState): AGUIEvent[] {
   if (state.textStarted) return [];
   state.textStarted = true;
@@ -88,12 +60,6 @@ export function openTextPart(state: StreamRunState): AGUIEvent[] {
       type: AGUIEventType.TEXT_MESSAGE_START,
     },
   ];
-}
-
-export function closeTextPart(state: StreamRunState): AGUIEvent[] {
-  if (!state.textStarted) return [];
-  state.textStarted = false;
-  return [];
 }
 
 export function openReasoningPart(state: StreamRunState): AGUIEvent[] {
