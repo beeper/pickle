@@ -997,6 +997,19 @@ function forwardAgentRuntimeStreamEvents(params: {
       case "reasoning":
         void params.stream.reasoningPayload(data);
         break;
+      case "tool":
+        if (stringValue(data.phase) === "start") {
+          void params.stream.toolStart(data);
+        } else if (stringValue(data.phase) === "result" || isCompletePhase(stringValue(data.phase))) {
+          void params.stream.toolResult(data);
+        } else {
+          void params.stream.itemEvent({
+            ...data,
+            kind: "tool",
+            progressText: stringValue(data.partialResult) ?? stringValue(data.output) ?? stringValue(data.result),
+          });
+        }
+        break;
       case "item":
         void params.stream.itemEvent(data);
         break;
@@ -1059,6 +1072,20 @@ function normalizeAgentStream(stream: string | undefined): string | undefined {
 function specificToolName(value: string | undefined): string | undefined {
   if (!value || value === "tool" || value === "item" || value === "tool_call" || value === "tool-call") return undefined;
   return value;
+}
+
+function isToolItemType(value: string | undefined): boolean {
+  return value === "toolCall"
+    || value === "tool_call"
+    || value === "tool-call"
+    || value === "toolUse"
+    || value === "tool_use"
+    || value === "tool-use"
+    || value === "toolResult"
+    || value === "tool_result"
+    || value === "tool-result"
+    || value === "command"
+    || value === "patch";
 }
 
 function isCompletePhase(value: string | undefined): boolean {
@@ -1261,6 +1288,8 @@ function createBeeperReplyStreamEmitter(base: {
       const rawToolName = stringValue(data.name) ?? stringValue(data.toolName);
       const itemType = stringValue(data.type);
       const kind = stringValue(data.kind);
+      const hasToolIdentity = Boolean(rawToolName || stringValue(data.toolCallId) || kind === "tool" || kind === "command" || kind === "patch");
+      if (!hasToolIdentity && !isToolItemType(itemType)) return;
       const toolName = rememberedToolName(toolCallId, rawToolName ?? specificToolName(kind) ?? specificToolName(itemType) ?? "tool");
       const title = stringValue(data.title) ?? stringValue(data.progressText) ?? stringValue(data.summary) ?? rawToolName ?? itemType ?? kind;
       const output = stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.error);

@@ -503,9 +503,13 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       const sessionKey = params.routeSessionKey as string;
       agentEventListener?.({ data: { delta: "hel", text: "hel" }, runId: replyOptions.runId, stream: "assistant" });
       agentEventListener?.({ data: { delta: "lo", text: "hello" }, sessionKey, stream: "assistant" });
+      agentEventListener?.({ data: { itemId: "user-message", phase: "start", type: "userMessage" }, runId: replyOptions.runId, stream: "codex_app_server.item" });
+      agentEventListener?.({ data: { itemId: "agent-message", phase: "start", type: "agentMessage" }, runId: replyOptions.runId, stream: "codex_app_server.item" });
       agentEventListener?.({ data: { itemId: "codex-tool", phase: "start", type: "tool_call" }, runId: replyOptions.runId, stream: "codex_app_server.item" });
       agentEventListener?.({ data: { itemId: "tool-c", phase: "update", kind: "tool", progressText: "loading", status: "running", name: "search" }, runId: replyOptions.runId, stream: "item" });
       agentEventListener?.({ data: { itemId: "codex-tool", phase: "finished", type: "tool_call" }, runId: replyOptions.runId, stream: "codex_app_server.item" });
+      agentEventListener?.({ data: { args: { query: "docs" }, name: "search", phase: "start", toolCallId: "tool-stream" }, runId: replyOptions.runId, stream: "tool" });
+      agentEventListener?.({ data: { name: "search", phase: "result", result: "found docs", toolCallId: "tool-stream" }, runId: replyOptions.runId, stream: "tool" });
       agentEventListener?.({ data: { phase: "update", title: "Plan", explanation: "checking docs", steps: ["Search", "Answer"] }, runId: replyOptions.runId, stream: "plan" });
       agentEventListener?.({ data: { itemId: "cmd-1", phase: "delta", title: "Shell", toolCallId: "cmd-1", name: "shell", output: "stdout" }, runId: replyOptions.runId, stream: "command_output" });
       agentEventListener?.({ data: { itemId: "patch-1", phase: "end", title: "Patch", toolCallId: "patch-1", name: "patch", added: [], modified: ["a.ts"], deleted: [], summary: "changed a.ts" }, runId: replyOptions.runId, stream: "patch" });
@@ -573,6 +577,8 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     expect(parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ toolCallId: "codex-tool", toolName: "tool", type: "TOOL_CALL_START" }),
       expect.objectContaining({ toolCallId: "codex-tool", toolName: "tool", type: "TOOL_CALL_END" }),
+      expect.objectContaining({ toolCallId: "tool-stream", toolName: "search", type: "TOOL_CALL_START" }),
+      expect.objectContaining({ toolCallId: "tool-stream", toolName: "search", type: "TOOL_CALL_END" }),
       expect.objectContaining({ content: "loading", state: "streaming", toolCallId: "tool-c", toolName: "search", type: "TOOL_CALL_RESULT" }),
       expect.objectContaining({ content: "checking docs", state: "streaming", toolCallId: "plan", toolName: "plan", type: "TOOL_CALL_RESULT" }),
       expect.objectContaining({ content: "stdout", state: "streaming", toolCallId: "cmd-1", toolName: "shell", type: "TOOL_CALL_RESULT" }),
@@ -581,6 +587,10 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       expect.objectContaining({ name: "file", type: "CUSTOM", value: { filename: "report.txt", id: "file_1" } }),
       expect.objectContaining({ name: "data", type: "CUSTOM", value: { status: "indexed" } }),
       expect.objectContaining({ snapshot: { phase: "retrieval" }, type: "STATE_SNAPSHOT" }),
+    ]));
+    expect(parts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ toolCallId: "user-message", type: "TOOL_CALL_START" }),
+      expect.objectContaining({ toolCallId: "agent-message", type: "TOOL_CALL_START" }),
     ]));
     setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
