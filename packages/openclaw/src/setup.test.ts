@@ -3,7 +3,7 @@ import extension from "./openclaw-extension";
 import setupEntry from "./setup-entry";
 import {
   BeeperChannelRuntime,
-  setBeeperChannelRuntime,
+  setBeeperChannelRuntimeForHost,
 } from "./beeper-channel-runtime";
 import {
   applyBeeperChannelSettings,
@@ -15,6 +15,7 @@ import {
   defaultBeeperChannelSettings,
   getBeeperChannelSettings,
   isBeeperChannelConfigured,
+  setBeeperOpenClawPluginRuntime,
   startBeeperGatewayAccount,
   validateBeeperSetupInput,
 } from "./setup";
@@ -31,11 +32,11 @@ describe("OpenClaw Beeper setup surface", () => {
   beforeEach(() => {
     appserviceMocks.accountFromOpenClawConfig.mockClear();
     appserviceMocks.startOpenClawBeeperBridge.mockReset();
-    setBeeperChannelRuntime(undefined);
+    setBeeperOpenClawPluginRuntime(undefined);
   });
 
   it("exposes a channel plugin through the setup entry shape OpenClaw loads", () => {
-    expect(extension.plugin).toBe(beeperChannelPlugin);
+    expect(extension.channelPlugin).toBe(beeperChannelPlugin);
     expect(beeperChannelPlugin).toMatchObject({
       id: "beeper",
       meta: {
@@ -48,6 +49,7 @@ describe("OpenClaw Beeper setup surface", () => {
         reactions: true,
         threads: true,
       },
+      threading: expect.any(Object),
       reload: {
         configPrefixes: ["channels.beeper", "plugins.entries.beeper"],
       },
@@ -204,8 +206,8 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(beeperChannelPlugin.actions).toEqual(expect.any(Object));
     expect(beeperChannelPlugin.actions.describeMessageTool()).toMatchObject({
-      actions: ["send", "react", "read", "mark_unread"],
-      capabilities: ["text", "reactions", "readReceipts", "markedUnread"],
+      actions: ["send", "react", "read"],
+      capabilities: [],
     });
     expect(beeperChannelPlugin.actions.extractToolSend({
       args: { action: "send", threadId: "$thread", to: "beeper:!room" },
@@ -317,10 +319,8 @@ describe("OpenClaw Beeper setup surface", () => {
 
   it("exposes the lightweight OpenClaw setup-entry contract", () => {
     expect(setupEntry).toMatchObject({
-      kind: "bundled-channel-setup-entry",
-      loadSetupPlugin: expect.any(Function),
+      plugin: beeperChannelPlugin,
     });
-    expect(setupEntry.loadSetupPlugin()).toBe(beeperChannelPlugin);
   });
 
   it("applies dashboard setup input into channels.beeper settings", async () => {
@@ -516,7 +516,7 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(isBeeperChannelConfigured(cfg)).toBe(true);
   });
 
-  it("legacy direct applyBeeperSetupConfig path still supports test/runtime callers", async () => {
+  it("applies setup input through the channel setup adapter implementation", async () => {
     const { applyBeeperSetupConfig } = await import("./setup");
     const cfg = await applyBeeperSetupConfig({
       cfg: {},
@@ -633,7 +633,7 @@ describe("OpenClaw Beeper setup surface", () => {
       mode: "self-hosted-appservice",
       running: false,
     });
-    expect(beeperStatusAdapter.resolveAccountState({ configured: false, enabled: true })).toBe("missing_credentials");
+    expect(beeperStatusAdapter.resolveAccountState({ configured: false, enabled: true })).toBe("not configured");
     expect(beeperStatusAdapter.collectStatusIssues([snapshot])).toEqual([
       expect.objectContaining({
         message: expect.stringContaining("not fully configured"),
@@ -720,7 +720,9 @@ describe("OpenClaw Beeper setup surface", () => {
 	      }),
 	      login: { id: "openclaw:plugin" },
 	    });
-	    setBeeperChannelRuntime(runtime);
+    const hostRuntime = {};
+    setBeeperOpenClawPluginRuntime(hostRuntime);
+    setBeeperChannelRuntimeForHost(hostRuntime, runtime);
     runtime.createStreamPublisher({
       agentId: "codex",
       roomId: "!room",

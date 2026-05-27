@@ -44,7 +44,6 @@ describe("OpenClaw gateway protocol coverage manifest", () => {
 
   it("keeps broad feature access routed through plugin runtime surfaces", () => {
     expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.beeperTurnDispatch).toBe("runtime.channel.turn.runAssembled");
-    expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.managementSurface).toBe("OpenClaw in-process plugin runtime");
     expect(OPENCLAW_BRIDGE_COVERAGE.methodAccess.pluginRuntimeAdapters).toEqual(expect.arrayContaining([
       "agents.list",
       "sessions.list",

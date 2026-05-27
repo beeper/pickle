@@ -1,17 +1,15 @@
-import { createChannelPluginBase } from "openclaw/plugin-sdk/channel-core";
+import { createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
+import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
+import type { ChatType } from "openclaw/plugin-sdk/core";
+import type { ChannelAccountSnapshot, ChannelCapabilities, ChannelGatewayContext, ChannelMessageActionName } from "openclaw/plugin-sdk/channel-contract";
 import type { BridgeLogger } from "@beeper/pickle-bridge";
 import { createConfigFromOpenClawSetup, DEFAULT_REGISTRATION_URL, defaultDataDir } from "./config";
 import type { setupOpenClawBeeperBridge, SetupOpenClawBeeperBridgeOptions } from "./beeper-setup";
 import { createBeeperApprovalNotice } from "./approval";
-import { requireBeeperChannelRuntime } from "./beeper-channel-runtime";
+import { requireBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
 import type { OpenClawHostRuntime } from "./openclaw-runtime";
 
-export type OpenClawSetupConfig = {
-  channels?: Record<string, unknown>;
-  plugins?: {
-    entries?: Record<string, { config?: unknown } | unknown>;
-  };
-};
+export type OpenClawSetupConfig = OpenClawConfig;
 
 export type BeeperImportSource = "dashboard" | "tui" | "channels" | "archived";
 
@@ -97,7 +95,7 @@ type BeeperGatewayContext = {
     error?: (message: string) => void;
   };
   runtime?: unknown;
-  setStatus?: (next: Record<string, unknown>) => void;
+  setStatus?: (next: ChannelAccountSnapshot) => void;
 };
 
 type BeeperWizardPrompter = {
@@ -125,6 +123,16 @@ type BeeperWizardPrompter = {
 };
 
 export const BEEPER_CHANNEL_ID = "beeper";
+
+let openClawPluginRuntime: object | undefined;
+
+export function setBeeperOpenClawPluginRuntime(runtime: unknown): void {
+  openClawPluginRuntime = typeof runtime === "object" && runtime !== null ? runtime : undefined;
+}
+
+function requireBeeperChannelRuntime() {
+  return requireBeeperChannelRuntimeForHost(openClawPluginRuntime);
+}
 
 export const BeeperChannelConfigSchema = {
   type: "object",
@@ -352,7 +360,7 @@ export const beeperMessagingAdapter = {
         }
       : null,
   resolveSessionTarget: ({ id }: { kind: "group" | "channel"; id: string }) => `beeper:${id}`,
-  inferTargetChatType: () => "direct",
+  inferTargetChatType: (): ChatType => "direct",
   formatTargetDisplay: ({ target, display }: { target: string; display?: string }) =>
     display?.trim() || formatBeeperTargetDisplay(target),
   resolveOutboundSessionRoute: (params: {
@@ -374,9 +382,9 @@ export const beeperMessagingAdapter = {
     ].join(":");
     return {
       baseSessionKey: sessionKey,
-      chatType: "direct",
+      chatType: "direct" as const,
       from: `beeper:${target}`,
-      peer: { kind: "direct", id: target },
+      peer: { kind: "direct" as const, id: target },
       sessionKey,
       to: `beeper:${target}`,
     };
@@ -527,14 +535,20 @@ export const beeperApprovalCapability = {
   },
 } as const;
 
+const beeperMessageToolActions = ["send", "react", "read"] as const satisfies readonly ChannelMessageActionName[];
+
+function beeperToolTextResult(text: string) {
+  return { content: [{ type: "text" as const, text }], details: {} };
+}
+
 export const beeperMessageActions = {
-  resolveExecutionMode: () => "gateway",
+  resolveExecutionMode: () => "gateway" as const,
   describeMessageTool: () => ({
-    actions: ["send", "react", "read", "mark_unread"],
-    capabilities: ["text", "reactions", "readReceipts", "markedUnread"],
+    actions: beeperMessageToolActions,
+    capabilities: [],
   }),
   supportsAction: ({ action }: { action: string }) =>
-    action === "send" || action === "react" || action === "read" || action === "mark_unread",
+    action === "send" || action === "react" || action === "read",
   extractToolSend: () => null,
   handleAction: async (ctx: { action: string; params: Record<string, unknown>; mediaReadFile?: (filePath: string) => Promise<Buffer>; sessionKey?: string | null }) => {
     const runtime = requireBeeperChannelRuntime();
@@ -545,7 +559,7 @@ export const beeperMessageActions = {
         ...(ctx.sessionKey !== undefined ? { sessionKey: ctx.sessionKey } : {}),
         text,
       });
-      return { content: [{ type: "text", text: `Published Beeper native stream text ${sent.eventId}` }] };
+      return beeperToolTextResult(`Published Beeper native stream text ${sent.eventId}`);
     }
     const roomId = resolveBeeperRoomTarget(readRequiredString(params, "to", "roomId", "channelId"));
     if (ctx.action === "react") {
@@ -554,21 +568,21 @@ export const beeperMessageActions = {
       const remove = params.remove === true;
       if (remove) {
         await runtime.removeReaction({ emoji, eventId, roomId });
-        return { content: [{ type: "text", text: `Removed Beeper reaction ${emoji}` }] };
+        return beeperToolTextResult(`Removed Beeper reaction ${emoji}`);
       }
       const sent = await runtime.react({ emoji, eventId, roomId });
-      return { content: [{ type: "text", text: `Sent Beeper reaction ${sent.eventId}` }] };
+      return beeperToolTextResult(`Sent Beeper reaction ${sent.eventId}`);
     }
     if (ctx.action === "read") {
       const eventId = readRequiredString(params, "messageId", "eventId");
       await runtime.readReceipt({ eventId, roomId });
-      return { content: [{ type: "text", text: `Marked Beeper message read ${eventId}` }] };
+      return beeperToolTextResult(`Marked Beeper message read ${eventId}`);
     }
     if (ctx.action === "mark_unread") {
       const eventId = readRequiredString(params, "messageId", "eventId");
       const unread = params.unread !== false;
       await runtime.markUnread({ eventId, roomId, unread });
-      return { content: [{ type: "text", text: `${unread ? "Marked" : "Unmarked"} Beeper room unread` }] };
+      return beeperToolTextResult(`${unread ? "Marked" : "Unmarked"} Beeper room unread`);
     }
     throw new Error(`Unsupported Beeper message action: ${ctx.action}`);
   },
@@ -640,7 +654,7 @@ export const beeperSetupWizard = {
   },
   async configureInteractive(ctx: {
     cfg: OpenClawSetupConfig;
-    runtime?: BeeperSetupRuntime;
+    runtime?: unknown;
     prompter: BeeperWizardPrompter;
   }) {
     const current = {
@@ -751,7 +765,8 @@ export const beeperSetupWizard = {
         cfg: ctx.cfg,
         input,
       };
-      if (ctx.runtime !== undefined) setupParams.runtime = ctx.runtime;
+      const setupRuntime = beeperSetupRuntime(ctx.runtime);
+      if (setupRuntime) setupParams.runtime = setupRuntime;
       const cfg = await applyBeeperSetupConfig(setupParams);
       progress?.stop("Beeper bridge configured");
       return { accountId: "default", cfg };
@@ -775,8 +790,8 @@ export const beeperChannelConfig = {
   isConfigured: (account: { configured?: boolean }) => account.configured === true,
   hasConfiguredState: ({ cfg }: { cfg: OpenClawSetupConfig }) => isBeeperChannelConfigured(cfg),
   describeAccount: (account: { configured?: boolean; settings?: BeeperChannelSettings }) => ({
-    id: "default",
-    label: "Beeper",
+    accountId: "default",
+    name: "Beeper",
     configured: account.configured === true,
     extra: {
       registrationUrl: account.settings?.registrationUrl,
@@ -822,14 +837,17 @@ export const beeperStatusAdapter = {
   },
   resolveAccountState: ({ configured, enabled }: { configured: boolean; enabled: boolean }) => {
     if (!enabled) return "disabled";
-    return configured ? "configured" : "missing_credentials";
+    return configured ? "configured" : "not configured";
   },
   collectStatusIssues: (accounts: Array<{ configured?: boolean; enabled?: boolean }>) =>
     accounts
       .filter((account) => account.enabled !== false && account.configured !== true)
-      .map(() => ({
+      .map((account) => ({
+        accountId: "accountId" in account && typeof account.accountId === "string" ? account.accountId : "default",
+        channel: BEEPER_CHANNEL_ID,
+        kind: "config" as const,
         message: "Beeper bridge is not fully configured; run Beeper channel setup.",
-        severity: "warning",
+        severity: "warning" as const,
       })),
 };
 
@@ -871,62 +889,88 @@ async function loadBeeperSetupBridge(): Promise<typeof setupOpenClawBeeperBridge
   return (await import("./beeper-setup")).setupOpenClawBeeperBridge;
 }
 
-export const beeperChannelPlugin: any = {
-  ...createChannelPluginBase({
-    id: BEEPER_CHANNEL_ID,
-    meta: {
+export const BeeperChannelConfigSchemaForSdk = {
+  schema: BeeperChannelConfigSchema,
+  uiHints: BeeperChannelUiHints,
+} as const;
+
+const BeeperChannelCapabilities: ChannelCapabilities = {
+  chatTypes: ["direct", "group", "thread"],
+  blockStreaming: true,
+  media: true,
+  nativeCommands: true,
+  reactions: true,
+  threads: true,
+};
+
+type BeeperResolvedAccount = {
+  accountId: string;
+  configured: boolean;
+  settings: BeeperChannelSettings;
+};
+
+export const beeperChannelPlugin: ChannelPlugin<BeeperResolvedAccount> & { uiHints: typeof BeeperChannelUiHints } = {
+  ...createChatChannelPlugin({
+  base: {
+    ...createChannelPluginBase({
       id: BEEPER_CHANNEL_ID,
-      label: "Beeper",
-      selectionLabel: "Beeper bridge",
-      docsPath: "/channels/beeper",
-      docsLabel: "beeper",
-      blurb: "bridges OpenClaw sessions and agents into Beeper.",
-      order: 90,
-      quickstartAllowFrom: true,
+      meta: {
+        id: BEEPER_CHANNEL_ID,
+        label: "Beeper",
+        selectionLabel: "Beeper bridge",
+        docsPath: "/channels/beeper",
+        docsLabel: "beeper",
+        blurb: "bridges OpenClaw sessions and agents into Beeper.",
+        order: 90,
+        quickstartAllowFrom: true,
+      },
+      capabilities: BeeperChannelCapabilities,
+      reload: { configPrefixes: ["channels.beeper", "plugins.entries.beeper"] },
+      commands: beeperCommandAdapter,
+      configSchema: BeeperChannelConfigSchemaForSdk,
+      config: beeperChannelConfig,
+      setup: beeperSetupAdapter,
+      setupWizard: beeperSetupWizard,
+      agentPrompt: beeperAgentPromptAdapter,
+    }),
+    capabilities: BeeperChannelCapabilities,
+    config: beeperChannelConfig,
+    setup: beeperSetupAdapter,
+    status: beeperStatusAdapter,
+    conversationBindings: beeperConversationBindings,
+    message: beeperMessageAdapter,
+    messaging: beeperMessagingAdapter,
+    outbound: beeperOutboundAdapter,
+    directory: beeperDirectoryAdapter,
+    resolver: beeperResolverAdapter,
+    heartbeat: beeperHeartbeatAdapter,
+    approvalCapability: beeperApprovalCapability,
+    actions: beeperMessageActions,
+    bindings: {
+      selfParentConversationByDefault: true,
+      compileConfiguredBinding: ({ conversationId }: { conversationId: string }) => ({ conversationId }),
+      matchInboundConversation: ({ compiledBinding, conversationId }: { compiledBinding: { conversationId: string }; conversationId: string }) =>
+        compiledBinding.conversationId === conversationId ? compiledBinding : null,
+      resolveCommandConversation: ({ originatingTo, commandTo, fallbackTo }: {
+        originatingTo?: string;
+        commandTo?: string;
+        fallbackTo?: string;
+      }) => {
+        const conversationId = commandTo ?? originatingTo ?? fallbackTo;
+        return conversationId ? { conversationId } : null;
+      },
     },
-    capabilities: {
-      chatTypes: ["direct", "group", "thread"],
-      blockStreaming: true,
-      media: true,
-      nativeCommands: true,
-      reactions: true,
-      threads: true,
+    gateway: {
+      startAccount: startBeeperGatewayAccount,
+      stopAccount: stopBeeperGatewayAccount,
     },
-    reload: { configPrefixes: ["channels.beeper", "plugins.entries.beeper"] },
-    commands: beeperCommandAdapter as never,
-    configSchema: BeeperChannelConfigSchema as never,
-    config: beeperChannelConfig as never,
-    setup: beeperSetupAdapter as never,
-    setupWizard: beeperSetupWizard as never,
-    agentPrompt: beeperAgentPromptAdapter as never,
+  },
+  threading: { topLevelReplyToMode: "reply" },
   }),
   uiHints: BeeperChannelUiHints,
-  status: beeperStatusAdapter,
-  conversationBindings: beeperConversationBindings,
-  message: beeperMessageAdapter,
-  messaging: beeperMessagingAdapter,
-  outbound: beeperOutboundAdapter,
-  directory: beeperDirectoryAdapter,
-  resolver: beeperResolverAdapter,
-  heartbeat: beeperHeartbeatAdapter,
-  approvalCapability: beeperApprovalCapability,
-  actions: beeperMessageActions,
-  bindings: {
-    selfParentConversationByDefault: true,
-    compileConfiguredBinding: ({ conversationId }: { conversationId: string }) => conversationId,
-    matchInboundConversation: ({ compiledBinding, conversationId }: { compiledBinding: string; conversationId: string }) =>
-      compiledBinding === conversationId,
-    resolveCommandConversation: ({ originatingTo, commandTo, fallbackTo }: {
-      originatingTo?: string;
-      commandTo?: string;
-      fallbackTo?: string;
-    }) => commandTo ?? originatingTo ?? fallbackTo,
-  },
-  gateway: {
-    startAccount: startBeeperGatewayAccount,
-    stopAccount: stopBeeperGatewayAccount,
-  },
 };
+
+export type BeeperChannelPlugin = typeof beeperChannelPlugin;
 
 function stripUndefined<T extends Record<string, unknown>>(input: T): T {
   for (const key of Object.keys(input)) {
@@ -979,10 +1023,20 @@ function beeperOutboundResult(sent: { eventId: string; roomId: string }): {
 
 function beeperMessageSendResult(result: { messageId: string; conversationId?: string }): {
   messageId: string;
+  receipt: {
+    platformMessageIds: string[];
+    parts: [];
+    sentAt: number;
+  };
   raw: unknown;
 } {
   return {
     messageId: result.messageId,
+    receipt: {
+      platformMessageIds: [result.messageId],
+      parts: [],
+      sentAt: Date.now(),
+    },
     raw: result,
   };
 }
@@ -1081,7 +1135,7 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-export async function startBeeperGatewayAccount(ctx: BeeperGatewayContext): Promise<void> {
+export async function startBeeperGatewayAccount(ctx: BeeperGatewayContext | ChannelGatewayContext<{ accountId: string; configured: boolean; settings: BeeperChannelSettings }>): Promise<void> {
   try {
     ctx.log?.info?.("Beeper bridge startup beginning.");
     const settings = getBeeperChannelSettings(ctx.cfg);
@@ -1168,7 +1222,7 @@ function hasOpenClawSessionRuntime(value: object): value is OpenClawHostRuntime 
     || typeof (session as { getSessionEntry?: unknown }).getSessionEntry === "function";
 }
 
-export async function stopBeeperGatewayAccount(ctx: BeeperGatewayContext): Promise<void> {
+export async function stopBeeperGatewayAccount(ctx: BeeperGatewayContext | ChannelGatewayContext<{ accountId: string; configured: boolean; settings: BeeperChannelSettings }>): Promise<void> {
   const bridge = startedBridges.get(gatewayAccountKey(ctx.accountId));
   if (!bridge) return;
   startedBridges.delete(gatewayAccountKey(ctx.accountId));
@@ -1346,6 +1400,13 @@ function setupBeeperBaseDomain(env: BeeperChannelSettings["beeperEnv"]): string 
   if (env === "dev") return "beeper-dev.com";
   if (env === "local") return "beeper.localtest.me";
   return "beeper-staging.com";
+}
+
+function beeperSetupRuntime(value: unknown): BeeperSetupRuntime | undefined {
+  const record = recordValue(value);
+  if (typeof record?.setupBridge !== "function") return undefined;
+  const setupBridge = record.setupBridge as NonNullable<BeeperSetupRuntime["setupBridge"]>;
+  return { setupBridge };
 }
 
 function gatewayAccountKey(accountId: string): string {

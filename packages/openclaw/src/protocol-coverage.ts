@@ -110,7 +110,6 @@ export const OPENCLAW_GATEWAY_COMMON_METHODS = [
   "sessions.describe",
   "sessions.resolve",
   "sessions.create",
-  "sessions.send",
   "sessions.steer",
   "sessions.abort",
   "sessions.patch",
@@ -215,8 +214,6 @@ export const OPENCLAW_BRIDGE_COVERAGE = {
     pluginRuntimeAdapters: ["agents.list", "sessions.list", "sessions.create", "chat.history", "exec.approval.resolve", "plugin.approval.resolve"],
     commonGatewayMethods: OPENCLAW_GATEWAY_COMMON_METHODS,
     beeperTurnDispatch: "runtime.channel.turn.runAssembled",
-    managementSurface: "OpenClaw in-process plugin runtime",
-    snapshotProbe: ["health", "status", "models.list", "channels.status", "sessions.list", "commands.list", "tools.catalog", "skills.status", "tasks.list", "usage.status", "artifacts.list", "cron.list", "agents.list", "config.get"],
   },
   source: ".upstream/openclaw/docs/gateway/protocol.md",
 } as const;

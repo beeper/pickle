@@ -60,7 +60,6 @@ import { parseApprovalReactionContent, parseApprovalResponseContent } from "./ap
 import {
   BEEPER_CHANNEL_RUNTIME_CONTEXT_CAPABILITY,
   BeeperChannelRuntime,
-  setBeeperChannelRuntime,
   setBeeperChannelRuntimeForHost,
 } from "./beeper-channel-runtime";
 import { agentPortalSessionKey, OpenClawMatrixBridgeAgent } from "./bridge-agent";
@@ -71,7 +70,6 @@ import {
   type OpenClawBridgeRuntime,
   OpenClawPluginRuntimeAdapter,
   OpenClawHostRuntimeAdapter,
-  type OpenClawGatewayFeatureSnapshot,
   type OpenClawHostRuntime,
   type OpenClawMatrixMessageMetadata,
   type OpenClawRunRef,
@@ -82,7 +80,6 @@ import { agentContactFromOpenClawAgent, agentGhostUserId, serviceBotUserId } fro
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
 
 const DEFAULT_NEW_SESSION_LABEL = "New OpenClaw Session";
-const MATRIX_HTML_FORMAT = "org.matrix.custom.html";
 
 export interface OpenClawConnectorOptions {
   config?: OpenClawBridgeConfig;
@@ -185,7 +182,6 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       ...(ownUserId ? { userId: ownUserId } : {}),
     });
     this.#channelRuntime = channelRuntime;
-    setBeeperChannelRuntime(channelRuntime);
     if (this.#hostRuntime) setBeeperChannelRuntimeForHost(this.#hostRuntime, channelRuntime);
     registerBeeperRuntimeContext(this.#hostRuntime, channelRuntime);
   }
@@ -732,15 +728,6 @@ function canonicalPortalForBinding(portal: Portal, binding: OpenClawSessionBindi
   };
 }
 
-function describeApprovalBehavior(behavior: OpenClawBridgeConfig["approvalBehavior"]): string {
-  switch (behavior ?? "native") {
-    case "native":
-      return "native Beeper UI";
-    case "disabled":
-      return "disabled";
-  }
-}
-
 function approvalReactionsEnabled(_config: OpenClawBridgeConfig): boolean {
   return false;
 }
@@ -938,10 +925,6 @@ export function userLoginFromOpenClawConfig(config: OpenClawBridgeConfig): UserL
   };
 }
 
-export function createOpenClawRuntimeAdapterFromHost(runtime: OpenClawHostRuntime, config: OpenClawBridgeConfig): OpenClawPluginRuntimeAdapter {
-  return new OpenClawPluginRuntimeAdapter({ config, transport: createOpenClawHostRuntimeAdapter(runtime) });
-}
-
 function registerBeeperRuntimeContext(hostRuntime: OpenClawHostRuntime | undefined, runtime: BeeperChannelRuntime): void {
   const channel = recordValue(hostRuntime)?.channel;
   const runtimeContexts = recordValue(channel)?.runtimeContexts;
@@ -958,14 +941,6 @@ function registerBeeperRuntimeContext(hostRuntime: OpenClawHostRuntime | undefin
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
-}
-
-function arrayValue(value: unknown): unknown[] | undefined {
-  return Array.isArray(value) ? value : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {

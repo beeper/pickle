@@ -348,16 +348,7 @@ export class BeeperChannelRuntime {
   }
 }
 
-let currentRuntime: BeeperChannelRuntime | undefined;
 const runtimeByHost = new WeakMap<object, BeeperChannelRuntime>();
-
-export function setBeeperChannelRuntime(runtime: BeeperChannelRuntime | undefined): void {
-  currentRuntime = runtime;
-}
-
-export function getBeeperChannelRuntime(): BeeperChannelRuntime | undefined {
-  return currentRuntime;
-}
 
 export function setBeeperChannelRuntimeForHost(hostRuntime: object, runtime: BeeperChannelRuntime | undefined): void {
   if (runtime) runtimeByHost.set(hostRuntime, runtime);
@@ -368,11 +359,12 @@ export function getBeeperChannelRuntimeForHost(hostRuntime: object | undefined):
   return hostRuntime ? runtimeByHost.get(hostRuntime) : undefined;
 }
 
-export function requireBeeperChannelRuntime(): BeeperChannelRuntime {
-  if (!currentRuntime) {
+export function requireBeeperChannelRuntimeForHost(hostRuntime: object | undefined): BeeperChannelRuntime {
+  const runtime = getBeeperChannelRuntimeForHost(hostRuntime);
+  if (!runtime) {
     throw new Error("Beeper channel runtime is not available; start the Beeper bridge account first.");
   }
-  return currentRuntime;
+  return runtime;
 }
 
 function withReplyRelation(content: Record<string, unknown>, replyToId: string | null | undefined): Record<string, unknown> {

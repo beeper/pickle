@@ -18,7 +18,6 @@ describe("OpenClaw plugin package metadata", () => {
     });
     expect(extension.id).toBe("beeper");
     expect(extension.channelPlugin).toBe(registered[0]);
-    expect(extension.loadChannelPlugin()).toBe(registered[0]);
     expect(resolveBundledRuntimeChannelRegistration(extension)).toMatchObject({
       id: "beeper",
       plugin: expect.objectContaining({
@@ -41,6 +40,7 @@ describe("OpenClaw plugin package metadata", () => {
         messaging: expect.any(Object),
         setup: expect.any(Object),
         setupWizard: expect.any(Object),
+        threading: expect.any(Object),
       }),
     ]);
   });
@@ -191,7 +191,7 @@ describe("OpenClaw plugin package metadata", () => {
       "!dist",
       "!dist/**",
     ]));
-    expect(packageJson.main).toBe("./dist/index.mjs");
+    expect(packageJson.main).toBe("./dist/plugin-entry.mjs");
     expect(packageJson.bin?.["pickle-openclaw"]).toBe("./dist/cli.mjs");
     expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs"]);
     expect(packageJson.openclaw?.runtimeSetupEntry).toBe("./dist/setup-entry.mjs");
@@ -212,17 +212,16 @@ function resolveBundledRuntimeChannelRegistration(moduleExport: unknown): { id?:
   const entry = resolved as {
     id?: unknown;
     channelPlugin?: unknown;
-    loadChannelPlugin?: unknown;
   };
   if (
     typeof entry.id !== "string" ||
-    typeof entry.loadChannelPlugin !== "function"
+    !entry.channelPlugin
   ) {
     return {};
   }
   return {
     id: entry.id,
-    plugin: entry.channelPlugin ?? entry.loadChannelPlugin(),
+    plugin: entry.channelPlugin,
   };
 }
 

@@ -15,13 +15,13 @@
   "bin": {
     "pickle-openclaw": "./dist/cli.mjs"
   },
-  "main": "./dist/index.mjs",
-  "module": "./dist/index.mjs",
-  "types": "./dist/index.d.mts",
+  "main": "./dist/plugin-entry.mjs",
+  "module": "./dist/plugin-entry.mjs",
+  "types": "./dist/plugin-entry.d.mts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.mts",
-      "import": "./dist/index.mjs"
+      "types": "./dist/plugin-entry.d.mts",
+      "import": "./dist/plugin-entry.mjs"
     },
     "./approval": {
       "types": "./dist/approval.d.mts",

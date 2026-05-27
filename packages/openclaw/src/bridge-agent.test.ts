@@ -67,7 +67,6 @@ describe("OpenClawMatrixBridgeAgent", () => {
       message: "hello",
       sessionKey: "agent:codex:main",
     });
-    expect(runtime.transport.request).not.toHaveBeenCalledWith("sessions.send", expect.anything(), expect.anything());
     expect(registry.getBindingByRoom("!room:example.com")?.lastRunId).toBe("run_direct");
   });
 

@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   BeeperChannelRuntime,
-  getBeeperChannelRuntime,
   getBeeperChannelRuntimeForHost,
-  setBeeperChannelRuntime,
+  requireBeeperChannelRuntimeForHost,
   setBeeperChannelRuntimeForHost,
 } from "./beeper-channel-runtime";
 
@@ -32,10 +31,6 @@ function createClient() {
 }
 
 describe("BeeperChannelRuntime", () => {
-  afterEach(() => {
-    setBeeperChannelRuntime(undefined);
-  });
-
   it("requires bridge portal routing for outbound message operations", async () => {
     const client = createClient();
     const runtime = new BeeperChannelRuntime({
@@ -181,24 +176,17 @@ describe("BeeperChannelRuntime", () => {
     expect(messageEvent.getSender()).toEqual({ isFromMe: true, sender: "@main:example" });
   });
 
-  it("stores the active runtime for channel adapters", () => {
-    const runtime = new BeeperChannelRuntime({ client: createClient() as never });
-    setBeeperChannelRuntime(runtime);
-    expect(getBeeperChannelRuntime()).toBe(runtime);
-  });
-
   it("stores Beeper runtimes by OpenClaw host runtime", () => {
     const hostRuntime = {};
-    const globalRuntime = new BeeperChannelRuntime({ client: createClient() as never });
     const scopedRuntime = new BeeperChannelRuntime({ client: createClient() as never });
 
-    setBeeperChannelRuntime(globalRuntime);
     setBeeperChannelRuntimeForHost(hostRuntime, scopedRuntime);
 
-    expect(getBeeperChannelRuntime()).toBe(globalRuntime);
     expect(getBeeperChannelRuntimeForHost(hostRuntime)).toBe(scopedRuntime);
+    expect(requireBeeperChannelRuntimeForHost(hostRuntime)).toBe(scopedRuntime);
 
     setBeeperChannelRuntimeForHost(hostRuntime, undefined);
     expect(getBeeperChannelRuntimeForHost(hostRuntime)).toBeUndefined();
+    expect(() => requireBeeperChannelRuntimeForHost(hostRuntime)).toThrow("Beeper channel runtime is not available");
   });
 });

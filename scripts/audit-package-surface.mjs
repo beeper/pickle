@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname;
@@ -11,6 +11,9 @@ for (const entry of packages) {
     continue;
   }
   const packageDir = join(packagesDir, entry.name);
+  if (!await exists(join(packageDir, "package.json"))) {
+    continue;
+  }
   const packageJson = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8"));
   const sourceDir = join(packageDir, "src");
   for (const file of await sourceFiles(sourceDir)) {
@@ -32,6 +35,15 @@ if (aguiPackage.dependencies?.ai || aguiPackage.peerDependencies?.ai) {
 if (failures.length > 0) {
   console.error(failures.join("\n"));
   process.exit(1);
+}
+
+async function exists(file) {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function sourceFiles(dir) {

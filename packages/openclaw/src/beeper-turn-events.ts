@@ -249,6 +249,14 @@ export function mapOpenClawStateDelta(delta: unknown): AGUIEvent[] {
   return [{ delta: Array.isArray(delta) ? delta : [{ op: "add", path: "/state", value: delta }], type: AGUIEventType.STATE_DELTA }];
 }
 
+export function mapOpenClawStateSnapshot(snapshot: unknown): AGUIEvent[] {
+  return [{ snapshot, type: AGUIEventType.STATE_SNAPSHOT }];
+}
+
+export function mapOpenClawRaw(source: string, event: unknown): AGUIEvent[] {
+  return [{ event, source, type: AGUIEventType.RAW } as unknown as AGUIEvent];
+}
+
 export function mapOpenClawCustom(name: string, value: unknown): AGUIEvent[] {
   return [{ name, type: AGUIEventType.CUSTOM, value }];
 }

@@ -4,7 +4,7 @@ import path from "node:path";
 import type { OpenClawAgentContact, OpenClawBridgeConfig } from "./types";
 import { agentContactFromOpenClawAgent } from "./rooms";
 import type { OpenClawApprovalResolvePayload } from "./approval";
-import { getBeeperChannelRuntime, getBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
+import { getBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
 import {
   AGUIEventType,
   closeReasoningPart,
@@ -12,8 +12,11 @@ import {
   finishRunEvents,
   mapOpenClawApprovalRequest,
   mapOpenClawApprovalResponse,
+  mapOpenClawCustom,
   mapOpenClawMessageDelta,
+  mapOpenClawRaw,
   mapOpenClawStateDelta,
+  mapOpenClawStateSnapshot,
   mapOpenClawToolEnd,
   mapOpenClawToolInput,
   mapOpenClawToolOutput,
@@ -161,23 +164,6 @@ export interface OpenClawReplyReference {
   roomId?: string;
 }
 
-export interface OpenClawGatewayFeatureSnapshot {
-  agents?: unknown;
-  artifacts?: unknown;
-  channels?: unknown;
-  commands?: unknown;
-  config?: unknown;
-  cron?: unknown;
-  health?: unknown;
-  models?: unknown;
-  sessions?: unknown;
-  skills?: unknown;
-  status?: unknown;
-  tasks?: unknown;
-  tools?: unknown;
-  usage?: unknown;
-}
-
 export interface OpenClawSessionRef {
   agentId?: string;
   key: string;
@@ -234,7 +220,6 @@ export interface OpenClawSessionTurnRuntime extends OpenClawSessionHistoryRuntim
 
 export interface OpenClawBridgeRuntime extends OpenClawSessionTurnRuntime {
   close(): Promise<void>;
-  featureSnapshot(): Promise<OpenClawGatewayFeatureSnapshot>;
 }
 
 export class OpenClawPluginRuntimeAdapter {
@@ -250,45 +235,6 @@ export class OpenClawPluginRuntimeAdapter {
     const result = await this.transport.request("agents.list", {});
     const agents = arrayValue(recordValue(result)?.agents) ?? arrayValue(result);
     return (agents ?? []).map((agent) => agentContactFromOpenClawAgent(this.config, recordValue(agent) ?? {}));
-  }
-
-  call<T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions): Promise<T> {
-    return this.transport.request<T>(method, params, options);
-  }
-
-  async featureSnapshot(): Promise<OpenClawGatewayFeatureSnapshot> {
-    const entries = await Promise.allSettled([
-      this.call("health", {}),
-      this.call("status", {}),
-      this.call("models.list", { view: "configured" }),
-      this.call("channels.status", {}),
-      this.call("sessions.list", { includeArchived: true }),
-      this.call("commands.list", {}),
-      this.call("tools.catalog", {}),
-      this.call("skills.status", {}),
-      this.call("tasks.list", { limit: 100 }),
-      this.call("usage.status", {}),
-      this.call("artifacts.list", {}),
-      this.call("cron.list", {}),
-      this.call("agents.list", {}),
-      this.call("config.get", {}),
-    ]);
-    return stripUndefined({
-      health: settledValue(entries[0]),
-      status: settledValue(entries[1]),
-      models: settledValue(entries[2]),
-      channels: settledValue(entries[3]),
-      sessions: settledValue(entries[4]),
-      commands: settledValue(entries[5]),
-      tools: settledValue(entries[6]),
-      skills: settledValue(entries[7]),
-      tasks: settledValue(entries[8]),
-      usage: settledValue(entries[9]),
-      artifacts: settledValue(entries[10]),
-      cron: settledValue(entries[11]),
-      agents: settledValue(entries[12]),
-      config: settledValue(entries[13]),
-    });
   }
 
   async createSession(options: OpenClawSessionCreateOptions): Promise<OpenClawSessionRef> {
@@ -391,9 +337,6 @@ export class OpenClawHostRuntimeAdapter implements OpenClawRuntimeRequestSurface
     if (isDirectPluginRuntimeMethod(method)) {
       return this.#pluginRuntimeRequest<T>(method, params, options);
     }
-    if (method === "sessions.send") {
-      return Promise.reject(new Error("OpenClaw Beeper turns require OpenClaw channel turn helpers"));
-    }
     const call = this.#runtime.request ?? this.#runtime.call;
     if (!call) return this.#pluginRuntimeRequest<T>(method, params, options);
     return call(method, params, options);
@@ -480,10 +423,6 @@ function stringValue(value: unknown): string | undefined {
 
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
-}
-
-function settledValue(result: PromiseSettledResult<unknown>): unknown {
-  return result.status === "fulfilled" ? result.value : undefined;
 }
 
 async function* emptyEvents(): AsyncIterable<OpenClawGatewayEvent> {}
@@ -784,12 +723,7 @@ function startPluginRun(
   run: () => Promise<void>,
 ): void {
   localEvents.emit({ event: "run.queued", payload: base });
-  getBeeperChannelRuntime()?.debug("openclaw_beeper_run_queued", base);
   void run().catch((error) => {
-    getBeeperChannelRuntime()?.debug("openclaw_beeper_run_failed", {
-      ...base,
-      error: errorText(error),
-    });
     localEvents.emit({
       event: "run.failed",
       payload: {
@@ -1004,19 +938,7 @@ function forwardAgentRuntimeStreamEvents(params: {
 }): (() => void) | undefined {
   const onAgentEvent = typeof params.runtime.events === "object" ? params.runtime.events?.onAgentEvent : undefined;
   if (!onAgentEvent) return undefined;
-  getBeeperChannelRuntime()?.debug("openclaw_beeper_agent_event_forwarder_attached", {
-    runId: params.runId,
-  });
   return onAgentEvent((event) => {
-    if (event.stream === "assistant" || event.stream === "thinking") {
-      getBeeperChannelRuntime()?.debug("openclaw_beeper_agent_event_seen", {
-        dataKeys: Object.keys(recordValue(event.data) ?? {}),
-        eventRunId: event.runId,
-        expectedRunId: params.runId,
-        matchesRun: event.runId === params.runId,
-        stream: event.stream,
-      });
-    }
     if (event.runId !== params.runId) return;
     const data = recordValue(event.data) ?? {};
     switch (event.stream) {
@@ -1025,6 +947,26 @@ function forwardAgentRuntimeStreamEvents(params: {
         break;
       case "thinking":
         void params.stream.reasoningPayload(data);
+        break;
+      case "state":
+      case "snapshot":
+        void params.stream.stateSnapshot(data);
+        break;
+      case "source":
+      case "sources":
+        void params.stream.customData("source", data);
+        break;
+      case "file":
+      case "files":
+      case "document":
+      case "documents":
+        void params.stream.customData("file", data);
+        break;
+      case "data":
+        void params.stream.customData("data", data);
+        break;
+      case "raw":
+        void params.stream.raw(event.stream, data);
         break;
       default:
         break;
@@ -1042,7 +984,7 @@ function createBeeperReplyStreamEmitter(base: {
   sessionKey: string;
   threadRoot?: string;
 }) {
-  const channelRuntime = getBeeperChannelRuntimeForHost(base.hostRuntime) ?? getBeeperChannelRuntime();
+  const channelRuntime = getBeeperChannelRuntimeForHost(base.hostRuntime);
   if (!channelRuntime) {
     throw new Error("OpenClaw Beeper requires the Beeper channel runtime for native rich streaming");
   }
@@ -1251,6 +1193,18 @@ function createBeeperReplyStreamEmitter(base: {
       if (steps?.length) {
         await publish(mapOpenClawStateDelta([{ op: "add", path: "/plan", value: steps }]));
       }
+    },
+    stateSnapshot: async (payload: unknown) => {
+      emit("state.snapshot", { snapshot: payload });
+      await publish(mapOpenClawStateSnapshot(payload));
+    },
+    customData: async (name: string, payload: unknown) => {
+      emit(`${name}.event`, { value: payload });
+      await publish(mapOpenClawCustom(name, payload));
+    },
+    raw: async (source: string, payload: unknown) => {
+      emit("raw.event", { source, value: payload });
+      await publish(mapOpenClawRaw(source, payload));
     },
     approvalEvent: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};

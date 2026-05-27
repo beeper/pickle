@@ -22,7 +22,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
         body: "...",
         "com.beeper.ai": {
           id: "turn_1",
-          metadata: { agent_id: "codex", turn_id: "turn_1" },
+          metadata: { agent_id: "codex", message_id: "turn_1", turn_id: "turn_1" },
           parts: [],
           role: "assistant",
         },
@@ -67,7 +67,9 @@ describe("OpenClaw Beeper native stream publisher", () => {
           }),
         }),
         "com.beeper.stream": {
-          type: "com.beeper.llm.deltas",
+          device_id: "DEVICE",
+          type: "com.beeper.llm",
+          user_id: "@bot:example.com",
         },
         body: "hello",
         msgtype: "m.text",
@@ -207,6 +209,39 @@ describe("OpenClaw Beeper native stream publisher", () => {
       expect.objectContaining({ content: "done", type: "text" }),
     ]));
   });
+
+  it("starts and finalizes another Beeper stream for a second assistant message", async () => {
+    const { client, finalizeMessage, publishPart, startMessage } = createClient();
+    const publisher = new BeeperTurnStreamCoordinator({
+      client,
+      roomId: "!room:example.com",
+      turnId: "turn_multi",
+    });
+
+    await publisher.publishMany([
+      { messageId: "answer_1", role: "assistant", type: "TEXT_MESSAGE_START" },
+      { delta: "first", messageId: "answer_1", type: "TEXT_MESSAGE_CONTENT" },
+      { messageId: "answer_2", role: "assistant", type: "TEXT_MESSAGE_START" },
+      { delta: "second", messageId: "answer_2", type: "TEXT_MESSAGE_CONTENT" },
+    ]);
+    await publisher.finalize();
+
+    expect(startMessage).toHaveBeenCalledTimes(3);
+    expect(startMessage.mock.calls.map(([options]) => options.content["com.beeper.ai"].id)).toEqual([
+      "turn_multi",
+      "answer_1",
+      "answer_2",
+    ]);
+    expect(publishPart.mock.calls.map(([options]) => [options.eventId, options.part.type, options.part.delta])).toEqual(expect.arrayContaining([
+      ["$target-2", "TEXT_MESSAGE_CONTENT", "first"],
+      ["$target-3", "TEXT_MESSAGE_CONTENT", "second"],
+    ]));
+    expect(finalizeMessage.mock.calls.map(([options]) => [options.eventId, options.body])).toEqual([
+      ["$target", "firstsecond"],
+      ["$target-2", "first"],
+      ["$target-3", "second"],
+    ]);
+  });
 });
 
 function createClient() {
@@ -275,11 +310,15 @@ function createClient() {
     return snapshot(options.runId, [terminal], options.message ?? "Run failed");
   });
   const deleteRun = vi.fn(async () => undefined);
-  const startMessage = vi.fn(async () => ({
-    descriptor: { device_id: "DEVICE", type: "com.beeper.llm", user_id: "@bot:example.com" },
-    eventId: "$target",
-    roomId: "!room:example.com",
-  }));
+  let started = 0;
+  const startMessage = vi.fn(async () => {
+    started += 1;
+    return {
+      descriptor: { device_id: "DEVICE", type: "com.beeper.llm", user_id: "@bot:example.com" },
+      eventId: started === 1 ? "$target" : `$target-${started}`,
+      roomId: "!room:example.com",
+    };
+  });
   const publishPart = vi.fn(async () => undefined);
   const finalizeMessage = vi.fn(async () => ({
     eventId: "$target",

@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { BeeperChannelRuntime, setBeeperChannelRuntime } from "./beeper-channel-runtime";
+import { describe, expect, it, vi } from "vitest";
+import { BeeperChannelRuntime, setBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
 import { createDefaultConfig } from "./config";
 import {
   createOpenClawHostRuntimeAdapter,
@@ -12,10 +12,6 @@ import {
 } from "./openclaw-runtime";
 
 describe("OpenClawPluginRuntimeAdapter", () => {
-  afterEach(() => {
-    setBeeperChannelRuntime(undefined);
-  });
-
   it("lists OpenClaw agents as Matrix ghost contacts", async () => {
     const transport = fakeTransport({
       "agents.list": { agents: [{ description: "Code", id: "codex", name: "Codex" }] },
@@ -36,7 +32,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     expect(transport.request).toHaveBeenCalledWith("agents.list", {});
   });
 
-  it("creates sessions through OpenClaw RPC and rejects generic Beeper sends", async () => {
+  it("creates sessions through OpenClaw RPC and rejects sends without a host channel runtime", async () => {
     const transport = fakeTransport({
       "sessions.create": { key: "agent:codex:main", sessionId: "session_1" },
     });
@@ -54,40 +50,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     });
     await expect(runtime.sendMessage({ message: "hello", sessionKey: "agent:codex:main", timeoutMs: 1000 }))
       .rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel turn helpers");
-    expect(transport.request).not.toHaveBeenCalledWith("sessions.send", expect.anything(), expect.anything());
-  });
-
-  it("keeps management probes on the plugin runtime adapter without command wrappers", async () => {
-    const transport = fakeTransport({
-      "artifacts.list": { artifacts: [{ id: "artifact_1" }] },
-      "agents.list": { agents: [{ id: "codex" }] },
-      "channels.status": { ok: true },
-      "commands.list": { commands: [] },
-      "config.get": { config: {} },
-      "cron.list": { jobs: [] },
-      "health": { ok: true },
-      "models.list": { models: ["gpt-5.4"] },
-      "sessions.list": { sessions: [] },
-      "skills.status": { skills: [] },
-      "status": { state: "ready" },
-      "tasks.cancel": { cancelled: true },
-      "tasks.list": { tasks: [] },
-      "tools.catalog": { tools: [{ name: "exec" }] },
-      "usage.status": { tokens: 1 },
-    });
-    const runtime = new OpenClawPluginRuntimeAdapter({
-      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
-      transport,
-    });
-
-    await expect(runtime.featureSnapshot()).resolves.toMatchObject({
-      health: { ok: true },
-      models: { models: ["gpt-5.4"] },
-      tools: { tools: [{ name: "exec" }] },
-    });
-    await expect(runtime.call("artifacts.list", { sessionKey: "agent:codex:main" })).resolves.toEqual({ artifacts: [{ id: "artifact_1" }] });
-    await expect(runtime.call("tasks.cancel", { reason: "stale", taskId: "task_1" })).resolves.toEqual({ cancelled: true });
-    expect(transport.request).toHaveBeenCalledWith("tasks.cancel", { reason: "stale", taskId: "task_1" }, undefined);
   });
 
   it("filters gateway events by run id and resolves approvals", async () => {
@@ -147,20 +109,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     expect(received).toEqual([{ event: "session.message", payload: { runId: "run_1" }, seq: 3 }]);
   });
 
-  it("does not delegate Beeper session sends to a generic host request", async () => {
-    const host = {
-      request: vi.fn(async (method: string) => ({ method, runId: "host_run" })),
-    };
-    const transport = createOpenClawHostRuntimeAdapter({
-      ...host,
-      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
-    });
-
-    await expect(transport.request("sessions.send", { key: "session", message: "hi" })).rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel turn helpers");
-    expect(host.request).not.toHaveBeenCalled();
-  });
-
-  it("sends host-backed Beeper turns through channel helpers without sessions.send RPC", async () => {
+  it("sends host-backed Beeper turns through channel helpers", async () => {
     const beeperStreams = {
       finalizeMessage: vi.fn(async () => ({
         eventId: "$stream-root",
@@ -175,13 +124,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
-    setBeeperChannelRuntime(new BeeperChannelRuntime({
-      client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
-        media: { upload: vi.fn() },
-      } as never,
-      userId: "@sh-openclaw-bot:example",
-    }));
     const request = vi.fn(async () => {
       throw new Error("generic request should not be used");
     });
@@ -194,23 +136,31 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       await delivery.deliver?.("direct final", { kind: "final" });
       resolveRun?.();
     });
+    const hostRuntime = {
+      request,
+      channel: {
+        reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
+        session: {
+          recordInboundSession: vi.fn(),
+          resolveStorePath: () => "/tmp/openclaw",
+        },
+        turn: {
+          buildContext: vi.fn((params) => params),
+          runAssembled,
+        },
+      },
+      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
+    };
+    setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
+      client: {
+        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        media: { upload: vi.fn() },
+      } as never,
+      userId: "@sh-openclaw-bot:example",
+    }));
     const runtime = new OpenClawPluginRuntimeAdapter({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
-      transport: createOpenClawHostRuntimeAdapter({
-        request,
-        channel: {
-          reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
-          session: {
-            recordInboundSession: vi.fn(),
-            resolveStorePath: () => "/tmp/openclaw",
-          },
-          turn: {
-            buildContext: vi.fn((params) => params),
-            runAssembled,
-          },
-        },
-        config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
-      }),
+      transport: createOpenClawHostRuntimeAdapter(hostRuntime),
     });
 
     const sent = await runtime.sendMessage({
@@ -222,13 +172,14 @@ describe("OpenClawPluginRuntimeAdapter", () => {
 
     expect(sent.runId).toMatch(/^beeper:/u);
     await runDone;
-    expect(request).not.toHaveBeenCalledWith("sessions.send", expect.anything(), expect.anything());
+    expect(request).not.toHaveBeenCalled();
     expect(runAssembled).toHaveBeenCalledTimes(1);
     expect(beeperStreams.startMessage).toHaveBeenCalledTimes(1);
     expect(beeperStreams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
       body: "direct final",
       roomId: "!room:example",
     }));
+    setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
 
   it("adapts OpenClaw plugin runtime helpers when no gateway request surface exists", async () => {
@@ -304,27 +255,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     })).rejects.toThrow("OpenClaw Beeper requires OpenClaw channel turn helpers");
   });
 
-  it("does not expose Beeper-originated sends as host transport RPC", async () => {
-    const transport = createOpenClawHostRuntimeAdapter({
-      agent: {
-        resolveAgentDir: () => "/tmp/agent",
-        session: {
-          getSessionEntry: () => ({
-            sessionFile: "/tmp/session.jsonl",
-            sessionId: "session-1",
-          }),
-        },
-      },
-      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
-    });
-
-    await expect(transport.request("sessions.send", {
-      key: "agent:main:beeper:room",
-      message: "from Beeper",
-      idempotencyKey: "$event",
-    })).rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel turn helpers");
-  });
-
   it("runs Beeper-originated sends through OpenClaw channel turn helpers for live AG-UI progress", async () => {
     const beeperStreams = {
       finalizeMessage: vi.fn(async () => ({
@@ -340,13 +270,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
-    setBeeperChannelRuntime(new BeeperChannelRuntime({
-      client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
-        media: { upload: vi.fn() },
-      } as never,
-      userId: "@sh-openclaw-bot:example",
-    }));
     const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
       await replyOptions.onReasoningStream?.({ text: "checking" });
@@ -363,7 +286,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       await delivery.deliver?.({ text: "hello world" });
       return { dispatchResult: { queuedFinal: true } };
     });
-    const transport = createOpenClawHostRuntimeAdapter({
+    const hostRuntime = {
       channel: {
         reply: {
           dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
@@ -385,7 +308,15 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         },
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
-    });
+    };
+    setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
+      client: {
+        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        media: { upload: vi.fn() },
+      } as never,
+      userId: "@sh-openclaw-bot:example",
+    }));
+    const transport = createOpenClawHostRuntimeAdapter(hostRuntime);
 
     const received: OpenClawGatewayEvent[] = [];
     let observedRunId: string | undefined;
@@ -460,6 +391,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       eventId: "$stream-root",
       roomId: "!room:example",
     }));
+    setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
 
   it("preserves supported dummybridge-style tool ids and avoids replaying duplicate text callbacks", async () => {
@@ -477,13 +409,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
-    setBeeperChannelRuntime(new BeeperChannelRuntime({
-      client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
-        media: { upload: vi.fn() },
-      } as never,
-      userId: "@sh-openclaw-bot:example",
-    }));
     const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
       await replyOptions.onPartialReply?.({ text: "hel" });
@@ -498,7 +423,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       await delivery.deliver?.({ text: "hello world" }, { kind: "final" });
       return { dispatchResult: { queuedFinal: true } };
     });
-    const transport = createOpenClawHostRuntimeAdapter({
+    const hostRuntime = {
       channel: {
         reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
         session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
@@ -515,7 +440,15 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         },
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
-    });
+    };
+    setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
+      client: {
+        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        media: { upload: vi.fn() },
+      } as never,
+      userId: "@sh-openclaw-bot:example",
+    }));
+    const transport = createOpenClawHostRuntimeAdapter(hostRuntime);
 
     const done = (async () => {
       for await (const event of transport.events()) {
@@ -547,6 +480,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       ["tool-a", "read_file"],
       ["tool-b", "read_file"],
     ]);
+    setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
 
   it("streams assistant agent events when reply callbacks only deliver the final block", async () => {
@@ -564,23 +498,20 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
-    setBeeperChannelRuntime(new BeeperChannelRuntime({
-      client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
-        media: { upload: vi.fn() },
-      } as never,
-      userId: "@sh-openclaw-bot:example",
-    }));
     let agentEventListener: ((event: { data?: Record<string, unknown>; runId?: string; stream?: string }) => void) | undefined;
     const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as { runId?: string };
       agentEventListener?.({ data: { delta: "hel", text: "hel" }, runId: replyOptions.runId, stream: "assistant" });
       agentEventListener?.({ data: { delta: "lo", text: "hello" }, runId: replyOptions.runId, stream: "assistant" });
+      agentEventListener?.({ data: { items: [{ title: "Docs", url: "https://example.com" }] }, runId: replyOptions.runId, stream: "source" });
+      agentEventListener?.({ data: { filename: "report.txt", id: "file_1" }, runId: replyOptions.runId, stream: "file" });
+      agentEventListener?.({ data: { status: "indexed" }, runId: replyOptions.runId, stream: "data" });
+      agentEventListener?.({ data: { phase: "retrieval" }, runId: replyOptions.runId, stream: "snapshot" });
       const delivery = params.delivery as { deliver?: (payload: unknown, info?: unknown) => Promise<unknown> };
       await delivery.deliver?.({ text: "hello world" }, { kind: "final" });
       return { dispatchResult: { queuedFinal: true } };
     });
-    const transport = createOpenClawHostRuntimeAdapter({
+    const hostRuntime = {
       channel: {
         reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
         session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
@@ -605,7 +536,15 @@ describe("OpenClawPluginRuntimeAdapter", () => {
           };
         },
       },
-    });
+    };
+    setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
+      client: {
+        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        media: { upload: vi.fn() },
+      } as never,
+      userId: "@sh-openclaw-bot:example",
+    }));
+    const transport = createOpenClawHostRuntimeAdapter(hostRuntime);
 
     const done = (async () => {
       for await (const event of transport.events()) {
@@ -625,6 +564,13 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       "lo",
       " world",
     ]);
+    expect(parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "source", type: "CUSTOM", value: { items: [{ title: "Docs", url: "https://example.com" }] } }),
+      expect.objectContaining({ name: "file", type: "CUSTOM", value: { filename: "report.txt", id: "file_1" } }),
+      expect.objectContaining({ name: "data", type: "CUSTOM", value: { status: "indexed" } }),
+      expect.objectContaining({ snapshot: { phase: "retrieval" }, type: "STATE_SNAPSHOT" }),
+    ]));
+    setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
 
   it("loads plugin runtime history from the OpenClaw session transcript", async () => {

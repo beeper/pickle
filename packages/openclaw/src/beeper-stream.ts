@@ -52,18 +52,26 @@ export interface BeeperStreamFinalizeOptions {
   terminalPart?: AGUIEvent;
 }
 
+type BeeperStreamAnchor = {
+  accumulator: BeeperFinalMessageAccumulator;
+  descriptor?: Record<string, unknown>;
+  eventId?: string;
+  id: string;
+};
+
 export class BeeperTurnStreamCoordinator {
   readonly roomId: string;
   readonly turnId: string;
-  #accumulator: BeeperFinalMessageAccumulator;
+  #anchors = new Map<string, BeeperStreamAnchor>();
+  #anchorOrder: string[] = [];
   #agentId: string | undefined;
   #client: BeeperTurnStreamCoordinatorClient;
-  #descriptor: Record<string, unknown> | undefined;
+  #currentAnchorId: string;
   #finalized = false;
   #initialMessageMetadata: Record<string, unknown>;
   #queue = new SerialQueue();
+  #runBegun = false;
   #subscribers: BeeperStreamSubscriber[];
-  #targetEventId: string | undefined;
   #threadRoot: string | undefined;
   #userId: string | undefined;
 
@@ -73,25 +81,29 @@ export class BeeperTurnStreamCoordinator {
     this.#initialMessageMetadata = options.initialMessageMetadata ?? {};
     this.roomId = options.roomId;
     this.turnId = options.turnId ?? createTurnId();
+    this.#currentAnchorId = this.turnId;
     this.#subscribers = options.subscribers ?? [];
     this.#threadRoot = options.threadRoot;
     this.#userId = options.userId;
-    this.#accumulator = createFinalMessageAccumulator(this.turnId);
+    this.#anchor(this.turnId);
   }
 
   get targetEventId(): string | undefined {
-    return this.#targetEventId;
+    return this.#anchor(this.turnId).eventId;
   }
 
   async start(): Promise<BeeperStreamStartResult> {
-    return this.#queue.run(() => this.#start());
+    return this.#queue.run(async () => {
+      const anchor = await this.#startAnchor(this.turnId);
+      return { descriptor: anchor.descriptor, eventId: anchor.eventId, turnId: this.turnId };
+    });
   }
 
   async publish(part: AGUIEvent): Promise<void> {
     return this.#queue.run(async () => {
       if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
-      const { eventId } = await this.#start();
-      await this.#publishPart(eventId, part);
+      const anchor = await this.#startAnchor(this.#anchorIdForPart(part));
+      await this.#publishPart(anchor, part);
     });
   }
 
@@ -99,8 +111,8 @@ export class BeeperTurnStreamCoordinator {
     return this.#queue.run(async () => {
       for (const part of parts) {
         if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
-        const { eventId } = await this.#start();
-        await this.#publishPart(eventId, part);
+        const anchor = await this.#startAnchor(this.#anchorIdForPart(part));
+        await this.#publishPart(anchor, part);
       }
     });
   }
@@ -109,13 +121,13 @@ export class BeeperTurnStreamCoordinator {
     return this.#queue.run(async () => {
       if (this.#finalized) throw new Error("Beeper stream is already finalized");
       const finishReason = normalizeFinishReason(options.finishReason);
-      const { eventId } = await this.#start();
       const terminalPart = options.terminalPart ?? {
         finishReason,
         runId: this.turnId,
         threadId: this.turnId,
         type: AGUIEventType.RUN_FINISHED,
       };
+      const root = await this.#startAnchor(this.turnId);
       const snapshot = terminalPart.type === AGUIEventType.RUN_ERROR
         ? await this.#errorRun({
             message: terminalFallbackText(terminalPart),
@@ -126,71 +138,83 @@ export class BeeperTurnStreamCoordinator {
             finishReason,
             runId: this.turnId,
           });
-      await this.#publishSnapshotEvents(eventId, snapshot);
-      const finalMessage = options.message ?? nonEmptyRecordValue(snapshot.finalAIMessage) ?? finalizeAccumulatedAIMessage(this.#accumulator);
-      const accumulatedText = getFinalMessageText(finalMessage);
-      const finalText = options.body ?? options.finalText ?? (accumulatedText || snapshot.body || terminalFallbackText(terminalPart));
-      const finalContent = compactFinalContent({
-        aiMessage: finalMessage,
-        body: finalText,
-      });
-      const finalMetadata = {
-        ...this.#runMetadata(terminalPart.type === AGUIEventType.RUN_ERROR ? "error" : "complete", terminalPart),
-        ...(recordValue(snapshot.metadata) ?? {}),
-        status: this.#runMetadata(terminalPart.type === AGUIEventType.RUN_ERROR ? "error" : "complete", terminalPart).status,
-      };
-      const replacement = await this.#client.beeper.streams.finalizeMessage({
-        body: finalContent.body || "...",
-        content: {
-          body: finalContent.body || "...",
-          [BEEPER_AI_KEY]: finalContent.aiMessage,
-          [BEEPER_AI_METADATA_KEY]: finalMetadata,
-          [BEEPER_STREAM_DESCRIPTOR_KEY]: this.#streamDescriptor(),
-          msgtype: "m.text",
-        },
-        eventId,
-        roomId: this.roomId,
-        topLevelContent: {
-          "com.beeper.dont_render_edited": true,
-        },
-        ...(this.#userId ? { userId: this.#userId } : {}),
-      });
+      await this.#publishSnapshotEvents(root, snapshot);
+      const replacements: SentEvent[] = [];
+      for (const anchorId of this.#anchorOrder) {
+        replacements.push(await this.#finalizeAnchor(this.#anchor(anchorId), terminalPart, snapshot, options));
+      }
       this.#finalized = true;
+      const replacement = replacements[0];
+      if (!replacement) throw new Error("Beeper stream did not create a final replacement");
       return {
-        eventId,
+        eventId: replacement.eventId,
         roomId: replacement.roomId,
-        raw: {
-          logicalEventId: eventId,
-          raw: replacement.raw,
-          replacementEventId: replacement.replacementEventId,
-        },
+        raw: replacement.raw,
       };
     });
   }
 
-  async #start(): Promise<BeeperStreamStartResult> {
-    if (this.#targetEventId && this.#descriptor) {
-      return { descriptor: this.#descriptor, eventId: this.#targetEventId, turnId: this.turnId };
+  #anchor(id: string): BeeperStreamAnchor {
+    const existing = this.#anchors.get(id);
+    if (existing) return existing;
+    const anchor = {
+      accumulator: createFinalMessageAccumulator(id),
+      id,
+    };
+    this.#anchors.set(id, anchor);
+    this.#anchorOrder.push(id);
+    return anchor;
+  }
+
+  #anchorIdForPart(part: AGUIEvent): string {
+    if (part.type === AGUIEventType.TEXT_MESSAGE_START) {
+      const id = stringValue(part.messageId) ?? this.turnId;
+      this.#currentAnchorId = id;
+      return id;
     }
-    const snapshot = await this.#beginRun({
-      ...(this.#agentId ? { agentId: this.#agentId } : {}),
-      model: "openclaw/plugin",
-      runId: this.turnId,
-      threadId: this.turnId,
-    });
+    if (
+      part.type === AGUIEventType.TEXT_MESSAGE_CONTENT ||
+      part.type === AGUIEventType.TEXT_MESSAGE_END
+    ) {
+      return stringValue(part.messageId) ?? this.#currentAnchorId;
+    }
+    return this.#currentAnchorId;
+  }
+
+  async #startAnchor(anchorId: string): Promise<BeeperStreamAnchor & { descriptor: Record<string, unknown>; eventId: string }> {
+    const anchor = this.#anchor(anchorId);
+    if (!this.#runBegun) {
+      this.#runBegun = true;
+      const snapshot = await this.#beginRun({
+        ...(this.#agentId ? { agentId: this.#agentId } : {}),
+        model: "openclaw/plugin",
+        runId: this.turnId,
+        threadId: this.turnId,
+      });
+      const root = await this.#startAnchorMessage(this.#anchor(this.turnId), snapshot);
+      await this.#publishSnapshotEvents(root, snapshot);
+      if (anchor.id === root.id) return root;
+    }
+    if (anchor.eventId && anchor.descriptor) return anchor as BeeperStreamAnchor & { descriptor: Record<string, unknown>; eventId: string };
+    return this.#startAnchorMessage(anchor);
+  }
+
+  async #startAnchorMessage(anchor: BeeperStreamAnchor, snapshot: MatrixBeeperAIRunSnapshot = emptyRunSnapshot(this.turnId)): Promise<BeeperStreamAnchor & { descriptor: Record<string, unknown>; eventId: string }> {
     const metadata = {
       ...this.#runMetadata("streaming"),
       ...(recordValue(snapshot.metadata) ?? {}),
       data: this.#initialMessageMetadata,
     };
     const initialAIMessage = {
-      id: this.turnId,
-      metadata: { turn_id: this.turnId, ...this.#initialMessageMetadata },
+      id: anchor.id,
+      metadata: { message_id: anchor.id, turn_id: this.turnId, ...this.#initialMessageMetadata },
       parts: [],
       role: "assistant",
       ...(recordValue(snapshot.initialAIMessage) ?? {}),
     };
+    initialAIMessage.id = anchor.id;
     initialAIMessage.metadata = {
+      message_id: anchor.id,
       turn_id: this.turnId,
       ...this.#initialMessageMetadata,
       ...(recordValue(initialAIMessage.metadata) ?? {}),
@@ -209,18 +233,17 @@ export class BeeperTurnStreamCoordinator {
       ...(this.#threadRoot ? { threadRootEventId: this.#threadRoot } : {}),
       ...(this.#userId ? { userId: this.#userId } : {}),
     });
-    this.#descriptor = target.descriptor;
-    this.#targetEventId = target.eventId;
-    await this.#publishSnapshotEvents(target.eventId, snapshot);
-    return { descriptor: target.descriptor, eventId: target.eventId, turnId: this.turnId };
+    anchor.descriptor = target.descriptor;
+    anchor.eventId = target.eventId;
+    return anchor as BeeperStreamAnchor & { descriptor: Record<string, unknown>; eventId: string };
   }
 
-  async #publishPart(eventId: string, part: AGUIEvent): Promise<void> {
+  async #publishPart(anchor: BeeperStreamAnchor & { eventId: string }, part: AGUIEvent): Promise<void> {
     const snapshot = await this.#appendRunEvent({
       event: part,
       runId: this.turnId,
     });
-    await this.#publishSnapshotEvents(eventId, snapshot);
+    await this.#publishSnapshotEvents(anchor, snapshot);
   }
 
   async #beginRun(options: { agentId?: string; model?: string; runId: string; threadId: string }): Promise<MatrixBeeperAIRunSnapshot> {
@@ -242,19 +265,74 @@ export class BeeperTurnStreamCoordinator {
     return this.#client.beeper.aiRuns.error(options);
   }
 
-  async #publishSnapshotEvents(eventId: string, snapshot: MatrixBeeperAIRunSnapshot): Promise<void> {
+  async #publishSnapshotEvents(anchor: BeeperStreamAnchor & { eventId: string }, snapshot: MatrixBeeperAIRunSnapshot): Promise<void> {
     for (const part of snapshot.events as AGUIEvent[]) {
       await this.#client.beeper.streams.publishPart({
         ...(this.#agentId ? { agentId: this.#agentId } : {}),
-        eventId,
+        eventId: anchor.eventId,
         part,
         roomId: this.roomId,
         turnId: this.turnId,
       });
       for (const accumulatorPart of aguiEventToFinalMessageParts(this.turnId, part)) {
-        applyFinalMessagePart(this.#accumulator, accumulatorPart);
+        applyFinalMessagePart(anchor.accumulator, accumulatorPart);
       }
     }
+  }
+
+  async #finalizeAnchor(
+    anchor: BeeperStreamAnchor,
+    terminalPart: AGUIEvent,
+    snapshot: MatrixBeeperAIRunSnapshot,
+    options: BeeperStreamFinalizeOptions,
+  ): Promise<SentEvent> {
+    if (!anchor.eventId) throw new Error(`Beeper stream anchor ${anchor.id} was not started`);
+    const singleAnchor = this.#anchorOrder.length === 1;
+    const finalMessage = options.message && anchor.id === this.turnId
+      ? options.message
+      : singleAnchor
+        ? nonEmptyRecordValue(snapshot.finalAIMessage) ?? finalizeAccumulatedAIMessage(anchor.accumulator)
+        : finalizeAccumulatedAIMessage(anchor.accumulator);
+    const accumulatedText = getFinalMessageText(finalMessage);
+    const fallbackText = anchor.id === this.turnId ? snapshot.body : "";
+    const finalText = anchor.id === this.turnId
+      ? options.body ?? options.finalText ?? (accumulatedText || fallbackText || terminalFallbackText(terminalPart))
+      : accumulatedText || "...";
+    const finalContent = compactFinalContent({
+      aiMessage: finalMessage,
+      body: finalText,
+    });
+    const finalMetadata = {
+      ...this.#runMetadata(terminalPart.type === AGUIEventType.RUN_ERROR ? "error" : "complete", terminalPart),
+      ...(recordValue(snapshot.metadata) ?? {}),
+      messageId: anchor.id,
+      status: this.#runMetadata(terminalPart.type === AGUIEventType.RUN_ERROR ? "error" : "complete", terminalPart).status,
+    };
+    const replacement = await this.#client.beeper.streams.finalizeMessage({
+      body: finalContent.body || "...",
+      content: {
+        body: finalContent.body || "...",
+        [BEEPER_AI_KEY]: finalContent.aiMessage,
+        [BEEPER_AI_METADATA_KEY]: finalMetadata,
+        [BEEPER_STREAM_DESCRIPTOR_KEY]: anchor.descriptor ?? this.#streamDescriptor(),
+        msgtype: "m.text",
+      },
+      eventId: anchor.eventId,
+      roomId: this.roomId,
+      topLevelContent: {
+        "com.beeper.dont_render_edited": true,
+      },
+      ...(this.#userId ? { userId: this.#userId } : {}),
+    });
+    return {
+      eventId: anchor.eventId,
+      roomId: replacement.roomId,
+      raw: {
+        logicalEventId: anchor.eventId,
+        raw: replacement.raw,
+        replacementEventId: replacement.replacementEventId,
+      },
+    };
   }
 
   #runMetadata(state: "streaming" | "complete" | "error", terminalPart?: AGUIEvent): Record<string, unknown> {
@@ -307,6 +385,19 @@ function terminalFallbackText(event: AGUIEvent | undefined): string {
     return stringValue(event.message) ?? stringValue(event.error) ?? "OpenClaw run failed";
   }
   return "";
+}
+
+function emptyRunSnapshot(runId: string): MatrixBeeperAIRunSnapshot {
+  return {
+    body: "...",
+    events: [],
+    finalAIMessage: {},
+    initialAIMessage: {},
+    messageId: runId,
+    metadata: {},
+    runId,
+    threadId: runId,
+  };
 }
 
 function aguiEventToFinalMessageParts(turnId: string, event: AGUIEvent): Record<string, unknown>[] {

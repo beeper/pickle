@@ -260,19 +260,19 @@ export function getFinalMessageText(message: Record<string, unknown>): string {
 export function compactFinalContent(options: { aiMessage: Record<string, unknown>; body: string }): { aiMessage: Record<string, unknown>; body: string } {
   if (eventContentBytes(options.aiMessage, options.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) return options;
 
-  const compact = compactAIMessage(options.aiMessage, { keepToolInput: true, textBudgetChars: Infinity });
+  const compact = compactAIMessage(options.aiMessage, { keepToolInput: true, keepToolOutput: true, textBudgetChars: Infinity });
   if (eventContentBytes(compact, options.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) return { aiMessage: compact, body: options.body };
 
-  const noToolInput = compactAIMessage(options.aiMessage, { keepToolInput: false, textBudgetChars: Infinity });
-  if (eventContentBytes(noToolInput, options.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) return { aiMessage: noToolInput, body: options.body };
+  const noToolPayloads = compactAIMessage(options.aiMessage, { keepToolInput: true, keepToolOutput: false, textBudgetChars: Infinity });
+  if (eventContentBytes(noToolPayloads, options.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) return { aiMessage: noToolPayloads, body: options.body };
 
-  const totalTextChars = options.body.length + messageTextChars(noToolInput);
+  const totalTextChars = options.body.length + messageTextChars(noToolPayloads);
   let low = 0;
   let high = totalTextChars;
-  let best = compactTextContent(noToolInput, options.body, 0);
+  let best = compactTextContent(noToolPayloads, options.body, 0);
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
-    const candidate = compactTextContent(noToolInput, options.body, mid);
+    const candidate = compactTextContent(noToolPayloads, options.body, mid);
     if (eventContentBytes(candidate.aiMessage, candidate.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) {
       best = candidate;
       low = mid + 1;
@@ -300,14 +300,14 @@ export function eventContentBytes(aiMessage: Record<string, unknown>, body: stri
 function compactTextContent(aiMessage: Record<string, unknown>, body: string, textBudgetChars: number): { aiMessage: Record<string, unknown>; body: string } {
   const budget = { remaining: textBudgetChars };
   return {
-    aiMessage: compactAIMessage(aiMessage, { budget, keepToolInput: false }),
+    aiMessage: compactAIMessage(aiMessage, { budget, keepToolInput: true, keepToolOutput: false }),
     body: takeText(body, budget),
   };
 }
 
 function compactAIMessage(
   message: Record<string, unknown>,
-  options: { budget?: { remaining: number }; keepToolInput: boolean; textBudgetChars?: number },
+  options: { budget?: { remaining: number }; keepToolInput: boolean; keepToolOutput: boolean; textBudgetChars?: number },
 ): Record<string, unknown> {
   const budget = options.budget ?? (
     options.textBudgetChars === Infinity ? undefined : { remaining: options.textBudgetChars ?? Infinity }
@@ -317,6 +317,7 @@ function compactAIMessage(
     metadata: compactMetadata(isRecord(message.metadata) ? message.metadata : {}),
     parts: compactParts(Array.isArray(message.parts) ? message.parts : [], {
       keepToolInput: options.keepToolInput,
+      keepToolOutput: options.keepToolOutput,
       ...(budget ? { budget } : {}),
     }),
     role: message.role,
@@ -335,28 +336,31 @@ function compactMetadata(metadata: Record<string, unknown>): Record<string, unkn
   });
 }
 
-function compactParts(parts: unknown[], options: { budget?: { remaining: number }; keepToolInput: boolean }): Record<string, unknown>[] {
+function compactParts(parts: unknown[], options: { budget?: { remaining: number }; keepToolInput: boolean; keepToolOutput: boolean }): Record<string, unknown>[] {
   return parts
     .filter(isRecord)
     .flatMap((part) => {
       if (part.type === "text" || part.type === "reasoning") {
         const content = typeof part.content === "string" ? part.content : typeof part.text === "string" ? part.text : undefined;
         return [stripUndefined({
-          content: typeof content === "string" ? takeText(content, options.budget) : content,
           state: part.state,
+          ...(typeof part.text === "string"
+            ? { text: typeof content === "string" ? takeText(content, options.budget) : content }
+            : { content: typeof content === "string" ? takeText(content, options.budget) : content }),
           type: part.type,
         })];
       }
       if (part.type === "tool-call" || part.type === "dynamic-tool" || (typeof part.type === "string" && part.type.startsWith("tool-"))) {
         return [stripUndefined({
           arguments: part.arguments,
-          id: part.id ?? part.toolCallId,
+          id: part.id,
           input: options.keepToolInput ? part.input : undefined,
-          name: part.name ?? part.toolName,
-          output: part.output,
+          name: part.name,
+          output: options.keepToolOutput ? part.output : undefined,
           state: part.state,
           toolCallId: part.toolCallId,
-          type: "tool-call",
+          toolName: part.toolName,
+          type: part.type,
         })];
       }
       return [];
