@@ -74,6 +74,11 @@ describe("OpenClawBridgeConnector", () => {
     } as MatrixCommand);
 
     expect(response).toMatchObject({
+      content: {
+        format: "org.matrix.custom.html",
+        formatted_body: expect.stringContaining("<br><strong>Behavior</strong><br>"),
+        msgtype: "m.text",
+      },
       handled: true,
       text: expect.stringContaining("Import sources: dashboard"),
     });
@@ -1041,11 +1046,20 @@ describe("OpenClawBridgeConnector", () => {
       text: "/status",
     } as MatrixMessage)).resolves.toEqual({ pending: false });
     expect(queueRemoteEvent.mock.calls.at(-1)?.[1].getID()).toBe("$status:openclaw-command");
-    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: expect.stringContaining("Import sources: dashboard") } }],
+    expect(queueRemoteEvent.mock.calls.at(-1)?.[1].getSender()).toEqual({
+      isFromMe: true,
+      sender: "@codex:example.com",
     });
     await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
-      parts: [{ content: { body: expect.stringContaining("Approvals: native Beeper UI") } }],
+      parts: [{ content: { body: expect.stringContaining("Import sources: dashboard"), msgtype: "m.text" } }],
+    });
+    await expect(queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).resolves.toMatchObject({
+      parts: [{ content: { body: expect.stringContaining("Approvals: native Beeper UI"), msgtype: "m.text" } }],
+    });
+    const statusContent = (await queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).parts[0].content;
+    expect(statusContent).toMatchObject({
+      format: "org.matrix.custom.html",
+      formatted_body: expect.stringContaining("<br><strong>Behavior</strong><br>"),
     });
 
     await api.handleMatrixMessage(ctx, {
@@ -1062,6 +1076,9 @@ describe("OpenClawBridgeConnector", () => {
     expect(settingsBody).toContain("Contact visibility: agents-and-users");
     expect(settingsBody).toContain("Allowed rooms: !room:example.com");
     expect(settingsBody).toContain("Allowed users: @alice:example.com");
+    const settingsContent = (await queueRemoteEvent.mock.calls.at(-1)?.[1].convertMessage()).parts[0].content;
+    expect(settingsContent.formatted_body).toContain("<strong>OpenClaw Beeper settings</strong><br>");
+    expect(settingsContent.formatted_body).toContain("<br><strong>Allowed rooms:</strong> !room:example.com<br>");
 
     await api.handleMatrixMessage(ctx, {
       event: { eventId: "$sessions" },
