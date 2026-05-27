@@ -104,10 +104,10 @@ describe("OpenClaw plugin package metadata", () => {
     expect(packageJson.openclaw?.channel?.id).toBe("beeper");
     expect(packageJson.openclaw?.install?.defaultChoice).toBe("clawhub");
     expect(packageJson.openclaw?.install?.clawhubSpec).toBe(
-      `clawhub:@beeper/pickle-openclaw@${packageJson.version}`,
+      `clawhub:@beeper/openclaw@${packageJson.version}`,
     );
     expect(packageJson.openclaw?.install?.npmSpec).toBe(
-      `@beeper/pickle-openclaw@${packageJson.version}`,
+      `@beeper/openclaw@${packageJson.version}`,
     );
     expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.5.22");
     expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.5.22");

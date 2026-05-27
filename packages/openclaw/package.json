@@ -1,5 +1,5 @@
 {
-  "name": "@beeper/pickle-openclaw",
+  "name": "@beeper/openclaw",
   "version": "0.1.0",
   "description": "Beeper Matrix bridge runtime for OpenClaw sessions and agents",
   "type": "module",
@@ -144,8 +144,8 @@
       ]
     },
     "install": {
-      "clawhubSpec": "clawhub:@beeper/pickle-openclaw@0.1.0",
-      "npmSpec": "@beeper/pickle-openclaw@0.1.0",
+      "clawhubSpec": "clawhub:@beeper/openclaw@0.1.0",
+      "npmSpec": "@beeper/openclaw@0.1.0",
       "defaultChoice": "clawhub",
       "minHostVersion": ">=2026.5.22"
     },

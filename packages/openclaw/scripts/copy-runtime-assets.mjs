@@ -13,7 +13,7 @@ for (const file of ["pickle.wasm", "wasm_exec.js"]) {
   try {
     await stat(source);
   } catch {
-    throw new Error(`Missing ${file}; run pnpm --filter @beeper/pickle build before building @beeper/pickle-openclaw`);
+    throw new Error(`Missing ${file}; run pnpm --filter @beeper/pickle build before building @beeper/openclaw`);
   }
   await copyFile(source, resolve(outputDir, file));
 }

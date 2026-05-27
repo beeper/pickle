@@ -1,4 +1,4 @@
-# @beeper/pickle-openclaw
+# @beeper/openclaw
 
 Pickle bridge package for exposing OpenClaw sessions in Beeper/Matrix as an OpenClaw-native channel plugin.
 
@@ -7,7 +7,7 @@ Pickle bridge package for exposing OpenClaw sessions in Beeper/Matrix as an Open
 Install the Beeper channel plugin from ClawHub:
 
 ```sh
-openclaw plugins install clawhub:@beeper/pickle-openclaw@0.1.0
+openclaw plugins install clawhub:@beeper/openclaw@0.1.0
 ```
 
 OpenClaw loads the runtime entry from `dist/plugin-entry.mjs` and the lightweight dashboard/setup entry from `dist/setup-entry.mjs`. Configure the channel from the OpenClaw dashboard or with `openclaw channels add beeper`; the setup surface writes `channels.beeper` settings for the bridge runtime.
@@ -52,14 +52,14 @@ The bridge runtime itself is started by OpenClaw when the installed channel plug
 ```ts
 import {
   backfillAllOpenClawSessions,
-} from "@beeper/pickle-openclaw/backfill";
+} from "@beeper/openclaw/backfill";
 import {
   createDefaultConfig,
-} from "@beeper/pickle-openclaw/config";
+} from "@beeper/openclaw/config";
 import {
   accountFromOpenClawConfig,
   createOpenClawBeeperBridge,
-} from "@beeper/pickle-openclaw/appservice";
+} from "@beeper/openclaw/appservice";
 
 const config = createDefaultConfig({
   accessToken: process.env.BEEPER_ACCESS_TOKEN,
