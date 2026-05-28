@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { copyBytes, type MatrixStore } from "@beeper/pickle";
 
@@ -58,6 +58,10 @@ export class FileMatrixStore implements MatrixStore {
     }
     try {
       const raw = await readFile(join(this.#dir, "index.json"), "utf8");
+      if (!raw.trim()) {
+        this.#index = new Map();
+        return this.#index;
+      }
       this.#index = new Map(Object.entries(JSON.parse(raw) as Record<string, string>));
     } catch (error) {
       if (!isNodeENOENT(error)) {
@@ -70,10 +74,13 @@ export class FileMatrixStore implements MatrixStore {
 
   async #saveIndex(index: Map<string, string>): Promise<void> {
     await mkdir(this.#dir, { recursive: true });
+    const path = join(this.#dir, "index.json");
+    const tmp = join(this.#dir, `index.json.${process.pid}.${randomUUID()}.tmp`);
     await writeFile(
-      join(this.#dir, "index.json"),
+      tmp,
       JSON.stringify(Object.fromEntries(index), null, 2)
     );
+    await rename(tmp, path);
   }
 }
 

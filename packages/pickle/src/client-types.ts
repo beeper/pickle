@@ -78,8 +78,14 @@ import type {
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
   MatrixAppserviceUserOptions,
+  MatrixAppendBeeperAIRunEventOptions,
+  MatrixBeginBeeperAIRunOptions,
+  MatrixBeeperAIRunSnapshot,
+  MatrixDeleteBeeperAIRunOptions,
+  MatrixErrorBeeperAIRunOptions,
   MatrixFinalizeBeeperStreamMessageOptions,
   MatrixFinalizeBeeperStreamMessageResult,
+  MatrixFinishBeeperAIRunOptions,
   MatrixPublishBeeperStreamMessagePartOptions,
   MatrixStartBeeperStreamMessageOptions,
   MatrixStartBeeperStreamMessageResult,
@@ -144,6 +150,13 @@ export interface MatrixReceipts {
 }
 
 export interface MatrixBeeper {
+  aiRuns: {
+    appendEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunSnapshot>;
+    begin(options: MatrixBeginBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+    delete(options: MatrixDeleteBeeperAIRunOptions): Promise<void>;
+    error(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+    finish(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+  };
   ephemeral: {
     send(options: SendBeeperEphemeralOptions): Promise<SentEvent>;
   };

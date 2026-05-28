@@ -3,6 +3,7 @@ packages:
   - "packages/bridge"
   - "packages/chat-adapter"
   - "packages/cloudflare"
+  - "packages/openclaw"
   - "packages/pickle"
   - "packages/pi"
   - "packages/state-file"

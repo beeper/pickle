@@ -138,7 +138,13 @@ export class MatrixBridgeDataStore implements BridgeDataStore {
 
   async #get<T>(storageKey: string): Promise<T | null> {
     const raw = await this.#store.get(storageKey);
-    return raw ? JSON.parse(new TextDecoder().decode(raw)) as T : null;
+    if (!raw) return null;
+    try {
+      return JSON.parse(new TextDecoder().decode(raw)) as T;
+    } catch {
+      await this.#store.delete(storageKey).catch(() => {});
+      return null;
+    }
   }
 
   async #set(storageKey: string, value: unknown): Promise<void> {

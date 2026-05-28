@@ -1,5 +1,5 @@
 {
-  "name": "pickle-monorepo",
+  "name": "@beeper/openclaw",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.25.0",
@@ -15,7 +15,7 @@
     "smoke:cloudflare": "node scripts/smoke-cloudflare-worker.mjs",
     "smoke:consumer": "node scripts/package-consumer-smoke.mjs",
     "smoke:package-consumer": "node scripts/package-consumer-smoke.mjs",
-    "test:go": "cd packages/pickle/native && go test -tags goolm ./...",
+    "test:go": "pnpm --filter @beeper/pickle test:go",
     "test:e2e": "pnpm build && pnpm --dir e2e test",
     "test:e2e:adapter": "pnpm build && pnpm --dir e2e test:adapter",
     "test:e2e:browser:serve": "pnpm --dir e2e test:browser:serve",

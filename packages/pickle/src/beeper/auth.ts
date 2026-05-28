@@ -9,6 +9,7 @@ export interface BeeperAuthOptions {
   getLoginCode?: () => Promise<string> | string;
   initialDeviceDisplayName?: string;
   metadata?: Record<string, unknown>;
+  onlyExistingAccounts?: boolean;
 }
 
 export interface BeeperAuthStartResult {
@@ -36,9 +37,10 @@ export async function createBeeperLogin(options: BeeperAuthOptions): Promise<Mat
   const fetchImpl = options.fetch ?? fetch;
   const domain = BEEPER_ENVIRONMENTS[options.env ?? "production"];
   const start = await startBeeperLogin(fetchImpl, domain);
-  await sendBeeperLoginEmail(fetchImpl, domain, start.requestId, options.email);
+  const onlyExistingAccounts = options.onlyExistingAccounts ?? true;
+  await sendBeeperLoginEmail(fetchImpl, domain, start.requestId, options.email, { onlyExistingAccounts });
   const code = await getLoginCode(options);
-  const token = await sendBeeperLoginCode(fetchImpl, domain, start.requestId, code);
+  const token = await sendBeeperLoginCode(fetchImpl, domain, start.requestId, code, { onlyExistingAccounts });
   return loginWithMatrixToken({
     fetch: fetchImpl,
     homeserver: `https://matrix.${domain}`,
@@ -82,12 +84,13 @@ export async function sendBeeperLoginEmail(
   fetchImpl: typeof fetch,
   domain: string,
   requestId: string,
-  email: string
+  email: string,
+  options: { onlyExistingAccounts?: boolean } = {}
 ): Promise<void> {
   await beeperRequest(fetchImpl, domain, "/user/login/email", {
     appType: "pickle",
     email,
-    onlyExistingAccounts: true,
+    onlyExistingAccounts: options.onlyExistingAccounts ?? true,
     request: requestId,
   });
 }
@@ -96,11 +99,12 @@ export async function sendBeeperLoginCode(
   fetchImpl: typeof fetch,
   domain: string,
   requestId: string,
-  code: string
+  code: string,
+  options: { onlyExistingAccounts?: boolean } = {}
 ): Promise<BeeperAuthCodeResult> {
   const raw = await beeperRequest(fetchImpl, domain, "/user/login/response", {
     appType: "pickle",
-    onlyExistingAccounts: true,
+    onlyExistingAccounts: options.onlyExistingAccounts ?? true,
     request: requestId,
     response: code,
   });
@@ -127,7 +131,13 @@ async function beeperRequest(
   if (!response.ok) {
     throw new Error(`Beeper auth failed: ${response.status} ${await response.text()}`);
   }
-  return response.json();
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Beeper auth returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function readRequiredString(value: unknown, key: string): string {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -22,6 +22,19 @@ describe("FileMatrixStore", () => {
 
       expect([...(await store.get("crypto/account"))!]).toEqual([1, 2, 3]);
       expect(await store.list("crypto/")).toEqual(["crypto/account"]);
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("treats an empty index as an empty store", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "matrix-store-empty-index-"));
+    try {
+      await writeFile(join(dir, "index.json"), "");
+      const store = createFileMatrixStore(dir);
+
+      expect(await store.get("crypto/account")).toBeNull();
+      expect(await store.list("crypto/")).toEqual([]);
     } finally {
       await rm(dir, { force: true, recursive: true });
     }

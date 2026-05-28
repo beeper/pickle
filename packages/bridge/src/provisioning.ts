@@ -8,8 +8,11 @@ import type {
   LoginStep,
   LoginUserInput,
   LoginCookieInput,
+  ListContactsResponse,
   NetworkGeneralCapabilities,
   ResolveIdentifierResponse,
+  BackfillQueueResult,
+  BackfillQueueParams,
   UserLogin,
 } from "./types";
 
@@ -19,9 +22,13 @@ export interface ProvisioningRuntime {
   listLogins(): UserLogin[];
   loginFlows(): unknown[];
   loadLogin(login: UserLogin): Promise<void>;
+  listContacts?(login: UserLogin, query?: string, limit?: number): Promise<ListContactsResponse>;
   requestContext(): BridgeRequestContext;
   resolveIdentifier(login: UserLogin, identifier: string, createDM: boolean): Promise<ResolveIdentifierResponse>;
+  backfill?(login: UserLogin, roomId: string, params: ProvisioningBackfillParams): Promise<BackfillQueueResult>;
 }
+
+export type ProvisioningBackfillParams = Pick<BackfillQueueParams, "count" | "cursor" | "forward" | "limit" | "markRead" | "pending">;
 
 export interface ProvisioningState {
   logins: Map<string, { nextStep: LoginStep; process: LoginProcess }>;
@@ -39,6 +46,27 @@ export async function handleProvisioningHTTPProxy(runtime: ProvisioningRuntime, 
   }
   if (method === "GET" && path === "/_matrix/provision/v3/logins") {
     return jsonHTTPResponse(200, { login_ids: runtime.listLogins().map((login) => login.id) });
+  }
+
+  if (method === "GET" && path === "/_matrix/provision/v3/contacts") {
+    if (!runtime.listContacts) return jsonHTTPResponse(404, matrixError("M_UNSUPPORTED", "Contact listing is not supported"));
+    const login = provisioningLogin(runtime, request);
+    if (!login) return jsonHTTPResponse(404, matrixError("M_NOT_FOUND", "Login not found"));
+    return jsonHTTPResponse(200, contactsListResponse(await runtime.listContacts(
+      login,
+      queryParam(request.query, "q"),
+      intQueryParam(request.query, "limit"),
+    )));
+  }
+
+  const backfill = match(path, /^\/_matrix\/provision\/v3\/backfill\/([^/]+)$/);
+  if ((method === "GET" || method === "POST") && backfill) {
+    if (!runtime.backfill) return jsonHTTPResponse(404, matrixError("M_UNSUPPORTED", "Backfill is not supported"));
+    const [roomId] = backfill;
+    if (!roomId) return null;
+    const login = provisioningLogin(runtime, request);
+    if (!login) return jsonHTTPResponse(404, matrixError("M_NOT_FOUND", "Login not found"));
+    return jsonHTTPResponse(200, backfillResponse(await runtime.backfill(login, roomId, backfillParams(request))));
   }
 
   const createDM = match(path, /^\/_matrix\/provision\/v3\/create_dm\/([^/]+)$/);
@@ -85,7 +113,7 @@ function provisioningLogin(runtime: ProvisioningRuntime, request: HTTPProxyReque
   const loginId = queryParam(request.query, "login_id");
   if (loginId) {
     const matching = logins.find((login) => login.id === loginId);
-    if (matching) return matching;
+    return matching ?? null;
   }
   return logins[0] ?? null;
 }
@@ -140,6 +168,40 @@ function resolvedIdentifierResponse(resolved: ResolveIdentifierResponse): Record
     id: resolved.ghost?.id ?? resolved.userId,
     mxid: resolved.userId ?? resolved.ghost?.mxid,
     name: resolved.ghost?.displayName,
+  });
+}
+
+function contactsListResponse(response: ListContactsResponse): Record<string, unknown> {
+  return stripUndefined({
+    contacts: response.contacts.map((contact) => resolvedIdentifierResponse(contact)),
+    next_batch: response.nextBatch,
+  });
+}
+
+function backfillResponse(response: BackfillQueueResult): Record<string, unknown> {
+  return stripUndefined({
+    cursor: response.cursor,
+    done: response.task?.done ?? (response.hasMore === undefined ? undefined : !response.hasMore),
+    forward: response.forward,
+    has_more: response.hasMore,
+    mark_read: response.markRead,
+    next_batch: response.cursor ?? response.task?.cursor,
+    pending: response.pending ?? response.task?.pending,
+    progress: response.progress,
+    queued: response.queued,
+    task: response.task ? stripUndefined({
+      batch_count: response.task.batchCount,
+      bridge_id: response.task.bridgeId,
+      completed_at: response.task.completedAt?.toISOString(),
+      cursor: response.task.cursor,
+      dispatched_at: response.task.dispatchedAt?.toISOString(),
+      done: response.task.done,
+      next_dispatch_at: response.task.nextDispatchAt?.toISOString(),
+      oldest_message_id: response.task.oldestMessageId,
+      pending: response.task.pending,
+      portal_key: response.task.portalKey,
+      user_login_id: response.task.userLoginId,
+    }) : undefined,
   });
 }
 
@@ -209,6 +271,57 @@ function match(path: string, regex: RegExp): string[] | null {
 function queryParam(rawQuery: string | undefined, key: string): string | undefined {
   if (!rawQuery) return undefined;
   return new URLSearchParams(rawQuery.startsWith("?") ? rawQuery.slice(1) : rawQuery).get(key) ?? undefined;
+}
+
+function intQueryParam(rawQuery: string | undefined, key: string): number | undefined {
+  const value = queryParam(rawQuery, key);
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function boolQueryParam(rawQuery: string | undefined, key: string): boolean | undefined {
+  return boolValue(queryParam(rawQuery, key));
+}
+
+function bodyParam(request: HTTPProxyRequest, key: string): unknown {
+  if (!request.body || typeof request.body !== "object") return undefined;
+  return (request.body as Record<string, unknown>)[key];
+}
+
+function bodyStringParam(request: HTTPProxyRequest, key: string): string | undefined {
+  const value = bodyParam(request, key);
+  return typeof value === "string" ? value : undefined;
+}
+
+function bodyIntParam(request: HTTPProxyRequest, key: string): number | undefined {
+  const value = bodyParam(request, key);
+  if (typeof value !== "number" && typeof value !== "string") return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function bodyBoolParam(request: HTTPProxyRequest, key: string): boolean | undefined {
+  return boolValue(bodyParam(request, key));
+}
+
+function boolValue(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  if (["1", "true", "yes"].includes(value.toLowerCase())) return true;
+  if (["0", "false", "no"].includes(value.toLowerCase())) return false;
+  return undefined;
+}
+
+function backfillParams(request: HTTPProxyRequest): ProvisioningBackfillParams {
+  return stripUndefined({
+    count: intQueryParam(request.query, "count") ?? intQueryParam(request.query, "limit") ?? bodyIntParam(request, "count") ?? bodyIntParam(request, "limit"),
+    cursor: queryParam(request.query, "cursor") ?? queryParam(request.query, "from") ?? bodyStringParam(request, "cursor") ?? bodyStringParam(request, "from"),
+    forward: boolQueryParam(request.query, "forward") ?? bodyBoolParam(request, "forward"),
+    limit: intQueryParam(request.query, "limit") ?? bodyIntParam(request, "limit"),
+    markRead: boolQueryParam(request.query, "mark_read") ?? boolQueryParam(request.query, "markRead") ?? bodyBoolParam(request, "mark_read") ?? bodyBoolParam(request, "markRead"),
+    pending: boolQueryParam(request.query, "pending") ?? bodyBoolParam(request, "pending"),
+  });
 }
 
 function hasMethod<T extends string>(value: object, method: T): value is object & Record<T, (...args: unknown[]) => unknown> {

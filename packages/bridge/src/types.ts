@@ -160,6 +160,10 @@ export interface IdentifierResolvingNetworkAPI extends NetworkAPI {
   resolveIdentifier(ctx: BridgeRequestContext, identifier: ResolveIdentifierParams): Promise<ResolveIdentifierResponse>;
 }
 
+export interface ContactListingNetworkAPI extends NetworkAPI {
+  listContacts(ctx: BridgeRequestContext, params: ListContactsParams): Promise<ListContactsResponse>;
+}
+
 export interface MessageRequestHandlingNetworkAPI extends NetworkAPI {
   handleMessageRequest(ctx: BridgeRequestContext, request: MessageRequest): Promise<MessageRequest>;
 }
@@ -648,6 +652,7 @@ export interface BridgeRemoteBackfillMessageOptions<T = unknown> extends Omit<Br
 
 export interface BridgeCreatePortalRoomOptions {
   avatarUrl?: string;
+  creationContent?: Record<string, unknown>;
   info?: ChatInfo;
   initialState?: { content: Record<string, unknown>; stateKey: string; type: string }[];
   invite?: UserID[];
@@ -886,6 +891,16 @@ export interface ResolveIdentifierResponse {
   userId?: UserID;
 }
 
+export interface ListContactsParams {
+  limit?: number;
+  query?: string;
+}
+
+export interface ListContactsResponse {
+  contacts: ResolveIdentifierResponse[];
+  nextBatch?: string;
+}
+
 export interface UserProfile {
   avatarUrl?: string;
   displayName?: string;
@@ -1026,7 +1041,9 @@ export interface MatrixRedaction {
 
 export interface MatrixReadReceipt {
   portal: Portal;
+  receiptType?: string;
   targetMessage: Message;
+  userId?: string;
 }
 
 export interface MatrixTyping {
@@ -1082,6 +1099,7 @@ export interface MatrixTag {
 export interface MatrixMarkedUnread {
   portal: Portal;
   unread: boolean;
+  userId?: string;
 }
 
 export interface MatrixDeleteChat {

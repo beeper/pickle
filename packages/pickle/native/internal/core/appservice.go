@@ -91,6 +91,7 @@ type MatrixAppserviceCreatePortalRoomOptions struct {
 	AutoJoinInvites bool                       `json:"autoJoinInvites,omitempty"`
 	Bridge          MatrixAppserviceBridgeName `json:"bridge"`
 	BridgeName      string                     `json:"bridgeName,omitempty"`
+	CreationContent map[string]any             `json:"creationContent,omitempty" tstype:"{ [key: string]: unknown }"`
 	InitialState    []MatrixRoomStateInput     `json:"initialState,omitempty"`
 	InitialMembers  []string                   `json:"initialMembers,omitempty"`
 	Invite          []string                   `json:"invite,omitempty"`
@@ -150,8 +151,11 @@ type MatrixAppserviceTransactionOptions struct {
 }
 
 type matrixAppserviceTransaction struct {
-	Events         []*event.Event `json:"events"`
-	ToDeviceEvents []*event.Event `json:"to_device,omitempty"`
+	AccountData     []*event.Event `json:"account_data,omitempty"`
+	EphemeralEvents []*event.Event `json:"ephemeral,omitempty"`
+	Events          []*event.Event `json:"events"`
+	RoomAccountData []*event.Event `json:"room_account_data,omitempty"`
+	ToDeviceEvents  []*event.Event `json:"to_device,omitempty"`
 }
 
 type beeperStreamEventProcessor struct {
@@ -227,21 +231,64 @@ func (c *Core) handleAppserviceApplyTransaction(ctx context.Context, payload []b
 			Int("to_device_events", len(txn.ToDeviceEvents)).
 			Msg("Applying appservice transaction")
 	}
-	c.dispatchAppserviceEvents(ctx, txn.Events, event.MessageEventType)
-	c.dispatchAppserviceEvents(ctx, txn.ToDeviceEvents, event.ToDeviceEventType)
+	c.dispatchAppserviceEvents(ctx, txn.Events, "appservice_events")
+	c.dispatchAppserviceMetadata(ctx, txn.EphemeralEvents, "appservice_ephemeral", "")
+	c.dispatchAppserviceMetadata(ctx, txn.AccountData, "appservice_account_data", "")
+	c.dispatchAppserviceMetadata(ctx, txn.RoomAccountData, "appservice_room_account_data", "")
+	c.dispatchAppserviceToDeviceEvents(ctx, txn.ToDeviceEvents)
 	return c.empty()
 }
 
-func (c *Core) dispatchAppserviceEvents(ctx context.Context, events []*event.Event, class event.TypeClass) {
+func (c *Core) dispatchAppserviceEvents(ctx context.Context, events []*event.Event, section string) {
 	for _, evt := range events {
 		if evt == nil {
 			continue
 		}
-		evt.Type.Class = class
+		evt.Type.Class = classifyAppserviceEventClass(evt.Type)
+		if evt.Type == event.EventMessage || evt.Type == event.EventReaction || evt.Type == event.EventRedaction || evt.Type == event.EventEncrypted {
+			c.processEvent(ctx, evt)
+			continue
+		}
+		if c.emit != nil {
+			roomID := evt.RoomID
+			c.emitClassifiedRoomEvent(section, roomID, evt, "", "")
+		}
+	}
+}
+
+func (c *Core) dispatchAppserviceMetadata(ctx context.Context, events []*event.Event, section string, defaultClass string) {
+	_ = ctx
+	for _, evt := range events {
+		if evt == nil || c.emit == nil {
+			continue
+		}
+		class := defaultClass
+		if class == "" {
+			class = "ephemeral"
+			switch evt.Type {
+			case event.EphemeralEventReceipt:
+				class = "receipt"
+			case event.EphemeralEventTyping:
+				class = "typing"
+			}
+			if section == "appservice_account_data" || section == "appservice_room_account_data" {
+				class = "accountData"
+			}
+		}
+		c.emitSyncEvent(section, class, evt.RoomID, evt, "", "")
+	}
+}
+
+func (c *Core) dispatchAppserviceToDeviceEvents(ctx context.Context, events []*event.Event) {
+	for _, evt := range events {
+		if evt == nil {
+			continue
+		}
+		evt.Type.Class = event.ToDeviceEventType
 		if err := evt.Content.ParseRaw(evt.Type); err != nil && c.client != nil && (evt.Type == event.ToDeviceBeeperStreamSubscribe || evt.Type == event.ToDeviceEncrypted || evt.Type == event.ToDeviceBeeperStreamUpdate) {
 			c.client.Log.Debug().Err(err).Str("event_type", evt.Type.Type).Msg("Failed to parse appservice stream event content")
 		}
-		if c.client != nil && class == event.ToDeviceEventType && (evt.Type == event.ToDeviceBeeperStreamSubscribe || evt.Type == event.ToDeviceEncrypted || evt.Type == event.ToDeviceBeeperStreamUpdate) {
+		if c.client != nil && (evt.Type == event.ToDeviceBeeperStreamSubscribe || evt.Type == event.ToDeviceEncrypted || evt.Type == event.ToDeviceBeeperStreamUpdate) {
 			subscribe := evt.Content.AsBeeperStreamSubscribe()
 			encrypted := evt.Content.AsEncrypted()
 			c.client.Log.Debug().
@@ -255,7 +302,21 @@ func (c *Core) dispatchAppserviceEvents(ctx context.Context, events []*event.Eve
 				Str("encrypted_stream_id", encrypted.StreamID).
 				Msg("Dispatching appservice stream to-device event")
 		}
+		if c.emit != nil {
+			c.emitSyncEvent("appservice_to_device", "toDevice", "", evt, "", "")
+		}
 		c.appserviceProcessor.Dispatch(ctx, evt)
+	}
+}
+
+func classifyAppserviceEventClass(evtType event.Type) event.TypeClass {
+	switch evtType.Type {
+	case event.StateMember.Type, event.StateRoomName.Type, event.StateTopic.Type, event.StateRoomAvatar.Type, event.StateEncryption.Type:
+		return event.StateEventType
+	case event.EventRedaction.Type, event.EventMessage.Type, event.EventReaction.Type, event.EventEncrypted.Type:
+		return event.MessageEventType
+	default:
+		return evtType.Class
 	}
 }
 
@@ -304,6 +365,14 @@ func (c *Core) handleAppserviceCreatePortalRoom(ctx context.Context, payload []b
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
+	resp, err := c.appserviceCreatePortalRoom(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(MatrixCreateRoomResult{Raw: resp, RoomID: resp.RoomID.String()})
+}
+
+func (c *Core) appserviceCreatePortalRoom(ctx context.Context, req MatrixAppserviceCreatePortalRoomOptions) (*mautrix.RespCreateRoom, error) {
 	intent, err := c.requireAppserviceIntent(req.UserID)
 	if err != nil {
 		return nil, err
@@ -311,12 +380,7 @@ func (c *Core) handleAppserviceCreatePortalRoom(ctx context.Context, payload []b
 	if err := c.appservice.ensureRegistered(ctx, intent); err != nil {
 		return nil, err
 	}
-	createReq := c.appservice.makePortalCreateRoomRequest(req, intent.UserID)
-	resp, err := intent.CreateRoom(ctx, createReq)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(MatrixCreateRoomResult{Raw: resp, RoomID: resp.RoomID.String()})
+	return intent.CreateRoom(ctx, c.appservice.makePortalCreateRoomRequest(req, intent.UserID))
 }
 
 func (c *Core) handleAppserviceCreateManagementRoom(ctx context.Context, payload []byte) ([]byte, error) {
@@ -347,25 +411,20 @@ func (as *matrixAppservice) makePortalCreateRoomRequest(req MatrixAppserviceCrea
 	} else if roomType == "" {
 		roomType = "default"
 	}
-	localRoomID := as.deterministicPortalRoomID(req.PortalKey)
 	bridgeName := req.BridgeName
 	if bridgeName == "" {
 		bridgeName = req.Bridge.NetworkID
 	}
 	createReq := &mautrix.ReqCreateRoom{
-		BeeperBridgeAccountID: req.PortalKey.Receiver,
-		BeeperBridgeName:      bridgeName,
-		BeeperLocalRoomID:     localRoomID,
-		CreationContent:       map[string]any{},
-		InitialState:          make([]*event.Event, 0, 5),
-		Invite:                toUserIDs(req.Invite),
-		IsDirect:              req.IsDirect,
-		MeowRoomID:            localRoomID,
-		Name:                  req.Name,
-		PowerLevelOverride:    defaultBridgePowerLevels(bridgeBot),
-		Preset:                "private_chat",
-		Topic:                 req.Topic,
-		Visibility:            "private",
+		CreationContent:    cloneMap(req.CreationContent),
+		InitialState:       make([]*event.Event, 0, 5),
+		Invite:             toUserIDs(req.Invite),
+		IsDirect:           req.IsDirect,
+		Name:               req.Name,
+		PowerLevelOverride: defaultBridgePowerLevels(bridgeBot),
+		Preset:             "private_chat",
+		Topic:              req.Topic,
+		Visibility:         "private",
 	}
 	if req.AutoJoinInvites {
 		createReq.BeeperAutoJoinInvites = true
@@ -411,10 +470,6 @@ func (as *matrixAppservice) makeManagementCreateRoomRequest(req MatrixAppservice
 		createReq.Invite = appendMissingUserIDs(createReq.Invite, createReq.BeeperInitialMembers...)
 	}
 	return createReq
-}
-
-func (as *matrixAppservice) deterministicPortalRoomID(portalKey MatrixAppservicePortalKey) id.RoomID {
-	return id.RoomID(fmt.Sprintf("!%s.%s:%s", portalKey.ID, portalKey.Receiver, as.homeserverDomain))
 }
 
 func defaultBridgePowerLevels(bridgeBot id.UserID) *event.PowerLevelsEventContent {
@@ -526,12 +581,24 @@ func (c *Core) handleAppserviceSendMessage(ctx context.Context, payload []byte) 
 }
 
 func (c *Core) handleAppserviceBatchSend(ctx context.Context, payload []byte) ([]byte, error) {
-	as, err := c.requireAppservice()
+	var req MatrixAppserviceBatchSendOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	resp, err := c.appserviceBatchSend(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	var req MatrixAppserviceBatchSendOptions
-	if err := json.Unmarshal(payload, &req); err != nil {
+	eventIDs := make([]string, 0, len(resp.EventIDs))
+	for _, eventID := range resp.EventIDs {
+		eventIDs = append(eventIDs, eventID.String())
+	}
+	return json.Marshal(MatrixAppserviceBatchSendResult{EventIDs: eventIDs, Raw: resp})
+}
+
+func (c *Core) appserviceBatchSend(ctx context.Context, req MatrixAppserviceBatchSendOptions) (*mautrix.RespBeeperBatchSend, error) {
+	as, err := c.requireAppservice()
+	if err != nil {
 		return nil, err
 	}
 	events := make([]*event.Event, 0, len(req.Events))
@@ -554,21 +621,13 @@ func (c *Core) handleAppserviceBatchSend(ctx context.Context, payload []byte) ([
 	if err != nil {
 		return nil, err
 	}
-	resp, err := bot.BeeperBatchSend(ctx, id.RoomID(req.RoomID), &mautrix.ReqBeeperBatchSend{
+	return bot.BeeperBatchSend(ctx, id.RoomID(req.RoomID), &mautrix.ReqBeeperBatchSend{
 		Events:              events,
 		Forward:             req.Forward,
 		ForwardIfNoMessages: req.ForwardIfNoMessages,
 		MarkReadBy:          id.UserID(req.MarkReadBy),
 		SendNotification:    req.SendNotification,
 	})
-	if err != nil {
-		return nil, err
-	}
-	eventIDs := make([]string, 0, len(resp.EventIDs))
-	for _, eventID := range resp.EventIDs {
-		eventIDs = append(eventIDs, eventID.String())
-	}
-	return json.Marshal(MatrixAppserviceBatchSendResult{EventIDs: eventIDs, Raw: resp})
 }
 
 func (c *Core) requireAppservice() (*matrixAppservice, error) {
@@ -702,6 +761,14 @@ func toUserIDs(input []string) []id.UserID {
 		if userID != "" {
 			output = append(output, id.UserID(userID))
 		}
+	}
+	return output
+}
+
+func cloneMap(input map[string]any) map[string]any {
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		output[key] = value
 	}
 	return output
 }
