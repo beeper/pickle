@@ -124,6 +124,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
+    const aiRunStreams = createTestBeeperAIRunStreams();
     const request = vi.fn(async () => {
       throw new Error("generic request should not be used");
     });
@@ -153,7 +154,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     };
     setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
       client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        beeper: { aiRuns: createTestBeeperAIRuns(), aiRunStreams, streams: beeperStreams },
         media: { upload: vi.fn() },
       } as never,
       userId: "@sh-openclaw-bot:example",
@@ -174,10 +175,9 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     await runDone;
     expect(request).not.toHaveBeenCalled();
     expect(runAssembled).toHaveBeenCalledTimes(1);
-    expect(beeperStreams.startMessage).toHaveBeenCalledTimes(1);
-    expect(beeperStreams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
-      body: "direct final",
-      roomId: "!room:example",
+    expect(aiRunStreams.start).toHaveBeenCalledTimes(1);
+    expect(aiRunStreams.finish).toHaveBeenCalledWith(expect.objectContaining({
+      runId: sent.runId,
     }));
     setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
@@ -270,6 +270,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
+    const aiRunStreams = createTestBeeperAIRunStreams();
     const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
       await replyOptions.onReasoningStream?.({ text: "checking" });
@@ -311,7 +312,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     };
     setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
       client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        beeper: { aiRuns: createTestBeeperAIRuns(), aiRunStreams, streams: beeperStreams },
         media: { upload: vi.fn() },
       } as never,
       userId: "@sh-openclaw-bot:example",
@@ -366,10 +367,8 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       }),
       expect.objectContaining({ event: "run.completed" }),
     ]));
-    expect(beeperStreams.startMessage).toHaveBeenCalledTimes(1);
-    expect(beeperStreams.publishPart.mock.calls.map(([options]) => options.part.type)).toEqual(expect.arrayContaining([
-      "RUN_STARTED",
-      "TEXT_MESSAGE_START",
+    expect(aiRunStreams.start).toHaveBeenCalledTimes(1);
+    expect(aiRunStreams.appendEvent.mock.calls.map(([options]) => options.event.type)).toEqual(expect.arrayContaining([
       "REASONING_MESSAGE_CONTENT",
       "TOOL_CALL_START",
       "TOOL_CALL_ARGS",
@@ -378,17 +377,16 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       "CUSTOM",
       "TEXT_MESSAGE_CONTENT",
     ]));
-    const toolOutput = beeperStreams.publishPart.mock.calls
-      .map(([options]) => options.part)
+    const toolOutput = aiRunStreams.appendEvent.mock.calls
+      .map(([options]) => options.event)
       .find((part) => part.type === "TOOL_CALL_RESULT" && part.content === "ok");
     expect(toolOutput).toMatchObject({
       state: "complete",
       toolCallId: "real-tool-id",
       toolName: "read_file",
     });
-    expect(beeperStreams.finalizeMessage).toHaveBeenCalledWith(expect.objectContaining({
-      eventId: "$stream-root",
-      roomId: "!room:example",
+    expect(aiRunStreams.finish).toHaveBeenCalledWith(expect.objectContaining({
+      runId: observedRunId,
     }));
     setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
@@ -408,6 +406,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
+    const aiRunStreams = createTestBeeperAIRunStreams();
     const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
       await replyOptions.onPartialReply?.({ text: "hel" });
@@ -442,7 +441,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     };
     setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
       client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        beeper: { aiRuns: createTestBeeperAIRuns(), aiRunStreams, streams: beeperStreams },
         media: { upload: vi.fn() },
       } as never,
       userId: "@sh-openclaw-bot:example",
@@ -461,7 +460,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     });
     await done;
 
-    const parts = beeperStreams.publishPart.mock.calls.map(([options]) => options.part);
+    const parts = aiRunStreams.appendEvent.mock.calls.map(([options]) => options.event);
     expect(parts.filter((part) => part.type === "TEXT_MESSAGE_CONTENT").map((part) => part.delta)).toEqual([
       "hel",
       "lo",
@@ -497,6 +496,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         roomId: "!room:example",
       })),
     };
+    const aiRunStreams = createTestBeeperAIRunStreams();
     let agentEventListener: ((event: { data?: Record<string, unknown>; runId?: string; sessionKey?: string; stream?: string }) => void) | undefined;
     const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as { runId?: string };
@@ -549,7 +549,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     };
     setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
       client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), streams: beeperStreams },
+        beeper: { aiRuns: createTestBeeperAIRuns(), aiRunStreams, streams: beeperStreams },
         media: { upload: vi.fn() },
       } as never,
       userId: "@sh-openclaw-bot:example",
@@ -568,7 +568,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     });
     await done;
 
-    const parts = beeperStreams.publishPart.mock.calls.map(([options]) => options.part);
+    const parts = aiRunStreams.appendEvent.mock.calls.map(([options]) => options.event);
     expect(parts.filter((part) => part.type === "TEXT_MESSAGE_CONTENT").map((part) => part.delta)).toEqual([
       "hel",
       "lo",
@@ -691,6 +691,37 @@ function createTestBeeperAIRuns() {
       snapshot(runId, [
         { messageId: runId, type: "TEXT_MESSAGE_END" },
         { finishReason: finishReason ?? "stop", runId, threadId: runId, type: "RUN_FINISHED" },
+      ])),
+  };
+}
+
+function createTestBeeperAIRunStreams() {
+  const result = (runId: string, events: Record<string, unknown>[] = []) => ({
+    body: "...",
+    descriptor: { type: "com.beeper.llm" },
+    eventId: "$stream-root",
+    events,
+    finalAIMessage: {},
+    initialAIMessage: {},
+    messageId: `msg-${runId}`,
+    metadata: {},
+    raw: {},
+    replacementEventId: "$stream-final",
+    roomId: "!room:example",
+    runId,
+    threadId: runId,
+  });
+  return {
+    appendEvent: vi.fn(async ({ event, runId }: { event: Record<string, unknown>; runId: string }) =>
+      result(runId, [event])),
+    error: vi.fn(async ({ message, runId }: { message?: string; runId: string }) =>
+      result(runId, [{ message, runId, type: "RUN_ERROR" }])),
+    finish: vi.fn(async ({ finishReason, runId }: { finishReason?: string; runId: string }) =>
+      result(runId, [{ finishReason: finishReason ?? "stop", runId, threadId: runId, type: "RUN_FINISHED" }])),
+    start: vi.fn(async ({ runId }: { runId: string }) =>
+      result(runId, [
+        { runId, threadId: runId, type: "RUN_STARTED" },
+        { messageId: `msg-${runId}`, role: "assistant", type: "TEXT_MESSAGE_START" },
       ])),
   };
 }

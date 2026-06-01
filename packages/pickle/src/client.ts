@@ -93,6 +93,12 @@ class DefaultMatrixClient implements MatrixClient {
         error: (opts) => this.#withCore((core) => core.errorBeeperAIRun(stripUndefined(opts))),
         finish: (opts) => this.#withCore((core) => core.finishBeeperAIRun(stripUndefined(opts))),
       },
+      aiRunStreams: {
+        appendEvent: (opts) => this.#withCore((core) => core.appendBeeperAIRunStreamEvent(stripUndefined(opts))),
+        error: (opts) => this.#withCore((core) => core.errorBeeperAIRunStream(stripUndefined(opts))),
+        finish: (opts) => this.#withCore((core) => core.finishBeeperAIRunStream(stripUndefined(opts))),
+        start: (opts) => this.#withCore((core) => core.startBeeperAIRunStream(stripUndefined(opts))),
+      },
       ephemeral: {
         send: (opts) =>
           this.#withCore((core) => core.sendEphemeralEvent(stripUndefined({

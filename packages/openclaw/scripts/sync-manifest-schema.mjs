@@ -9,7 +9,12 @@ const manifestPath = resolve(packageDir, "openclaw.plugin.json");
 const schema = JSON.parse(await readFile(schemaPath, "utf8"));
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 
-manifest.configSchema = schema;
+manifest.configSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {},
+};
+delete manifest.uiHints;
 manifest.channelConfigs ??= {};
 manifest.channelConfigs.beeper ??= {};
 manifest.channelConfigs.beeper.schema = schema;

@@ -34,6 +34,33 @@ function createStreamingClient() {
   return {
     ...createClient(),
     beeper: {
+      aiRunStreams: {
+        appendEvent: vi.fn(),
+        error: vi.fn(),
+        finish: vi.fn(),
+        start: vi.fn(async ({ agentId, agentName, runId }: { agentId?: string; agentName?: string; runId: string }) => ({
+          body: "...",
+          descriptor: { type: "com.beeper.llm", user_id: "@codex:example" },
+          eventId: "$stream",
+          events: [
+            { runId, threadId: runId, type: "RUN_STARTED" },
+            { messageId: `msg-${runId}`, role: "assistant", type: "TEXT_MESSAGE_START" },
+          ],
+          finalAIMessage: {},
+          initialAIMessage: {},
+          messageId: `msg-${runId}`,
+          metadata: {
+            agent: { displayName: agentName, id: agentId },
+            runId,
+            status: { state: "streaming" },
+            threadId: runId,
+          },
+          raw: {},
+          roomId: "!room",
+          runId,
+          threadId: runId,
+        })),
+      },
       aiRuns: {
         begin: vi.fn(async ({ agentId, agentName, runId }: { agentId?: string; agentName?: string; runId: string }) => ({
           body: "...",
@@ -252,17 +279,15 @@ describe("BeeperChannelRuntime", () => {
     });
     await stream.start();
 
-    expect(client.beeper.aiRuns.begin).toHaveBeenCalledWith(expect.objectContaining({
+    expect(client.beeper.aiRunStreams.start).toHaveBeenCalledWith(expect.objectContaining({
       agentId: "codex",
       agentName: "Codex",
       runId: "run_1",
     }));
-    expect(client.beeper.streams.startMessage).toHaveBeenCalledWith(expect.objectContaining({
-      content: expect.objectContaining({
-        "com.beeper.per_message_profile": {
-          displayname: "Codex",
-          id: "codex",
-        },
+    expect(client.beeper.aiRunStreams.start).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        agent_id: "codex",
+        agent_name: "Codex",
       }),
       userId: "@codex:example",
     }));

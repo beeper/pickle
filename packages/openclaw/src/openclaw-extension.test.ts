@@ -117,34 +117,12 @@ describe("OpenClaw plugin package metadata", () => {
     expect(manifest.channelEnvVars?.beeper).toContain("PICKLE_OPENCLAW_DEVICE_ID");
     expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_GATEWAY_ACCESS_TOKEN");
     expect(manifest.channelEnvVars?.beeper).not.toContain("OPENCLAW_GATEWAY_TOKEN");
-    expect(manifest.uiHints).toMatchObject({
-      accessToken: { sensitive: true },
-      asToken: { sensitive: true },
-      bridgeManagerToken: { sensitive: true },
-      hsToken: { sensitive: true },
+    expect(manifest.uiHints).toBeUndefined();
+    expect(manifest.configSchema).toEqual({
+      type: "object",
+      additionalProperties: false,
+      properties: {},
     });
-    expect(Object.keys(manifest.configSchema?.properties ?? {}).sort()).toEqual([
-      "accessToken",
-      "allowedRoomIds",
-      "allowedUserIds",
-      "approvalBehavior",
-      "appserviceId",
-      "asToken",
-      "backfillLimit",
-      "beeperEnv",
-      "bridgeId",
-      "bridgeManagerToken",
-      "contactVisibility",
-      "dataDir",
-      "enabled",
-      "homeserver",
-      "homeserverDomain",
-      "hsToken",
-      "importSources",
-      "matrixDeviceId",
-      "matrixUserId",
-    ]);
-    expect(manifest.configSchema).toEqual(schema);
     expect(manifest.channelConfigs?.beeper?.schema).toEqual(schema);
     expect(manifest.configSchema?.properties).not.toHaveProperty("streamFinalization");
     expect(manifest.channelConfigs?.beeper).toMatchObject({

@@ -418,6 +418,108 @@ func TestBeeperStreamPublishWithoutSubscribersSendsRoomCarrierEvent(t *testing.T
 	}
 }
 
+func TestBeeperAIRunStreamUsesCanonicalAIBridgeRun(t *testing.T) {
+	requests := make(chan recordedRequest, 16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.URL.Path}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"event_id":"$event"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@testbot:example"), "device-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.DeviceID = id.DeviceID("PICKLE")
+	cli.StateStore = mautrix.NewMemoryStateStore()
+	core.client = cli
+	core.beeperStream, err = beeperstream.New(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startReq, err := json.Marshal(MatrixStartBeeperAIRunStreamOptions{
+		MatrixBeginBeeperAIRunOptions: MatrixBeginBeeperAIRunOptions{
+			AgentID:   "codex",
+			AgentName: "Codex",
+			Data:      OutboundEvent{"session_key": "session-1"},
+			Model:     "openclaw/plugin",
+			RunID:     "run-1",
+			ThreadID:  "thread-1",
+		},
+		RoomID: "!room:example",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawStart, err := core.handleStartBeeperAIRunStream(context.Background(), startReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var startResult MatrixBeeperAIRunStreamResult
+	if err = json.Unmarshal(rawStart, &startResult); err != nil {
+		t.Fatal(err)
+	}
+	if startResult.EventID != "$event" || startResult.MessageID != "msg-run-1" {
+		t.Fatalf("unexpected start result: %#v", startResult)
+	}
+
+	appendReq, err := json.Marshal(MatrixAppendBeeperAIRunEventOptions{
+		Event: OutboundEvent{
+			"delta":     "hello",
+			"messageId": "provider-msg",
+			"type":      "TEXT_MESSAGE_CONTENT",
+		},
+		RunID: "run-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleAppendBeeperAIRunStreamEvent(context.Background(), appendReq); err != nil {
+		t.Fatal(err)
+	}
+	carrierBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"delta":"hello"`)
+	})
+	if !strings.Contains(carrierBody, `"messageId":"msg-run-1"`) {
+		t.Fatalf("expected canonical envelope message id, got %s", carrierBody)
+	}
+	if !strings.Contains(carrierBody, `"messageId":"provider-msg"`) {
+		t.Fatalf("expected original part payload to remain intact, got %s", carrierBody)
+	}
+
+	finishReq, err := json.Marshal(MatrixFinishBeeperAIRunOptions{
+		FinishReason: "stop",
+		RunID:        "run-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawFinish, err := core.handleFinishBeeperAIRunStream(context.Background(), finishReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finishResult MatrixBeeperAIRunStreamResult
+	if err = json.Unmarshal(rawFinish, &finishResult); err != nil {
+		t.Fatal(err)
+	}
+	if finishResult.ReplacementEventID == "" || finishResult.Body != "hello" {
+		t.Fatalf("unexpected finish result: %#v", finishResult)
+	}
+	if _, ok := core.beeperAIRuns["run-1"]; ok {
+		t.Fatal("expected finalized stream run to be deleted")
+	}
+	replacementBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"m.new_content"`)
+	})
+	if !strings.Contains(replacementBody, `"com.beeper.ai"`) || !strings.Contains(replacementBody, `"hello"`) {
+		t.Fatalf("expected final replacement to use ai-bridge final content, got %s", replacementBody)
+	}
+}
+
 func TestRegisterBeeperStreamInjectsDirectSubscribers(t *testing.T) {
 	requests := make(chan recordedRequest, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -501,6 +603,21 @@ func TestRegisterBeeperStreamInjectsDirectSubscribers(t *testing.T) {
 type recordedRequest struct {
 	body string
 	path string
+}
+
+func waitForRecordedRequest(t *testing.T, requests <-chan recordedRequest, matches func(recordedRequest) bool) string {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case req := <-requests:
+			if matches(req) {
+				return req.body
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for recorded request")
+		}
+	}
 }
 
 func mustJSON(t *testing.T, value any) json.RawMessage {

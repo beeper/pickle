@@ -40,24 +40,18 @@ export interface BeeperSetupInput {
   accessToken?: string;
   allowedRoomIds?: string[] | string;
   allowedUserIds?: string[] | string;
-  appserviceId?: string;
-  asToken?: string;
   approvalBehavior?: string;
   backfillLimit?: number | string;
   beeperEnv?: string;
-  bridgeManagerToken?: string;
-  bridgeId?: string;
   code?: string;
   contactVisibility?: string;
   dataDir?: string;
   email?: string;
   getOnly?: boolean | string;
-  homeserverDomain?: string;
   importSources?: string[] | string;
   postState?: boolean | string;
   push?: boolean | string;
   selfHosted?: boolean | string;
-  username?: string;
 }
 
 export interface BeeperSetupRuntime {
@@ -571,8 +565,8 @@ export const beeperSetupAdapter = {
     input: BeeperSetupInput;
     runtime?: BeeperSetupRuntime;
   }): OpenClawSetupConfig => {
-    if (input.email) {
-      throw new Error("Beeper email login is asynchronous; use the Beeper setup wizard or pickle-openclaw login.");
+    if (input.email || input.accessToken) {
+      throw new Error("Beeper login is asynchronous; use the Beeper setup wizard or pickle-openclaw login.");
     }
     return applyBeeperChannelSettings(cfg, normalizeBeeperSetupInput(input));
   },
@@ -610,16 +604,35 @@ export const beeperSetupWizard = {
       ...defaultBeeperChannelSettings(),
       ...getBeeperChannelSettings(ctx.cfg),
     };
-    const email = await ctx.prompter.text({
-      message: "Beeper email",
-      placeholder: "name@example.com",
-      validate: (value) => validateBeeperSetupInput({ email: value }) ?? undefined,
+    const loginMethod = await ctx.prompter.select<"email" | "token">({
+      message: "Beeper login method",
+      initialValue: "email",
+      options: [
+        { value: "email", label: "Email code" },
+        { value: "token", label: "Access token" },
+      ],
     });
-    const code = await ctx.prompter.text({
-      message: "Beeper login code",
-      sensitive: true,
-      validate: (value) => (value.trim() ? undefined : "Beeper login code is required."),
-    });
+    let email: string | undefined;
+    let code: string | undefined;
+    let accessToken: string | undefined;
+    if (loginMethod === "email") {
+      email = await ctx.prompter.text({
+        message: "Beeper email",
+        placeholder: "name@example.com",
+        validate: (value) => validateBeeperSetupInput({ email: value }) ?? undefined,
+      });
+      code = await ctx.prompter.text({
+        message: "Beeper login code",
+        sensitive: true,
+        validate: (value) => (value.trim() ? undefined : "Beeper login code is required."),
+      });
+    } else {
+      accessToken = await ctx.prompter.text({
+        message: "Beeper access token",
+        sensitive: true,
+        validate: (value) => validateBeeperSetupInput({ accessToken: value }) ?? undefined,
+      });
+    }
     const beeperEnv = await ctx.prompter.select<BeeperChannelSettings["beeperEnv"]>({
       message: "Beeper environment",
       initialValue: current.beeperEnv ?? "production",
@@ -629,17 +642,6 @@ export const beeperSetupWizard = {
         { value: "dev", label: "Development" },
         { value: "local", label: "Local" },
       ],
-    });
-    const bridgeManagerToken = await ctx.prompter.text({
-      message: "Bridge manager token",
-      ...(current.bridgeManagerToken ? { initialValue: current.bridgeManagerToken } : {}),
-      placeholder: "optional",
-      sensitive: true,
-    });
-    const homeserverDomain = await ctx.prompter.text({
-      message: "Homeserver domain",
-      ...(current.homeserverDomain ? { initialValue: current.homeserverDomain } : {}),
-      placeholder: "optional",
     });
     const importSources = await ctx.prompter.multiselect<BeeperImportSource>({
       message: "OpenClaw sessions to import",
@@ -677,16 +679,15 @@ export const beeperSetupWizard = {
     progress?.update("Logging in and registering appservice");
     try {
       const input: BeeperSetupInput = {
-        backfillLimit,
-        code,
-        email,
+        ...(accessToken ? { accessToken } : {}),
         importSources,
+        backfillLimit,
+        ...(code ? { code } : {}),
+        ...(email ? { email } : {}),
       };
       if (approvalBehavior !== undefined) input.approvalBehavior = approvalBehavior;
       if (beeperEnv !== undefined) input.beeperEnv = beeperEnv;
-      if (bridgeManagerToken.trim()) input.bridgeManagerToken = bridgeManagerToken.trim();
       if (contactVisibility !== undefined) input.contactVisibility = contactVisibility;
-      if (homeserverDomain.trim()) input.homeserverDomain = homeserverDomain.trim();
       const setupParams: Parameters<typeof applyBeeperSetupConfig>[0] = {
         cfg: ctx.cfg,
         input,
@@ -785,7 +786,7 @@ export async function applyBeeperSetupConfig(params: {
   runtime?: BeeperSetupRuntime;
 }): Promise<OpenClawSetupConfig> {
   const baseSettings = normalizeBeeperSetupInput(params.input);
-  if (!params.input.email) return applyBeeperChannelSettings(params.cfg, baseSettings);
+  if (!params.input.email && !params.input.accessToken) return applyBeeperChannelSettings(params.cfg, baseSettings);
   const setupBridge = params.runtime?.setupBridge ?? (await loadBeeperSetupBridge());
   const bridgeOptions = setupOptionsFromInput(params.input);
   const result = await setupBridge(bridgeOptions);
@@ -799,7 +800,6 @@ export async function applyBeeperSetupConfig(params: {
   if (result.config.asToken) setupSettings.asToken = result.config.asToken;
   if (result.config.bridgeId) setupSettings.bridgeId = result.config.bridgeId;
   if (result.config.homeserverDomain) setupSettings.homeserverDomain = result.config.homeserverDomain;
-  else if (params.input.homeserverDomain) setupSettings.homeserverDomain = params.input.homeserverDomain;
   if (result.config.hsToken) setupSettings.hsToken = result.config.hsToken;
   if (result.config.matrixDeviceId) setupSettings.matrixDeviceId = result.config.matrixDeviceId;
   if (result.config.matrixUserId) setupSettings.matrixUserId = result.config.matrixUserId;
@@ -815,8 +815,16 @@ export const BeeperChannelConfigSchemaForSdk = {
   uiHints: BeeperChannelUiHints,
 } as const;
 
+export const BeeperPluginConfigSchemaForSdk = {
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {},
+  },
+} as const;
+
 const BeeperChannelCapabilities: ChannelCapabilities = {
-  chatTypes: ["direct", "group", "thread"],
+  chatTypes: ["direct", "thread"],
   blockStreaming: true,
   media: true,
   nativeCommands: true,
@@ -1243,7 +1251,9 @@ export function defaultBeeperChannelSettings(): BeeperChannelSettings {
 }
 
 export function validateBeeperSetupInput(input: BeeperSetupInput): string | null {
+  if (input.email && input.accessToken) return "Choose either Beeper email login or access token, not both.";
   if (input.email !== undefined && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/u.test(input.email)) return "Beeper email must be a valid email address.";
+  if (input.accessToken !== undefined && !input.accessToken.trim()) return "Beeper access token is required.";
   if (input.beeperEnv !== undefined && normalizeBeeperEnv(input.beeperEnv) === undefined) return "Beeper environment must be production, staging, dev, or local.";
   if (input.contactVisibility !== undefined && normalizeContactVisibility(input.contactVisibility) === undefined) return "Contact visibility must be agents, agents-and-users, or none.";
   if (input.approvalBehavior !== undefined && normalizeApprovalBehavior(input.approvalBehavior) === undefined) return "Approval behavior must be native or disabled.";
@@ -1262,39 +1272,32 @@ export function normalizeBeeperSetupInput(input: BeeperSetupInput): Partial<Beep
   const contactVisibility = normalizeContactVisibility(input.contactVisibility);
   const importSources = normalizeImportSources(input.importSources);
   if (input.accessToken) settings.accessToken = input.accessToken;
-  if (input.appserviceId) settings.appserviceId = input.appserviceId;
-  if (input.asToken) settings.asToken = input.asToken;
   if (allowedRoomIds) settings.allowedRoomIds = allowedRoomIds;
   if (allowedUserIds) settings.allowedUserIds = allowedUserIds;
   if (approvalBehavior) settings.approvalBehavior = approvalBehavior;
   if (backfillLimit !== undefined) settings.backfillLimit = backfillLimit;
   if (beeperEnv) settings.beeperEnv = beeperEnv;
   if (contactVisibility) settings.contactVisibility = contactVisibility;
-  if (input.bridgeManagerToken) settings.bridgeManagerToken = input.bridgeManagerToken;
-  if (input.bridgeId) settings.bridgeId = input.bridgeId;
   if (input.dataDir) settings.dataDir = input.dataDir;
-  if (input.homeserverDomain) settings.homeserverDomain = input.homeserverDomain;
   if (importSources) settings.importSources = importSources;
   return settings;
 }
 
 export function setupOptionsFromInput(input: BeeperSetupInput): SetupOpenClawBeeperBridgeOptions {
-  if (!input.email) throw new Error("Beeper email is required for dashboard login setup");
-  const options: SetupOpenClawBeeperBridgeOptions = {
-    email: input.email,
-  };
+  if (!input.email && !input.accessToken) throw new Error("Beeper email or access token is required for setup");
+  if (input.email && input.accessToken) throw new Error("Choose either Beeper email login or access token, not both.");
+  const options: SetupOpenClawBeeperBridgeOptions = {};
+  if (input.email) options.email = input.email;
+  if (input.accessToken) options.accessToken = input.accessToken;
   const env = normalizeBeeperEnv(input.beeperEnv);
   const getOnly = normalizeOptionalBoolean(input.getOnly);
   const push = normalizeOptionalBoolean(input.push);
   const selfHosted = normalizeOptionalBoolean(input.selfHosted);
   if (env) options.env = env;
-  if (input.bridgeManagerToken) options.bridgeManagerToken = input.bridgeManagerToken;
   if (input.code) options.getLoginCode = () => input.code!;
   if (getOnly !== undefined) options.getOnly = getOnly;
-  if (input.homeserverDomain) options.homeserverDomain = input.homeserverDomain;
   if (push !== undefined) options.push = push;
   if (selfHosted !== undefined) options.selfHosted = selfHosted;
-  if (input.username) options.username = input.username;
   return options;
 }
 

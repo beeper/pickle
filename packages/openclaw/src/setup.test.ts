@@ -85,7 +85,7 @@ describe("OpenClaw Beeper setup surface", () => {
       label: "Beeper",
       selectionLabel: expect.any(String),
     }));
-    expect(beeperChannelPlugin.capabilities.chatTypes).toEqual(["direct", "group", "thread"]);
+    expect(beeperChannelPlugin.capabilities.chatTypes).toEqual(["direct", "thread"]);
     expect(beeperChannelPlugin.message).toEqual(expect.objectContaining({
       durableFinal: expect.objectContaining({
         capabilities: expect.objectContaining({
@@ -329,34 +329,26 @@ describe("OpenClaw Beeper setup surface", () => {
     });
   });
 
-  it("applies dashboard setup input into channels.beeper settings", async () => {
+  it("applies dashboard setup input into non-login channels.beeper settings", async () => {
     const cfg = await beeperSetupAdapter.applyAccountConfig({
       accountId: "default",
       cfg: {},
       input: {
-        accessToken: "mx",
         allowedRoomIds: "!one:example,!two:example,!one:example",
         allowedUserIds: ["@alice:example", "@bob:example", "@alice:example"],
-        appserviceId: "custom-openclaw",
         approvalBehavior: "native",
         backfillLimit: "42",
         beeperEnv: "staging",
-        bridgeId: "sh-openclaw-custom",
-        bridgeManagerToken: "hungry",
         contactVisibility: "agents-and-users",
         importSources: "dashboard,tui",
       },
     });
     expect(getBeeperChannelSettings(cfg)).toEqual({
-      accessToken: "mx",
       allowedRoomIds: ["!one:example", "!two:example"],
       allowedUserIds: ["@alice:example", "@bob:example"],
-      appserviceId: "custom-openclaw",
       approvalBehavior: "native",
       backfillLimit: 42,
       beeperEnv: "staging",
-      bridgeId: "sh-openclaw-custom",
-      bridgeManagerToken: "hungry",
       contactVisibility: "agents-and-users",
       enabled: true,
       importSources: ["dashboard", "tui"],
@@ -372,7 +364,15 @@ describe("OpenClaw Beeper setup surface", () => {
       input: {
         email: "alice@example.com",
       },
-    })).toThrow("Beeper email login is asynchronous");
+    })).toThrow("Beeper login is asynchronous");
+
+    expect(() => beeperSetupAdapter.applyAccountConfig({
+      accountId: "default",
+      cfg: {},
+      input: {
+        accessToken: "mx-token",
+      },
+    })).toThrow("Beeper login is asynchronous");
   });
 
   it("runs Beeper login and appservice registration from dashboard setup wizard input", async () => {
@@ -383,10 +383,6 @@ describe("OpenClaw Beeper setup surface", () => {
     const promptValues: Record<string, string> = {
       "Beeper email": "alice@example.com",
       "Beeper login code": "123456",
-      "Appservice callback URL": "http://127.0.0.1:29391",
-      "Beeper API base domain": "beeper.localtest.me",
-      "Bridge manager token": "hungry",
-      "Homeserver domain": "beeper.local",
       "Backfill limit per session": "500",
     };
     const result = await beeperSetupWizard.configureInteractive({
@@ -396,6 +392,7 @@ describe("OpenClaw Beeper setup surface", () => {
         multiselect: async () => ["dashboard", "tui"],
         progress: () => progress,
         select: async ({ message }) => {
+          if (message === "Beeper login method") return "email";
           if (message === "Beeper environment") return "dev";
           if (message === "Beeper contact visibility") return "agents";
           if (message === "Approval behavior") return "native";
@@ -413,8 +410,8 @@ describe("OpenClaw Beeper setup surface", () => {
         setupBridge: async (options) => {
           expect(options.email).toBe("alice@example.com");
           expect(options.env).toBe("dev");
-          expect(options.bridgeManagerToken).toBe("hungry");
-          expect(options.homeserverDomain).toBe("beeper.local");
+          expect(options).not.toHaveProperty("bridgeManagerToken");
+          expect(options).not.toHaveProperty("homeserverDomain");
           expect(await options.getLoginCode?.()).toBe("123456");
           return {
             account: {
@@ -452,28 +449,67 @@ describe("OpenClaw Beeper setup surface", () => {
       enabled: true,
       accessToken: "at",
       asToken: "as",
-      bridgeManagerToken: "hungry",
       bridgeId: "sh-openclaw-dev",
       homeserver: "https://matrix.example",
-      homeserverDomain: "beeper.local",
       hsToken: "hs",
       matrixDeviceId: "DEV",
       matrixUserId: "@alice:example",
     });
   });
 
-  it("keeps manually entered tokens in setup input", async () => {
-    const cfg = await beeperSetupAdapter.applyAccountConfig({
-      accountId: "default",
+  it("infers generated bridge settings from access token setup input", async () => {
+    const { applyBeeperSetupConfig } = await import("./setup");
+    const cfg = await applyBeeperSetupConfig({
       cfg: {},
       input: {
         accessToken: "at",
-        asToken: "as",
+        beeperEnv: "dev",
+      },
+      runtime: {
+        setupBridge: async (options) => {
+          expect(options.accessToken).toBe("at");
+          expect(options.email).toBeUndefined();
+          expect(options.env).toBe("dev");
+          return {
+            account: {
+              accessToken: "at",
+              deviceId: "DEV",
+              homeserver: "https://matrix.example",
+              userId: "@alice:example",
+            },
+            config: {
+              accessToken: "at",
+              appserviceId: "sh-openclaw-dev",
+              asToken: "as",
+              bridgeId: "sh-openclaw-dev",
+              homeserver: "https://matrix.example",
+              hsToken: "hs",
+              matrixDeviceId: "DEV",
+              matrixUserId: "@alice:example",
+            },
+            init: {
+              homeserver: "https://matrix.example",
+              registration: {
+                asToken: "as",
+                id: "sh-openclaw-dev",
+                hsToken: "hs",
+                url: "http://127.0.0.1:29391",
+              },
+            } as never,
+          };
+        },
       },
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       accessToken: "at",
+      appserviceId: "sh-openclaw-dev",
       asToken: "as",
+      beeperEnv: "dev",
+      bridgeId: "sh-openclaw-dev",
+      homeserver: "https://matrix.example",
+      hsToken: "hs",
+      matrixDeviceId: "DEV",
+      matrixUserId: "@alice:example",
     });
   });
 
@@ -506,8 +542,8 @@ describe("OpenClaw Beeper setup surface", () => {
         setupBridge: async (options) => {
           expect(options.email).toBe("alice@example.com");
           expect(options.env).toBe("dev");
-          expect(options.bridgeManagerToken).toBeUndefined();
-          expect(options.homeserverDomain).toBeUndefined();
+          expect(options).not.toHaveProperty("bridgeManagerToken");
+          expect(options).not.toHaveProperty("homeserverDomain");
           expect(await options.getLoginCode?.()).toBe("123456");
           return {
             account: {
@@ -566,6 +602,8 @@ describe("OpenClaw Beeper setup surface", () => {
 
   it("reports setup status and validates dashboard input", async () => {
     expect(validateBeeperSetupInput({ email: "not-email" })).toContain("valid email");
+    expect(validateBeeperSetupInput({ accessToken: "  " })).toContain("access token");
+    expect(validateBeeperSetupInput({ email: "alice@example.com", accessToken: "at" })).toContain("either");
     expect(validateBeeperSetupInput({ backfillLimit: "-1" })).toContain("non-negative");
     const cfg = applyBeeperChannelSettings({}, {
       enabled: true,
@@ -637,6 +675,7 @@ describe("OpenClaw Beeper setup surface", () => {
 	      appservice: { sendMessage: vi.fn(async () => ({ eventId: "$as" })) },
       beeper: {
         aiRuns: createTestBeeperAIRuns(),
+        aiRunStreams: createTestBeeperAIRunStreams(),
         streams: {
           finalizeMessage: vi.fn(async () => ({ replacementEventId: "$replace", roomId: "!room", raw: {} })),
           publishPart: vi.fn(async () => undefined),
@@ -702,14 +741,12 @@ describe("OpenClaw Beeper setup surface", () => {
       params: { message: "hello from tool" },
       sessionKey: "session_1",
     });
-    expect(client.beeper.streams.publishPart).toHaveBeenCalledWith(expect.objectContaining({
-      eventId: "$stream",
-      part: expect.objectContaining({
+    expect(client.beeper.aiRunStreams.appendEvent).toHaveBeenCalledWith(expect.objectContaining({
+      event: expect.objectContaining({
         delta: "hello from tool",
         type: "TEXT_MESSAGE_CONTENT",
       }),
-      roomId: "!room",
-      turnId: "run_1",
+      runId: "run_1",
     }));
 
 	    await beeperChannelPlugin.actions.handleAction({
@@ -804,5 +841,36 @@ function createTestBeeperAIRuns() {
       snapshot(runId, [{ message, runId, type: "RUN_ERROR" }])),
     finish: vi.fn(async ({ finishReason, runId }: { finishReason?: string; runId: string }) =>
       snapshot(runId, [{ finishReason: finishReason ?? "stop", runId, type: "RUN_FINISHED" }])),
+  };
+}
+
+function createTestBeeperAIRunStreams() {
+  const result = (runId: string, events: Record<string, unknown>[] = []) => ({
+    body: "...",
+    descriptor: { type: "com.beeper.llm" },
+    eventId: "$stream",
+    events,
+    finalAIMessage: {},
+    initialAIMessage: {},
+    messageId: `msg-${runId}`,
+    metadata: {},
+    raw: {},
+    replacementEventId: "$replace",
+    roomId: "!room",
+    runId,
+    threadId: runId,
+  });
+  return {
+    appendEvent: vi.fn(async ({ event, runId }: { event: Record<string, unknown>; runId: string }) =>
+      result(runId, [event])),
+    error: vi.fn(async ({ message, runId }: { message?: string; runId: string }) =>
+      result(runId, [{ message, runId, type: "RUN_ERROR" }])),
+    finish: vi.fn(async ({ finishReason, runId }: { finishReason?: string; runId: string }) =>
+      result(runId, [{ finishReason: finishReason ?? "stop", runId, type: "RUN_FINISHED" }])),
+    start: vi.fn(async ({ runId }: { runId: string }) =>
+      result(runId, [
+        { runId, threadId: runId, type: "RUN_STARTED" },
+        { messageId: `msg-${runId}`, role: "assistant", type: "TEXT_MESSAGE_START" },
+      ])),
   };
 }

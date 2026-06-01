@@ -1,5 +1,6 @@
 export { copyBytes } from "./bytes";
 export { createMatrixClient } from "./client";
+export { getMatrixWhoami } from "./auth";
 export { onInvite, onMessage, onRawEvent, onReaction } from "./helpers";
 export type {
   MatrixClient,
@@ -38,9 +39,11 @@ export type {
   MatrixAppendBeeperAIRunEventOptions,
   MatrixBeginBeeperAIRunOptions,
   MatrixBeeperAIRunSnapshot,
+  MatrixBeeperAIRunStreamResult,
   MatrixDeleteBeeperAIRunOptions,
   MatrixErrorBeeperAIRunOptions,
   MatrixFinishBeeperAIRunOptions,
+  MatrixStartBeeperAIRunStreamOptions,
 } from "./runtime-types";
 export type {
   ApplySyncResponseOptions,

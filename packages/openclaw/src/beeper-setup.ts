@@ -1,4 +1,4 @@
-import type { MatrixAppserviceInitOptions } from "@beeper/pickle";
+import { getMatrixWhoami, type MatrixAppserviceInitOptions } from "@beeper/pickle";
 import { createBeeperLogin, type BeeperAuthOptions, type BeeperEnvironment } from "@beeper/pickle/beeper/auth";
 import { createBeeperAppServiceInit, type CreateAppServiceOptions } from "@beeper/pickle-bridge";
 import { DEFAULT_REGISTRATION_URL } from "./config";
@@ -16,7 +16,8 @@ export interface BeeperSetupAccount {
 }
 
 export interface BeeperLoginForOpenClawOptions {
-  email: string;
+  accessToken?: string;
+  email?: string;
   env?: BeeperEnvironment;
   fetch?: typeof fetch;
   getLoginCode?: () => Promise<string> | string;
@@ -62,16 +63,11 @@ export interface CreateOpenClawBeeperAppServiceResult {
 }
 
 export interface SetupOpenClawBeeperBridgeOptions extends BeeperLoginForOpenClawOptions {
-  bridge?: string;
-  bridgeManagerToken?: string;
-  bridgeType?: string;
   createAppServiceInit?: CreateOpenClawBeeperAppServiceOptions["createAppServiceInit"];
   getOnly?: boolean;
-  homeserverDomain?: string;
   openClawDeviceId?: string;
   push?: boolean;
   selfHosted?: boolean;
-  username?: string;
 }
 
 export interface SetupOpenClawBeeperBridgeResult {
@@ -81,6 +77,32 @@ export interface SetupOpenClawBeeperBridgeResult {
 }
 
 export async function loginToBeeperForOpenClaw(options: BeeperLoginForOpenClawOptions): Promise<BeeperLoginForOpenClawResult> {
+  if (options.accessToken) {
+    const fetchImpl = options.fetch ?? fetch;
+    const homeserver = beeperMatrixHomeserver(options.env);
+    const whoami = await getMatrixWhoami(fetchImpl, {
+      accessToken: options.accessToken,
+      homeserver,
+      deviceId: "",
+      userId: "",
+    });
+    const account: BeeperSetupAccount = {
+      accessToken: options.accessToken,
+      deviceId: whoami.deviceId,
+      homeserver,
+      userId: whoami.userId,
+    };
+    return {
+      account,
+      config: {
+        accessToken: account.accessToken,
+        homeserver: account.homeserver,
+        matrixDeviceId: account.deviceId,
+        matrixUserId: account.userId,
+      },
+    };
+  }
+  if (!options.email) throw new Error("Beeper setup requires email login or an access token");
   const login = options.login ?? createBeeperLogin;
   const openClawDeviceId = options.openClawDeviceId ?? await resolveOpenClawDeviceId();
   const bridgeId = openClawBeeperBridgeId(openClawDeviceId);
@@ -153,15 +175,11 @@ export async function setupOpenClawBeeperBridge(
   };
   const baseDomain = beeperBaseDomain(options.env);
   if (baseDomain !== undefined) appserviceOptions.baseDomain = baseDomain;
-  if (options.bridgeManagerToken !== undefined) appserviceOptions.bridgeManagerToken = options.bridgeManagerToken;
-  if (options.bridgeType !== undefined) appserviceOptions.bridgeType = options.bridgeType;
   if (options.createAppServiceInit !== undefined) appserviceOptions.createAppServiceInit = options.createAppServiceInit;
   if (options.fetch !== undefined) appserviceOptions.fetch = options.fetch;
   if (options.getOnly !== undefined) appserviceOptions.getOnly = options.getOnly;
-  if (options.homeserverDomain !== undefined) appserviceOptions.homeserverDomain = options.homeserverDomain;
   if (options.push !== undefined) appserviceOptions.push = options.push;
   if (options.selfHosted !== undefined) appserviceOptions.selfHosted = options.selfHosted;
-  if (options.username !== undefined) appserviceOptions.username = options.username;
   const appservice = await createOpenClawBeeperAppService(appserviceOptions);
   return {
     account: login.account,
@@ -178,4 +196,8 @@ export function beeperBaseDomain(env: BeeperEnvironment | undefined): string | u
   if (env === "dev") return "beeper-dev.com";
   if (env === "local") return "beeper.localtest.me";
   return "beeper-staging.com";
+}
+
+export function beeperMatrixHomeserver(env: BeeperEnvironment | undefined): string {
+  return `https://matrix.${beeperBaseDomain(env) ?? "beeper.com"}`;
 }

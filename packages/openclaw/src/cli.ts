@@ -24,23 +24,19 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
     }
     if (command === "login") {
       const options = parseOptions(args);
-      const email = requiredStringOption(options, "email");
+      const email = stringOption(options, "email");
+      const accessToken = stringOption(options, "access-token");
+      if (!email && !accessToken) throw new Error("Missing required option --email or --access-token");
+      if (email && accessToken) throw new Error("Choose either --email or --access-token, not both");
       const setupOptions: Parameters<typeof setupOpenClawBeeperBridge>[0] = {
-        email,
         push: booleanOption(options, "push"),
         selfHosted: !booleanOption(options, "not-self-hosted"),
       };
-      const bridgeManagerToken = stringOption(options, "bridge-manager-token");
-      const bridgeType = stringOption(options, "bridge-type");
+      if (email !== undefined) setupOptions.email = email;
+      if (accessToken !== undefined) setupOptions.accessToken = accessToken;
       const env = beeperEnvOption(options);
-      const homeserverDomain = stringOption(options, "homeserver-domain");
-      const username = stringOption(options, "username");
-      if (bridgeManagerToken !== undefined) setupOptions.bridgeManagerToken = bridgeManagerToken;
-      if (bridgeType !== undefined) setupOptions.bridgeType = bridgeType;
       if (env !== undefined) setupOptions.env = env;
-      setupOptions.getLoginCode = () => promptForLoginCode(io);
-      if (homeserverDomain !== undefined) setupOptions.homeserverDomain = homeserverDomain;
-      if (username !== undefined) setupOptions.username = username;
+      if (email !== undefined) setupOptions.getLoginCode = () => promptForLoginCode(io);
       const result = await (deps.setupBridge ?? setupOpenClawBeeperBridge)(setupOptions);
       const config = createDefaultConfig({
         ...configOverridesFromOptions(options),
@@ -78,7 +74,7 @@ function helpText(): string {
     "  --config <path>",
     "  --data-dir <path>",
     "  --email <address>",
-    "  --bridge-manager-token <token>",
+    "  --access-token <token>",
     "  --env <production|staging|dev|local>",
     "",
   ].join("\n");
@@ -93,12 +89,8 @@ function configOverridesFromOptions(options: Map<string, string | boolean>): Par
 
 function beeperRuntimeOverridesFromOptions(options: Map<string, string | boolean>): Partial<OpenClawBridgeConfig> {
   const overrides: Partial<OpenClawBridgeConfig> = {};
-  const bridgeManagerToken = stringOption(options, "bridge-manager-token");
   const env = beeperEnvOption(options);
-  const homeserverDomain = stringOption(options, "homeserver-domain");
-  if (bridgeManagerToken !== undefined) overrides.bridgeManagerToken = bridgeManagerToken;
   if (env !== undefined) overrides.beeperEnv = env;
-  if (homeserverDomain !== undefined) overrides.homeserverDomain = homeserverDomain;
   return overrides;
 }
 
@@ -148,12 +140,6 @@ function parseOptions(args: string[]): Map<string, string | boolean> {
 function stringOption(options: Map<string, string | boolean>, key: string): string | undefined {
   const value = options.get(key);
   return typeof value === "string" ? value : undefined;
-}
-
-function requiredStringOption(options: Map<string, string | boolean>, key: string): string {
-  const value = stringOption(options, key);
-  if (!value) throw new Error(`Missing required option --${key}`);
-  return value;
 }
 
 function booleanOption(options: Map<string, string | boolean>, key: string): boolean {

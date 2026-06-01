@@ -79,6 +79,14 @@ const (
 	opErrorBeeperAIRun = "error_beeper_ai_run"
 	// ts:operation deleteBeeperAIRun delete_beeper_ai_run MatrixDeleteBeeperAIRunOptions void
 	opDeleteBeeperAIRun = "delete_beeper_ai_run"
+	// ts:operation startBeeperAIRunStream start_beeper_ai_run_stream MatrixStartBeeperAIRunStreamOptions MatrixBeeperAIRunStreamResult
+	opStartBeeperAIRunStream = "start_beeper_ai_run_stream"
+	// ts:operation appendBeeperAIRunStreamEvent append_beeper_ai_run_stream_event MatrixAppendBeeperAIRunEventOptions MatrixBeeperAIRunStreamResult
+	opAppendBeeperAIRunStreamEvent = "append_beeper_ai_run_stream_event"
+	// ts:operation finishBeeperAIRunStream finish_beeper_ai_run_stream MatrixFinishBeeperAIRunOptions MatrixBeeperAIRunStreamResult
+	opFinishBeeperAIRunStream = "finish_beeper_ai_run_stream"
+	// ts:operation errorBeeperAIRunStream error_beeper_ai_run_stream MatrixErrorBeeperAIRunOptions MatrixBeeperAIRunStreamResult
+	opErrorBeeperAIRunStream = "error_beeper_ai_run_stream"
 	// ts:operation setTyping set_typing MatrixTypingOptions void
 	opSetTyping = "set_typing"
 	// ts:operation fetchMessage fetch_message MatrixFetchMessageOptions MatrixFetchMessageResult

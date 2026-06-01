@@ -150,6 +150,14 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleErrorBeeperAIRun(payload)
 	case opDeleteBeeperAIRun:
 		return c.handleDeleteBeeperAIRun(payload)
+	case opStartBeeperAIRunStream:
+		return c.handleStartBeeperAIRunStream(ctx, payload)
+	case opAppendBeeperAIRunStreamEvent:
+		return c.handleAppendBeeperAIRunStreamEvent(ctx, payload)
+	case opFinishBeeperAIRunStream:
+		return c.handleFinishBeeperAIRunStream(ctx, payload)
+	case opErrorBeeperAIRunStream:
+		return c.handleErrorBeeperAIRunStream(ctx, payload)
 	case opSetTyping:
 		return c.handleSetTyping(ctx, payload)
 	case opFetchMessage:

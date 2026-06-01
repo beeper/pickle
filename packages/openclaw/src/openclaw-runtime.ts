@@ -989,62 +989,63 @@ function forwardAgentRuntimeStreamEvents(params: {
       normalizedStream: stream,
     });
     if (!matched) return;
+    const track = (promise: Promise<void>) => params.stream.trackExternal(promise);
     switch (stream) {
       case "assistant":
-        void params.stream.textPayload(data, "partial");
+        track(params.stream.textPayload(data, "partial"));
         break;
       case "thinking":
       case "reasoning":
-        void params.stream.reasoningPayload(data);
+        track(params.stream.reasoningPayload(data));
         break;
       case "tool":
         if (stringValue(data.phase) === "start") {
-          void params.stream.toolStart(data);
+          track(params.stream.toolStart(data));
         } else if (stringValue(data.phase) === "result" || isCompletePhase(stringValue(data.phase))) {
-          void params.stream.toolResult(data);
+          track(params.stream.toolResult(data));
         } else {
-          void params.stream.itemEvent({
+          track(params.stream.itemEvent({
             ...data,
             kind: "tool",
             progressText: stringValue(data.partialResult) ?? stringValue(data.output) ?? stringValue(data.result),
-          });
+          }));
         }
         break;
       case "item":
-        void params.stream.itemEvent(data);
+        track(params.stream.itemEvent(data));
         break;
       case "plan":
-        void params.stream.planUpdate(data);
+        track(params.stream.planUpdate(data));
         break;
       case "approval":
-        void params.stream.approvalEvent(data);
+        track(params.stream.approvalEvent(data));
         break;
       case "command_output":
       case "command-output":
-        void params.stream.commandOutput(data);
+        track(params.stream.commandOutput(data));
         break;
       case "patch":
-        void params.stream.patchSummary(data);
+        track(params.stream.patchSummary(data));
         break;
       case "state":
       case "snapshot":
-        void params.stream.stateSnapshot(data);
+        track(params.stream.stateSnapshot(data));
         break;
       case "source":
       case "sources":
-        void params.stream.customData("source", data);
+        track(params.stream.customData("source", data));
         break;
       case "file":
       case "files":
       case "document":
       case "documents":
-        void params.stream.customData("file", data);
+        track(params.stream.customData("file", data));
         break;
       case "data":
-        void params.stream.customData("data", data);
+        track(params.stream.customData("data", data));
         break;
       case "raw":
-        void params.stream.raw(stream, data);
+        track(params.stream.raw(stream, data));
         break;
       default:
         break;
@@ -1119,6 +1120,7 @@ function createBeeperReplyStreamEmitter(base: {
   let lastVisibleText = "";
   let lastReasoningText = "";
   let startPromise: Promise<void> | undefined;
+  const externalTasks = new Set<Promise<void>>();
   const toolInputs = new Map<string, unknown>();
   const toolNames = new Map<string, string>();
   const startedToolCalls = new Set<string>();
@@ -1176,6 +1178,24 @@ function createBeeperReplyStreamEmitter(base: {
     });
     await publisher.publishMany(list);
   };
+  const trackExternal = (promise: Promise<void>) => {
+    let tracked: Promise<void>;
+    tracked = promise.catch((error) => {
+      channelRuntime.debug("openclaw_beeper_external_stream_event_failed", {
+        error: errorText(error),
+        roomId: base.roomId,
+        runId: base.runId,
+      });
+    }).finally(() => {
+      externalTasks.delete(tracked);
+    });
+    externalTasks.add(tracked);
+  };
+  const drainExternal = async () => {
+    while (externalTasks.size > 0) {
+      await Promise.all([...externalTasks]);
+    }
+  };
   const textPayload = async (payload: unknown, source: "partial" | "block" | "final" = "partial") => {
     const text = replyPayloadText(payload);
     channelRuntime.debug("openclaw_beeper_text_payload_received", {
@@ -1228,6 +1248,7 @@ function createBeeperReplyStreamEmitter(base: {
   };
   return {
     start: ensureStarted,
+    trackExternal,
     assistantMessageStart: () => {
       lastVisibleText = "";
       emit("assistant.message.start", {});
@@ -1454,6 +1475,7 @@ function createBeeperReplyStreamEmitter(base: {
     },
     finish: async (payload?: unknown) => {
       if (payload !== undefined) await textPayload(payload, "final");
+      await drainExternal();
       if (!hasPublished || finalized) return;
       const preTerminal = closeReasoningPart(state);
       if (preTerminal.length > 0) await publisher.publishMany(preTerminal);
@@ -1472,6 +1494,7 @@ function createBeeperReplyStreamEmitter(base: {
     },
     fail: async (error: unknown) => {
       if (finalized) return;
+      await drainExternal();
       finalized = true;
       channelRuntime.debug("openclaw_beeper_stream_failing", {
         error: errorText(error),

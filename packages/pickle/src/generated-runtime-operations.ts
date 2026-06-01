@@ -17,6 +17,7 @@ import type {
   MatrixAppserviceUserOptions,
   MatrixBanUserOptions,
   MatrixBeeperAIRunSnapshot,
+  MatrixBeeperAIRunStreamResult,
   MatrixBeginBeeperAIRunOptions,
   MatrixCoreInitOptions,
   MatrixCreateRoomOptions,
@@ -81,6 +82,7 @@ import type {
   MatrixSetOwnAvatarURLOptions,
   MatrixSetOwnDisplayNameOptions,
   MatrixSetRoomAccountDataOptions,
+  MatrixStartBeeperAIRunStreamOptions,
   MatrixStartBeeperStreamMessageOptions,
   MatrixStartBeeperStreamMessageResult,
   MatrixSyncOnceOptions,
@@ -134,6 +136,10 @@ export interface MatrixCoreOperations {
   finishBeeperAIRun(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
   errorBeeperAIRun(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
   deleteBeeperAIRun(options: MatrixDeleteBeeperAIRunOptions): Promise<void>;
+  startBeeperAIRunStream(options: MatrixStartBeeperAIRunStreamOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  appendBeeperAIRunStreamEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  finishBeeperAIRunStream(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  errorBeeperAIRunStream(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
   setTyping(options: MatrixTypingOptions): Promise<void>;
   fetchMessage(options: MatrixFetchMessageOptions): Promise<MatrixFetchMessageResult>;
   fetchMessages(options: MatrixFetchMessagesOptions): Promise<MatrixFetchMessagesResult>;
@@ -325,6 +331,22 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   deleteBeeperAIRun(options: MatrixDeleteBeeperAIRunOptions): Promise<void> {
     return this.call<void>("delete_beeper_ai_run", options);
+  }
+
+  startBeeperAIRunStream(options: MatrixStartBeeperAIRunStreamOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("start_beeper_ai_run_stream", options);
+  }
+
+  appendBeeperAIRunStreamEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("append_beeper_ai_run_stream_event", options);
+  }
+
+  finishBeeperAIRunStream(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("finish_beeper_ai_run_stream", options);
+  }
+
+  errorBeeperAIRunStream(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("error_beeper_ai_run_stream", options);
   }
 
   setTyping(options: MatrixTypingOptions): Promise<void> {

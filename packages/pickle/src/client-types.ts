@@ -81,12 +81,14 @@ import type {
   MatrixAppendBeeperAIRunEventOptions,
   MatrixBeginBeeperAIRunOptions,
   MatrixBeeperAIRunSnapshot,
+  MatrixBeeperAIRunStreamResult,
   MatrixDeleteBeeperAIRunOptions,
   MatrixErrorBeeperAIRunOptions,
   MatrixFinalizeBeeperStreamMessageOptions,
   MatrixFinalizeBeeperStreamMessageResult,
   MatrixFinishBeeperAIRunOptions,
   MatrixPublishBeeperStreamMessagePartOptions,
+  MatrixStartBeeperAIRunStreamOptions,
   MatrixStartBeeperStreamMessageOptions,
   MatrixStartBeeperStreamMessageResult,
 } from "./runtime-types";
@@ -156,6 +158,12 @@ export interface MatrixBeeper {
     delete(options: MatrixDeleteBeeperAIRunOptions): Promise<void>;
     error(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
     finish(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+  };
+  aiRunStreams: {
+    appendEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult>;
+    error(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
+    finish(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
+    start(options: MatrixStartBeeperAIRunStreamOptions): Promise<MatrixBeeperAIRunStreamResult>;
   };
   ephemeral: {
     send(options: SendBeeperEphemeralOptions): Promise<SentEvent>;

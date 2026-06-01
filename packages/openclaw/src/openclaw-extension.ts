@@ -1,6 +1,6 @@
 import { defineChannelPluginEntry } from "openclaw/plugin-sdk/channel-core";
 import type { OpenClawPluginApi, PluginRuntime } from "openclaw/plugin-sdk/channel-core";
-import { BeeperChannelConfigSchemaForSdk, beeperChannelPlugin, setBeeperOpenClawPluginRuntime } from "./setup";
+import { BeeperPluginConfigSchemaForSdk, beeperChannelPlugin, setBeeperOpenClawPluginRuntime } from "./setup";
 
 type OpenClawBeeperPluginEntry = {
   channelPlugin: typeof beeperChannelPlugin;
@@ -17,7 +17,7 @@ export const openClawBeeperPlugin: OpenClawBeeperPluginEntry = defineChannelPlug
   name: "Beeper",
   description: "Bridge OpenClaw sessions and agents into Beeper.",
   plugin: beeperChannelPlugin,
-  configSchema: BeeperChannelConfigSchemaForSdk,
+  configSchema: BeeperPluginConfigSchemaForSdk,
   setRuntime: setOpenClawRuntime,
 });
 

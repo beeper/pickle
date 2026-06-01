@@ -65,12 +65,9 @@ describe("pickle-openclaw CLI", () => {
       "you@example.com",
       "--env",
       "staging",
-      "--bridge-manager-token",
-      "bridge-manager-token",
     ], io, { setupBridge })).resolves.toBe(0);
 
     expect(setupBridge).toHaveBeenCalledWith(expect.objectContaining({
-      bridgeManagerToken: "bridge-manager-token",
       email: "you@example.com",
       env: "staging",
       getLoginCode: expect.any(Function),
@@ -84,7 +81,6 @@ describe("pickle-openclaw CLI", () => {
       appserviceId: "sh-openclaw-device",
       asToken: "as-token",
       beeperEnv: "staging",
-      bridgeManagerToken: "bridge-manager-token",
       homeserver: "https://matrix.beeper.com",
       hsToken: "hs-token",
       matrixDeviceId: "DEVICE",
@@ -148,6 +144,45 @@ describe("pickle-openclaw CLI", () => {
 
     await expect(setupBridge.mock.calls[0]?.[0].getLoginCode()).resolves.toBe("654321");
     expect(io.stderrText).toContain("Enter Beeper login code:");
+  });
+
+  it("can register from an existing Beeper access token without prompting for OTP", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-token-"));
+    const setupBridge = successfulSetupBridge();
+    const io = captureIO();
+
+    await expect(runCli([
+      "login",
+      "--config",
+      join(dir, "config.json"),
+      "--access-token",
+      "mx-token",
+      "--env",
+      "staging",
+    ], io, { setupBridge })).resolves.toBe(0);
+
+    expect(setupBridge).toHaveBeenCalledWith(expect.objectContaining({
+      accessToken: "mx-token",
+      env: "staging",
+      push: false,
+      selfHosted: true,
+    }));
+    expect(setupBridge.mock.calls[0]?.[0]).not.toHaveProperty("getLoginCode");
+    expect(io.stderrText).not.toContain("Enter Beeper login code:");
+  });
+
+  it("rejects ambiguous login credentials", async () => {
+    const io = captureIO();
+
+    await expect(runCli([
+      "login",
+      "--email",
+      "you@example.com",
+      "--access-token",
+      "mx-token",
+    ], io)).resolves.toBe(1);
+
+    expect(io.stderrText).toContain("Choose either --email or --access-token");
   });
 
   it("prints the saved Beeper bridge identity", async () => {

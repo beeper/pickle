@@ -240,25 +240,35 @@ func (c *Core) handlePublishBeeperStreamMessagePart(ctx context.Context, payload
 	if err != nil {
 		return nil, err
 	}
+	if err := c.publishBeeperStreamCarrierContents(ctx, id.EventID(req.EventID), stream, contents); err != nil {
+		return nil, err
+	}
+	stream.nextSeq = nextSeq
+	return c.empty()
+}
+
+func (c *Core) publishBeeperStreamCarrierContents(ctx context.Context, eventID id.EventID, stream *beeperStreamMessage, contents []map[string]any) error {
+	if stream == nil {
+		return fmt.Errorf("beeper stream message %s is not registered", eventID)
+	}
 	for _, content := range contents {
 		if stream.direct {
-			if err := c.beeperStream.Publish(ctx, stream.roomID, id.EventID(req.EventID), content); err != nil {
-				return nil, err
+			if err := c.beeperStream.Publish(ctx, stream.roomID, eventID, content); err != nil {
+				return err
 			}
 		} else {
 			content["body"] = ""
 			content["msgtype"] = "m.text"
 			content["m.relates_to"] = map[string]any{
 				"rel_type": "m.reference",
-				"event_id": req.EventID,
+				"event_id": eventID.String(),
 			}
 			if _, err := c.sendBeeperStreamMessageEvent(ctx, stream.roomID.String(), "", stream.userID, content); err != nil {
-				return nil, err
+				return err
 			}
 		}
 	}
-	stream.nextSeq = nextSeq
-	return c.empty()
+	return nil
 }
 
 func (c *Core) beeperStreamCarrierContent(streamType string, req MatrixPublishBeeperStreamMessagePartOptions, seq int) (map[string]any, error) {
@@ -308,8 +318,16 @@ func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
+	result, err := c.finalizeBeeperStreamMessage(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
+func (c *Core) finalizeBeeperStreamMessage(ctx context.Context, req MatrixFinalizeBeeperStreamMessageOptions) (MatrixFinalizeBeeperStreamMessageResult, error) {
 	if req.RoomID == "" || req.EventID == "" {
-		return nil, errors.New("missing beeper stream finalize fields")
+		return MatrixFinalizeBeeperStreamMessageResult{}, errors.New("missing beeper stream finalize fields")
 	}
 	content := copyOutboundEvent(req.Content)
 	if content["body"] == nil {
@@ -323,7 +341,7 @@ func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []
 	topLevel["com.beeper.stream"] = nil
 	replacement, err := c.sendBeeperStreamReplacementEvent(ctx, req.RoomID, req.EventID, req.UserID, content, topLevel)
 	if err != nil {
-		return nil, err
+		return MatrixFinalizeBeeperStreamMessageResult{}, err
 	}
 	targetEventID := id.EventID(req.EventID)
 	if c.beeperStream != nil {
@@ -331,12 +349,12 @@ func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []
 		c.beeperStream.Unsubscribe(id.RoomID(req.RoomID), targetEventID)
 	}
 	delete(c.beeperStreamMessages, targetEventID)
-	return json.Marshal(MatrixFinalizeBeeperStreamMessageResult{
+	return MatrixFinalizeBeeperStreamMessageResult{
 		EventID:            req.EventID,
 		ReplacementEventID: replacement.EventID.String(),
 		RoomID:             req.RoomID,
 		Raw:                replacement,
-	})
+	}, nil
 }
 
 func (c *Core) sendBeeperStreamReplacementEvent(ctx context.Context, roomID, eventID, userID string, newContent, topLevel OutboundEvent) (*mautrix.RespSendEvent, error) {

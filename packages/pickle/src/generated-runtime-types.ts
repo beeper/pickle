@@ -129,6 +129,8 @@ export interface MatrixAppserviceTransactionOptions {
 export interface MatrixBeginBeeperAIRunOptions {
   agentId?: string;
   agentName?: string;
+  data?: { [key: string]: unknown };
+  messageId?: string;
   model?: string;
   runId?: string;
   threadId?: string;
@@ -140,11 +142,13 @@ export interface MatrixAppendBeeperAIRunEventOptions {
 export interface MatrixFinishBeeperAIRunOptions {
   finishReason?: string;
   runId: string;
+  terminal?: { [key: string]: unknown };
   usage?: unknown /* agui.Usage */;
 }
 export interface MatrixErrorBeeperAIRunOptions {
   message?: string;
   runId: string;
+  terminal?: { [key: string]: unknown };
   type?: "error" | "abort";
 }
 export interface MatrixDeleteBeeperAIRunOptions {
@@ -159,6 +163,20 @@ export interface MatrixBeeperAIRunSnapshot {
   messageId: string;
   runId: string;
   threadId: string;
+}
+export interface MatrixStartBeeperAIRunStreamOptions extends MatrixBeginBeeperAIRunOptions {
+  roomId: string;
+  streamType?: string;
+  subscribers?: MatrixBeeperStreamSubscriber[];
+  threadRootEventId?: string;
+  userId?: string;
+}
+export interface MatrixBeeperAIRunStreamResult extends MatrixBeeperAIRunSnapshot {
+  descriptor?: { [key: string]: unknown };
+  eventId: string;
+  raw?: unknown;
+  replacementEventId?: string;
+  roomId: string;
 }
 export interface MatrixCryptoStatus {
   deviceId?: string;
