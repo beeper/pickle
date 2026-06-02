@@ -181,7 +181,6 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
     const login = userLoginFromOpenClawConfig(this.config);
     const channelRuntime = new BeeperChannelRuntime({
       bridge: ctx.bridge,
-      client: ctx.client,
       getAgents: () => this.registry.data.agents,
       getBindingByRoom: (roomId) => this.registry.getBindingByRoom(roomId),
       getBindingBySessionKey: (sessionKey) => this.registry.getBindingBySessionKey(sessionKey),
@@ -286,8 +285,8 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     if (portal && params.createDM && !portal.mxid) {
       const portalOptions: Parameters<typeof ctx.bridge.createPortal>[1] = {
         id: portal.id,
+        ...agentPortalInfo(contact),
         metadata: portal.metadata,
-        name: contact.displayName,
         roomType: "dm",
         sender: contact.ghostUserId,
       };
@@ -506,22 +505,25 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     this.upsertPortalBinding(msg.portal);
   }
 
-  async handleMatrixRoomName(_ctx: BridgeRequestContext, msg: MatrixRoomName): Promise<void> {
+  async handleMatrixRoomName(_ctx: BridgeRequestContext, msg: MatrixRoomName): Promise<boolean> {
     const roomId = msg.portal.mxid;
     const binding = roomId ? this.#registry.getBindingByRoom(roomId) ?? bindingFromPortal(msg.portal, this.#runtime.config) : undefined;
-    if (!roomId || !binding || !msg.name) return;
+    if (!roomId || !binding || !msg.name) return false;
     this.#registry.upsertBinding({ ...binding, label: msg.name, updatedAt: Date.now() });
     await this.#registry.save();
+    return true;
   }
 
-  async handleMatrixRoomTopic(_ctx: BridgeRequestContext, msg: MatrixRoomTopic): Promise<void> {
-    if (!msg.portal.mxid || !this.isAllowedRoom(msg.portal.mxid)) return;
+  async handleMatrixRoomTopic(_ctx: BridgeRequestContext, msg: MatrixRoomTopic): Promise<boolean> {
+    if (!msg.portal.mxid || !this.isAllowedRoom(msg.portal.mxid)) return false;
     this.upsertPortalBinding(msg.portal);
+    return true;
   }
 
-  async handleMatrixRoomAvatar(_ctx: BridgeRequestContext, msg: MatrixRoomAvatar): Promise<void> {
-    if (!msg.portal.mxid || !this.isAllowedRoom(msg.portal.mxid)) return;
+  async handleMatrixRoomAvatar(_ctx: BridgeRequestContext, msg: MatrixRoomAvatar): Promise<boolean> {
+    if (!msg.portal.mxid || !this.isAllowedRoom(msg.portal.mxid)) return false;
     this.upsertPortalBinding(msg.portal);
+    return true;
   }
 
   async handleMatrixMembership(_ctx: BridgeRequestContext, msg: MatrixMembership): Promise<void> {
@@ -683,8 +685,8 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     let portal = portalForAgentWelcome(contact, this.#login.id);
     const portalOptions: Parameters<typeof ctx.bridge.createPortal>[1] = {
       id: portal.id,
+      ...agentPortalInfo(contact),
       metadata: portal.metadata,
-      name: contact.displayName,
       roomType: "dm",
       sender: contact.ghostUserId,
     };
@@ -705,20 +707,13 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     this.registerCanonicalPortalForBinding(ctx, portal, binding);
     await this.#registry.save();
   }
+
 }
 
 function inboundActivityPatch(now = Date.now()): OpenClawBridgeActivityPatch {
   return {
     lastEventAt: now,
     lastInboundAt: now,
-    lastTransportActivityAt: now,
-  };
-}
-
-function outboundActivityPatch(now = Date.now()): OpenClawBridgeActivityPatch {
-  return {
-    lastEventAt: now,
-    lastOutboundAt: now,
     lastTransportActivityAt: now,
   };
 }
@@ -865,6 +860,14 @@ function agentGhost(contact: OpenClawAgentContact) {
     metadata: { openclaw: contact },
     mxid: contact.ghostUserId,
   };
+}
+
+function agentPortalInfo(contact: OpenClawAgentContact): { avatarUrl?: string; name: string; topic?: string } {
+  const info: { avatarUrl?: string; name: string; topic?: string } = { name: contact.displayName };
+  const avatarUrl = contact.avatarMxc ?? contact.avatarUrl;
+  if (avatarUrl) info.avatarUrl = avatarUrl;
+  if (contact.description) info.topic = contact.description;
+  return info;
 }
 
 function agentAvatar(contact: OpenClawAgentContact): Avatar | undefined {

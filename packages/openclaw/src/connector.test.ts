@@ -731,6 +731,11 @@ describe("OpenClawBridgeConnector", () => {
       message: "hello",
       sessionKey: "agent:codex:session_1",
     });
+    expect(registry.getBindingByRoom("!room:example.com")).toMatchObject({
+      agentId: "codex",
+      kind: "session",
+      sessionKey: "agent:codex:session_1",
+    });
 
     await expect(api.handleMatrixReaction({} as BridgeRequestContext, {
       content: {
@@ -779,6 +784,60 @@ describe("OpenClawBridgeConnector", () => {
     expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$native-approval",
     }));
+  });
+
+  it("handles OpenClaw slash commands as normal agent turns without Matrix side notices", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-slash-command-test.json");
+    const runtime = runtimeWith({
+      responses: {
+        "sessions.create": { key: "agent:codex:session_1" },
+        "beeper.turn": { runId: "run_1", sessionKey: "agent:codex:session_1" },
+      },
+    });
+    const api = new OpenClawNetworkAPI({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      login: login(),
+      registry,
+      runtime,
+    });
+    const { ctx, sendMessage } = connectContext();
+    const portal = {
+      id: "agent:codex",
+      metadata: {
+        openclaw: {
+          agentId: "codex",
+          ghostUserId: "@codex:example.com",
+          sessionKey: "agent:codex",
+        },
+      },
+      mxid: "!room:example.com",
+      portalKey: { id: "agent:codex", receiver: "login" },
+      receiver: "login",
+    };
+
+    await expect(api.handleMatrixMessage(ctx as unknown as BridgeRequestContext, {
+      content: { body: "/session", msgtype: "m.text" },
+      event: { eventId: "$session-command" },
+      portal,
+      sender: { userId: "@alice:example.com" },
+      text: "/session",
+    } as MatrixMessage)).resolves.toEqual({ pending: false });
+
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$session-command",
+      matrix: expect.objectContaining({
+        command: { args: "", name: "session" },
+        roomId: "!room:example.com",
+        sender: "@alice:example.com",
+      }),
+      message: "/session",
+      sessionKey: "agent:codex:session_1",
+    }));
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(registry.getBindingByRoom("!room:example.com")).toMatchObject({
+      kind: "session",
+      sessionKey: "agent:codex:session_1",
+    });
   });
 
   it("parses Matrix replies and slash commands for OpenClaw turns", async () => {

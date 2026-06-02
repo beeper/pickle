@@ -19,6 +19,7 @@ import type {
   UserInfo as MatrixUserInfo,
 } from "@beeper/pickle";
 import type { BridgeDataStore } from "./store";
+import type { BeeperTurnStream, CreateBeeperTurnStreamOptions } from "./beeper-stream";
 
 export type BridgeID = string;
 export type UserID = string;
@@ -516,6 +517,7 @@ export interface PickleBridge {
   acceptMessageRequest(portalKey: PortalKey): Promise<MessageRequest>;
   createLogin(user: BridgeUser, flowId: string): Promise<LoginProcess>;
   createManagementRoom(options: BridgeCreateManagementRoomOptions): Promise<ManagementRoom>;
+  createBeeperTurnStream(options: Omit<CreateBeeperTurnStreamOptions, "client">): BeeperTurnStream;
   backfill(options: BridgeBackfillOptions): Promise<MatrixAppserviceBatchSendResult>;
   backfillMessages(login: UserLogin, params: FetchMessagesParams): Promise<MatrixAppserviceBatchSendResult>;
   backfillPortal(login: UserLogin, portal: PortalReference, params?: Omit<FetchMessagesParams, "portal">): Promise<MatrixAppserviceBatchSendResult>;
@@ -727,6 +729,7 @@ export interface MatrixCommandResponse {
 export type {
   MatrixAppserviceInitOptions,
   MatrixAppserviceSendMessageOptions,
+  SentEvent,
 };
 
 export interface MatrixDispatchResult {

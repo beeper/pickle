@@ -14,6 +14,7 @@ import {
   BeeperChannelRuntime,
   setBeeperChannelRuntimeForHost,
 } from "./beeper-channel-runtime";
+import { BeeperTurnStream } from "@beeper/pickle-bridge/beeper-stream";
 import {
   applyBeeperChannelSettings,
   beeperChannelConfig,
@@ -44,7 +45,17 @@ describe("OpenClaw Beeper official channel contracts", () => {
     cases: [{
       name: "default Beeper message actions",
       cfg: {},
-      expectedActions: ["send", "react", "read"],
+      expectedActions: [
+        "delete",
+        "edit",
+        "mark_unread",
+        "react",
+        "read",
+        "send",
+        "set-room-avatar",
+        "set-room-name",
+        "set-room-topic",
+      ],
     }],
   });
 
@@ -278,7 +289,17 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(beeperChannelPlugin.actions).toEqual(expect.any(Object));
     expect(beeperChannelPlugin.actions.describeMessageTool()).toMatchObject({
-      actions: ["send", "react", "read"],
+      actions: [
+        "send",
+        "edit",
+        "delete",
+        "react",
+        "read",
+        "mark_unread",
+        "set-room-name",
+        "set-room-topic",
+        "set-room-avatar",
+      ],
       capabilities: [],
     });
     expect(beeperChannelPlugin.actions.extractToolSend({
@@ -755,15 +776,18 @@ describe("OpenClaw Beeper setup surface", () => {
       },
 	      typing: { set: vi.fn(async () => undefined) },
 	    };
-	    const queued: unknown[] = [];
-	    const bridge = {
-	      flushRemoteEvents: vi.fn(async () => undefined),
-	      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
-	      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
-	    };
+    const queued: unknown[] = [];
+    const bridge = {
+      createBeeperTurnStream: vi.fn((options) => new BeeperTurnStream({
+        ...options,
+        client: client as never,
+      })),
+      flushRemoteEvents: vi.fn(async () => undefined),
+      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
+    };
     const runtime = new BeeperChannelRuntime({
 	      bridge: bridge as never,
-	      client: client as never,
       getAgents: () => [{
         avatarMxc: "mxc://avatar",
         description: "Helpful coding agent",
@@ -812,25 +836,50 @@ describe("OpenClaw Beeper setup surface", () => {
 
 	    await beeperChannelPlugin.actions.handleAction({
 	      action: "react",
-	      params: { eventId: sentMessageId, key: "+1", to: "!room" },
+	      params: { eventId: sentMessageId, emoji: "+1", roomId: "!room" },
 	    });
 	    expect(client.reactions.send).not.toHaveBeenCalled();
 
 	    await beeperChannelPlugin.heartbeat.sendTyping({ to: "!room" });
 	    expect(client.typing.set).not.toHaveBeenCalled();
 	    await beeperChannelPlugin.actions.handleAction({
+	      action: "edit",
+	      params: { eventId: sentMessageId, message: "edited", roomId: "!room" },
+	    });
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "delete",
+	      params: { eventId: sentMessageId, roomId: "!room" },
+	    });
+	    await beeperChannelPlugin.actions.handleAction({
 	      action: "read",
-	      params: { eventId: sentMessageId, to: "!room" },
+	      params: { eventId: sentMessageId, roomId: "!room" },
 	    });
 	    await beeperChannelPlugin.actions.handleAction({
 	      action: "mark_unread",
-	      params: { eventId: sentMessageId, to: "!room" },
+	      params: { eventId: sentMessageId, roomId: "!room" },
+	    });
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "set-room-name",
+	      params: { name: "Agent room", roomId: "!room" },
+	    });
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "set-room-topic",
+	      params: { roomId: "!room", topic: "Planning" },
+	    });
+	    await beeperChannelPlugin.actions.handleAction({
+	      action: "set-room-avatar",
+	      params: { avatarMxc: "mxc://example/avatar2", roomId: "!room" },
 	    });
 	    expect(queued.map((event) => (event as { getType: () => string }).getType())).toEqual([
 	      "reaction",
 	      "typing",
+	      "edit",
+	      "message_remove",
 	      "read_receipt",
 	      "mark_unread",
+	      "chat_info_change",
+	      "chat_info_change",
+	      "chat_info_change",
 	    ]);
 
     await expect(beeperChannelPlugin.directory.listPeersLive({

@@ -443,55 +443,118 @@ export const beeperApprovalCapability = {
   },
 } as const;
 
-const beeperMessageToolActions = ["send", "react", "read"] as const satisfies readonly ChannelMessageActionName[];
+const beeperMessageToolActions = [
+  "send",
+  "edit",
+  "delete",
+  "react",
+  "read",
+  "mark_unread",
+  "set-room-name",
+  "set-room-topic",
+  "set-room-avatar",
+] as const;
+
+type BeeperMessageToolAction = typeof beeperMessageToolActions[number];
+type BeeperActionContext = {
+  action: string;
+  params: Record<string, unknown>;
+  mediaReadFile?: (filePath: string) => Promise<Buffer>;
+  sessionKey?: string | null;
+};
 
 function beeperToolTextResult(text: string) {
   return { content: [{ type: "text" as const, text }], details: {} };
 }
 
+const beeperActionHandlers: Record<BeeperMessageToolAction, (ctx: BeeperActionContext) => Promise<ReturnType<typeof beeperToolTextResult>>> = {
+  send: async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const text = readRequiredString(ctx.params, "message");
+    const sent = await runtime.publishActiveText({
+      ...(ctx.sessionKey !== undefined ? { sessionKey: ctx.sessionKey } : {}),
+      text,
+    });
+    return beeperToolTextResult(`Published Beeper native stream text ${sent.eventId}`);
+  },
+  edit: async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const roomId = readRequiredBeeperRoomId(ctx.params);
+    const eventId = readRequiredString(ctx.params, "eventId");
+    const text = readRequiredString(ctx.params, "message");
+    const sent = await runtime.edit({ eventId, roomId, text });
+    return beeperToolTextResult(`Edited Beeper message ${sent.eventId}`);
+  },
+  delete: async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const roomId = readRequiredBeeperRoomId(ctx.params);
+    const eventId = readRequiredString(ctx.params, "eventId");
+    await runtime.redact({ eventId, roomId });
+    return beeperToolTextResult(`Deleted Beeper message ${eventId}`);
+  },
+  react: async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const roomId = readRequiredBeeperRoomId(ctx.params);
+    const eventId = readRequiredString(ctx.params, "eventId");
+    const emoji = readRequiredString(ctx.params, "emoji");
+    if (ctx.params.remove === true) {
+      await runtime.removeReaction({ emoji, eventId, roomId });
+      return beeperToolTextResult(`Removed Beeper reaction ${emoji}`);
+    }
+    const sent = await runtime.react({ emoji, eventId, roomId });
+    return beeperToolTextResult(`Sent Beeper reaction ${sent.eventId}`);
+  },
+  read: async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const roomId = readRequiredBeeperRoomId(ctx.params);
+    const eventId = readRequiredString(ctx.params, "eventId");
+    await runtime.readReceipt({ eventId, roomId });
+    return beeperToolTextResult(`Marked Beeper message read ${eventId}`);
+  },
+  mark_unread: async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const roomId = readRequiredBeeperRoomId(ctx.params);
+    const eventId = readRequiredString(ctx.params, "eventId");
+    const unread = ctx.params.unread !== false;
+    await runtime.markUnread({ eventId, roomId, unread });
+    return beeperToolTextResult(`${unread ? "Marked" : "Unmarked"} Beeper room unread`);
+  },
+  "set-room-name": async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const roomId = readRequiredBeeperRoomId(ctx.params);
+    const name = readRequiredString(ctx.params, "name");
+    await runtime.setRoomName({ name, roomId });
+    return beeperToolTextResult("Updated Beeper room name");
+  },
+  "set-room-topic": async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const roomId = readRequiredBeeperRoomId(ctx.params);
+    const topic = readRequiredString(ctx.params, "topic");
+    await runtime.setRoomTopic({ roomId, topic });
+    return beeperToolTextResult("Updated Beeper room topic");
+  },
+  "set-room-avatar": async (ctx) => {
+    const runtime = requireBeeperChannelRuntime();
+    const roomId = readRequiredBeeperRoomId(ctx.params);
+    const avatarMxc = readRequiredString(ctx.params, "avatarMxc");
+    if (!avatarMxc.startsWith("mxc://")) throw new Error("Beeper room avatar must be an mxc:// URI.");
+    await runtime.setRoomAvatar({ avatarMxc, roomId });
+    return beeperToolTextResult("Updated Beeper room avatar");
+  },
+};
+
 export const beeperMessageActions = {
   resolveExecutionMode: () => "gateway" as const,
   describeMessageTool: () => ({
-    actions: beeperMessageToolActions,
+    actions: beeperMessageToolActions as unknown as readonly ChannelMessageActionName[],
     capabilities: [],
   }),
   supportsAction: ({ action }: { action: string }) =>
-    action === "send" || action === "react" || action === "read",
+    isBeeperMessageToolAction(action),
   extractToolSend: () => null,
-  handleAction: async (ctx: { action: string; params: Record<string, unknown>; mediaReadFile?: (filePath: string) => Promise<Buffer>; sessionKey?: string | null }) => {
-    const runtime = requireBeeperChannelRuntime();
-    const params = ctx.params;
-    if (ctx.action === "send") {
-      const text = readRequiredString(params, "message", "text", "body");
-      const sent = await runtime.publishActiveText({
-        ...(ctx.sessionKey !== undefined ? { sessionKey: ctx.sessionKey } : {}),
-        text,
-      });
-      return beeperToolTextResult(`Published Beeper native stream text ${sent.eventId}`);
-    }
-    const roomId = resolveBeeperRoomTarget(readRequiredString(params, "to", "roomId", "channelId"));
-    if (ctx.action === "react") {
-      const eventId = readRequiredString(params, "messageId", "eventId");
-      const emoji = readRequiredString(params, "emoji", "reaction", "key");
-      const remove = params.remove === true;
-      if (remove) {
-        await runtime.removeReaction({ emoji, eventId, roomId });
-        return beeperToolTextResult(`Removed Beeper reaction ${emoji}`);
-      }
-      const sent = await runtime.react({ emoji, eventId, roomId });
-      return beeperToolTextResult(`Sent Beeper reaction ${sent.eventId}`);
-    }
-    if (ctx.action === "read") {
-      const eventId = readRequiredString(params, "messageId", "eventId");
-      await runtime.readReceipt({ eventId, roomId });
-      return beeperToolTextResult(`Marked Beeper message read ${eventId}`);
-    }
-    if (ctx.action === "mark_unread") {
-      const eventId = readRequiredString(params, "messageId", "eventId");
-      const unread = params.unread !== false;
-      await runtime.markUnread({ eventId, roomId, unread });
-      return beeperToolTextResult(`${unread ? "Marked" : "Unmarked"} Beeper room unread`);
-    }
+  handleAction: async (ctx: BeeperActionContext) => {
+    const handler = isBeeperMessageToolAction(ctx.action) ? beeperActionHandlers[ctx.action] : undefined;
+    if (handler) return handler(ctx);
     throw new Error(`Unsupported Beeper message action: ${ctx.action}`);
   },
 } as const;
@@ -848,6 +911,14 @@ function resolveBeeperRoomTarget(target: string): string {
   const normalized = normalizeBeeperConversationId(target);
   if (!normalized) throw new Error("Beeper target is required.");
   return normalized;
+}
+
+function readRequiredBeeperRoomId(params: Record<string, unknown>): string {
+  return resolveBeeperRoomTarget(readRequiredString(params, "roomId"));
+}
+
+function isBeeperMessageToolAction(action: string): action is BeeperMessageToolAction {
+  return (beeperMessageToolActions as readonly string[]).includes(action);
 }
 
 function beeperOutboundResult(sent: { eventId: string; roomId: string }): {

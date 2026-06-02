@@ -13,7 +13,7 @@ export default defineConfig({
     dts: ".d.ts",
   }),
   deps: {
-    neverBundle: ["@beeper/pickle", "@beeper/pickle/auth", "@beeper/pickle/node", "@beeper/pickle-state-file", "ws"],
+    neverBundle: ["@beeper/pickle", "@beeper/pickle/auth", "@beeper/pickle/beeper/auth", "@beeper/pickle/node", "@beeper/pickle-state-file", "ws"],
   },
   target: false,
 });

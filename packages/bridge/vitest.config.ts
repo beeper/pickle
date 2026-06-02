@@ -4,6 +4,7 @@ export default defineProject({
   resolve: {
     alias: {
       "@beeper/pickle/auth": new URL("../pickle/src/auth.ts", import.meta.url).pathname,
+      "@beeper/pickle/beeper/auth": new URL("../pickle/src/beeper/auth.ts", import.meta.url).pathname,
       "@beeper/pickle/node": new URL("../pickle/src/node.ts", import.meta.url).pathname,
       "@beeper/pickle": new URL("../pickle/src/index.ts", import.meta.url).pathname,
     },

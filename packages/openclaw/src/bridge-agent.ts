@@ -121,6 +121,7 @@ export class OpenClawMatrixBridgeAgent {
     const session = await this.runtime.createSession(createOptions);
     this.registry.updateBinding(binding.id, (current) => ({
       ...current,
+      kind: "session",
       sessionKey: session.key,
       updatedAt: Date.now(),
     }));

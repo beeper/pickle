@@ -1800,6 +1800,16 @@ function createBeeperReplyStreamEmitter(base: {
         ?? stringValue(data.title);
       if (!text) return;
       const activityType = stringValue(data.activityType) ?? stringValue(data.type) ?? "activity";
+      if (isWorkingPlaceholder(text)) {
+        channelRuntime.debug("openclaw_beeper_activity_suppressed", {
+          activityType,
+          reason: "working_placeholder",
+          roomId: base.roomId,
+          runId: base.runId,
+        });
+        await ensureStarted();
+        return;
+      }
       emit("activity.updated", { activityType, text });
       await publishPart({
         kind: "activity",

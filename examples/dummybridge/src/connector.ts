@@ -1,4 +1,4 @@
-import { createRemoteMessage } from "@beeper/pickle-bridge";
+import { createRemoteMessage } from "@beeper/pickle-bridge/events";
 import type {
   BridgeConfigPart,
   BridgeContext,

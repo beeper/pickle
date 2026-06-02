@@ -1,13 +1,20 @@
-import type { MatrixAppserviceInitOptions } from "@beeper/pickle";
-import { loginWithMatrixPassword, type MatrixPasswordAuthOptions } from "@beeper/pickle/auth";
-import { createBeeperLogin, type BeeperAuthOptions, type BeeperEnvironment } from "@beeper/pickle/beeper/auth";
-import { createBeeperAppServiceInit, type CreateAppServiceOptions } from "@beeper/pickle-bridge";
+import {
+  createBeeperAppServiceInit,
+  createBeeperLogin,
+  loginWithMatrixPassword,
+  type BeeperAuthOptions,
+  type BeeperEnvironment,
+  type CreateAppServiceOptions,
+  type MatrixAppserviceInitOptions,
+  type MatrixPasswordAuthOptions,
+} from "@beeper/pickle-bridge/beeper";
 import { DEFAULT_REGISTRATION_URL } from "./config";
 import { DEFAULT_BEEPER_BRIDGE_TYPE, openClawBeeperBridgeId } from "./ids";
 import { resolveOpenClawDeviceId } from "./openclaw-identity";
 import type { OpenClawBridgeConfig } from "./types";
 
 export { DEFAULT_BEEPER_BRIDGE_TYPE, openClawBeeperBridgeId };
+export type { BeeperEnvironment };
 
 export interface BeeperSetupAccount {
   accessToken: string;

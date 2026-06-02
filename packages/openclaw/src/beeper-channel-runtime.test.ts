@@ -5,6 +5,7 @@ import {
   requireBeeperChannelRuntimeForHost,
   setBeeperChannelRuntimeForHost,
 } from "./beeper-channel-runtime";
+import { BeeperTurnStream } from "@beeper/pickle-bridge/beeper-stream";
 
 function createClient() {
   return {
@@ -102,11 +103,23 @@ function createStreamingClient() {
   };
 }
 
+function createBridge(client: ReturnType<typeof createClient> | ReturnType<typeof createStreamingClient>, queued: unknown[] = []) {
+  return {
+    createBeeperTurnStream: vi.fn((options) => new BeeperTurnStream({
+      ...options,
+      client: client as never,
+    })),
+    flushRemoteEvents: vi.fn(async () => undefined),
+    getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+    queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
+    uploadMedia: vi.fn((options: Parameters<ReturnType<typeof createClient>["media"]["upload"]>[0]) => client.media.upload(options)),
+  };
+}
+
 describe("BeeperChannelRuntime", () => {
   it("requires bridge portal routing for outbound message operations", async () => {
     const client = createClient();
     const runtime = new BeeperChannelRuntime({
-      client: client as never,
       getAgents: () => [{ id: "codex", name: "Codex" }],
     });
 
@@ -118,14 +131,9 @@ describe("BeeperChannelRuntime", () => {
   it("queues Matrix event ids as bundled bridge update targets", async () => {
     const client = createClient();
     const queued: unknown[] = [];
-    const bridge = {
-      flushRemoteEvents: vi.fn(async () => undefined),
-      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
-      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
-    };
+    const bridge = createBridge(client, queued);
     const runtime = new BeeperChannelRuntime({
       bridge: bridge as never,
-      client: client as never,
       login: { id: "openclaw:plugin" },
     });
 
@@ -145,14 +153,9 @@ describe("BeeperChannelRuntime", () => {
   it("prefers bridge remote events for bound portal message operations", async () => {
     const client = createClient();
     const queued: unknown[] = [];
-    const bridge = {
-      flushRemoteEvents: vi.fn(async () => undefined),
-      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
-      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
-    };
+    const bridge = createBridge(client, queued);
     const runtime = new BeeperChannelRuntime({
       bridge: bridge as never,
-      client: client as never,
       getBindingByRoom: () => ({
         agentId: "codex",
         createdAt: 1,
@@ -184,6 +187,10 @@ describe("BeeperChannelRuntime", () => {
     expect((await messageEvent.convertMessage()).parts[0]?.content).toEqual({ body: "from agent", msgtype: "m.text" });
 
     await runtime.sendMedia({ bytes: new Uint8Array([1]), caption: "cap", filename: "a.txt", roomId: "!room" });
+    expect(bridge.uploadMedia).toHaveBeenCalledWith({
+      bytes: new Uint8Array([1]),
+      filename: "a.txt",
+    });
     expect(client.media.upload).toHaveBeenCalledWith({
       bytes: new Uint8Array([1]),
       filename: "a.txt",
@@ -218,18 +225,14 @@ describe("BeeperChannelRuntime", () => {
   it("routes OpenClaw session targets through their bound Beeper portal", async () => {
     const client = createClient();
     const queued: unknown[] = [];
-    const bridge = {
-      flushRemoteEvents: vi.fn(async () => undefined),
-      getPortalByMXID: vi.fn((roomId: string) =>
+    const bridge = createBridge(client, queued);
+    bridge.getPortalByMXID.mockImplementation((roomId: string) =>
         roomId === "!room"
           ? { portalKey: { id: "session:one", receiver: "openclaw:plugin" } }
           : undefined
-      ),
-      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
-    };
+      );
     const runtime = new BeeperChannelRuntime({
       bridge: bridge as never,
-      client: client as never,
       getBindingBySessionKey: (sessionKey) =>
         sessionKey === "agent:main:beeper:abc"
           ? {
@@ -259,8 +262,9 @@ describe("BeeperChannelRuntime", () => {
 
   it("starts native streams as the bound assistant ghost", async () => {
     const client = createStreamingClient();
+    const bridge = createBridge(client);
     const runtime = new BeeperChannelRuntime({
-      client: client as never,
+      bridge: bridge as never,
       getAgents: () => [{
         agentId: "codex",
         displayName: "Codex",
@@ -277,6 +281,7 @@ describe("BeeperChannelRuntime", () => {
         sessionKey: "agent:codex:desktop",
         updatedAt: 1,
       }),
+      login: { id: "openclaw:plugin" },
       userId: "@bot:example",
     });
 
@@ -304,7 +309,7 @@ describe("BeeperChannelRuntime", () => {
 
   it("stores Beeper runtimes by OpenClaw host runtime", () => {
     const hostRuntime = {};
-    const scopedRuntime = new BeeperChannelRuntime({ client: createClient() as never });
+    const scopedRuntime = new BeeperChannelRuntime({});
 
     setBeeperChannelRuntimeForHost(hostRuntime, scopedRuntime);
 

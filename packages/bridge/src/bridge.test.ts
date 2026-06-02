@@ -1,7 +1,7 @@
 import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle";
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeBridge } from "./bridge";
-import { createRemoteMessage } from "./events";
+import { createRemoteChatInfoChange, createRemoteMessage } from "./events";
 import type { BridgeDataStore } from "./store";
 import type {
   BridgeConnector,
@@ -427,6 +427,100 @@ describe("RuntimeBridge", () => {
     expect(client.messages.markRead).toHaveBeenCalledWith({ eventId: "$edit", roomId: "!room:example" });
     expect(bridge.getPortal(portalKey)?.metadata).toMatchObject({ unread: false });
     expect(client.typing.set).toHaveBeenCalledWith({ roomId: "!room:example", timeoutMs: 5000, typing: true });
+  });
+
+  it("applies remote chat info changes as bridge-owned Matrix room state", async () => {
+    const client = createFakeMatrixClient();
+    const dataStore = createFakeBridgeDataStore();
+    const connector = createFakeConnector(createFakeNetworkAPI());
+    const bridge = new RuntimeBridge({ connector, dataStore, matrix: matrixConfig() }, client);
+    const login: UserLogin = { id: "login:a" };
+    const portalKey = { id: "remote-room", receiver: login.id };
+
+    await bridge.start();
+    bridge.registerPortal({
+      avatar: { mxc: "mxc://example/old" },
+      id: "remote-room",
+      mxid: "!room:example",
+      name: "Old",
+      portalKey,
+      topic: "Old topic",
+    });
+    bridge.queueRemoteEvent(login, createRemoteChatInfoChange({
+      chatInfoChange: {
+        chatInfo: {
+          avatar: { mxc: "mxc://example/new" },
+          name: "New name",
+          topic: "New topic",
+        },
+      },
+      portalKey,
+      sender: { isFromMe: false, sender: "remote-user" },
+    }));
+    await bridge.flushRemoteEvents();
+
+    expect(client.rooms.sendStateEvent).toHaveBeenCalledWith({
+      content: { name: "New name" },
+      eventType: "m.room.name",
+      roomId: "!room:example",
+      stateKey: "",
+    });
+    expect(client.rooms.sendStateEvent).toHaveBeenCalledWith({
+      content: { topic: "New topic" },
+      eventType: "m.room.topic",
+      roomId: "!room:example",
+      stateKey: "",
+    });
+    expect(client.rooms.sendStateEvent).toHaveBeenCalledWith({
+      content: { url: "mxc://example/new" },
+      eventType: "m.room.avatar",
+      roomId: "!room:example",
+      stateKey: "",
+    });
+    expect(bridge.getPortal(portalKey)).toMatchObject({
+      avatar: { mxc: "mxc://example/new" },
+      name: "New name",
+      topic: "New topic",
+    });
+    expect(dataStore.setPortal).toHaveBeenCalledWith(expect.objectContaining({
+      avatar: { mxc: "mxc://example/new" },
+      name: "New name",
+      topic: "New topic",
+    }));
+  });
+
+  it("exposes generic bridge-owned room state reads and writes", async () => {
+    const client = createFakeMatrixClient();
+    const connector = createFakeConnector(createFakeNetworkAPI());
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+
+    await bridge.start();
+    await expect(bridge.roomState.get({
+      eventType: "com.example.state",
+      roomId: "!room:example",
+    })).resolves.toMatchObject({
+      content: { ok: true },
+      eventType: "com.example.state",
+      roomId: "!room:example",
+      stateKey: "",
+    });
+    await bridge.roomState.set({
+      content: { model: "beeper/openai/gpt-5.5" },
+      eventType: "com.beeper.ai.model",
+      roomId: "!room:example",
+    });
+
+    expect(client.rooms.getStateEvent).toHaveBeenCalledWith({
+      eventType: "com.example.state",
+      roomId: "!room:example",
+      stateKey: "",
+    });
+    expect(client.rooms.sendStateEvent).toHaveBeenCalledWith({
+      content: { model: "beeper/openai/gpt-5.5" },
+      eventType: "com.beeper.ai.model",
+      roomId: "!room:example",
+      stateKey: "",
+    });
   });
 
   it("updates bundled Matrix event targets through bridgev2 remote events", async () => {
@@ -1359,9 +1453,9 @@ function createFakeNetworkAPI(): FakeNetworkAPI {
     handleMatrixReaction: vi.fn(),
     handleMatrixReactionRemove: vi.fn(),
     handleMatrixReadReceipt: vi.fn(),
-    handleMatrixRoomAvatar: vi.fn(),
-    handleMatrixRoomName: vi.fn(),
-    handleMatrixRoomTopic: vi.fn(),
+    handleMatrixRoomAvatar: vi.fn(async () => true),
+    handleMatrixRoomName: vi.fn(async () => true),
+    handleMatrixRoomTopic: vi.fn(async () => true),
     handleMatrixTyping: vi.fn(),
   };
 }
@@ -1497,7 +1591,21 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
     receipts: {
       send: vi.fn(async () => undefined),
     },
-    rooms: {} as MatrixClient["rooms"],
+    rooms: {
+      getStateEvent: vi.fn(async (options) => ({
+        content: { ok: true },
+        eventId: "$state",
+        eventType: options.eventType,
+        raw: {},
+        roomId: options.roomId,
+        stateKey: options.stateKey ?? "",
+      })),
+      sendStateEvent: vi.fn(async (options) => ({
+        eventId: "$state-sent",
+        raw: {},
+        roomId: options.roomId,
+      })),
+    } as unknown as MatrixClient["rooms"],
     streams: {} as MatrixClient["streams"],
     subscribe: vi.fn(async (_filter, _handler: (event: MatrixClientEvent) => void | Promise<void>) => subscription),
     subscription,

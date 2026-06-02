@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
-import type { BeeperEnvironment } from "@beeper/pickle/beeper/auth";
-import { setupOpenClawBeeperBridge } from "./beeper-setup";
+import { setupOpenClawBeeperBridge, type BeeperEnvironment } from "./beeper-setup";
 import { createDefaultConfig, defaultConfigPath, readConfig, writeConfig } from "./config";
 import type { OpenClawBridgeConfig } from "./types";
 

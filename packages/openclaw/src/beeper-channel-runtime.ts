@@ -1,9 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import type { MatrixClient, SentEvent } from "@beeper/pickle";
 import {
-  createRemoteMessage,
   type PickleBridge,
+  type ChatInfo,
   type Message,
   type PortalKey,
   type RemoteDeliveryReceipt,
@@ -15,10 +14,12 @@ import {
   type RemoteReaction,
   type RemoteReactionRemove,
   type RemoteTyping,
+  type SentEvent,
   type UserLogin,
 } from "@beeper/pickle-bridge";
+import { createRemoteChatInfoChange, createRemoteMessage } from "@beeper/pickle-bridge/events";
 import { BeeperTurnStream } from "@beeper/pickle-bridge/beeper-stream";
-import { uploadBridgeMediaMessage, type BridgeMediaKind } from "@beeper/pickle-bridge/media-message";
+import { bridgeMediaMessageContent, type BridgeMediaKind } from "@beeper/pickle-bridge/media-message";
 import { AGUIEventType } from "./beeper-turn-events";
 import type { OpenClawAgentContact, OpenClawSessionBinding } from "./types";
 
@@ -26,7 +27,6 @@ export const BEEPER_CHANNEL_RUNTIME_CONTEXT_CAPABILITY = "beeper.runtime";
 
 export interface BeeperChannelRuntimeOptions {
   bridge?: PickleBridge;
-  client: MatrixClient;
   getAgents?: () => readonly OpenClawAgentContact[];
   getBindingByRoom?: (roomId: string) => OpenClawSessionBinding | undefined;
   getBindingBySessionKey?: (sessionKey: string) => OpenClawSessionBinding | undefined;
@@ -46,7 +46,6 @@ export interface BeeperOutboundMedia {
 }
 
 export class BeeperChannelRuntime {
-  readonly client: MatrixClient;
   readonly userId: string | undefined;
   #bridge: PickleBridge | undefined;
   #getAgents: () => readonly OpenClawAgentContact[];
@@ -59,7 +58,6 @@ export class BeeperChannelRuntime {
 
   constructor(options: BeeperChannelRuntimeOptions) {
     this.#bridge = options.bridge;
-    this.client = options.client;
     this.#getAgents = options.getAgents ?? (() => []);
     this.#getBindingByRoom = options.getBindingByRoom ?? (() => undefined);
     this.#getBindingBySessionKey = options.getBindingBySessionKey ?? (() => undefined);
@@ -142,6 +140,18 @@ export class BeeperChannelRuntime {
     await this.#queueRemoteMarkUnread(options.roomId, options.eventId, options.unread);
   }
 
+  async setRoomName(options: { name: string; roomId: string }): Promise<void> {
+    await this.#queueRemoteChatInfo(options.roomId, { name: options.name });
+  }
+
+  async setRoomTopic(options: { roomId: string; topic: string }): Promise<void> {
+    await this.#queueRemoteChatInfo(options.roomId, { topic: options.topic });
+  }
+
+  async setRoomAvatar(options: { avatarMxc: string; roomId: string }): Promise<void> {
+    await this.#queueRemoteChatInfo(options.roomId, { avatar: { mxc: options.avatarMxc } });
+  }
+
   createStreamPublisher(options: {
     agentId?: string;
     roomId: string;
@@ -149,11 +159,11 @@ export class BeeperChannelRuntime {
     sessionKey: string;
     threadRoot?: string;
   }): BeeperTurnStream {
+    const route = this.#bridgeRoute(options.roomId);
     const binding = this.#resolveBinding(options.roomId) ?? this.#getBindingBySessionKey(options.sessionKey);
     const agent = options.agentId ? this.#getAgents().find((candidate) => candidate.agentId === options.agentId) : undefined;
     const userId = binding?.ghostUserId ?? agent?.ghostUserId ?? this.userId;
-    const publisher = new BeeperTurnStream({
-      client: this.client,
+    const publisher = route.bridge.createBeeperTurnStream({
       initialMessageMetadata: {
         agent_id: options.agentId,
         ...(agent?.displayName ? { agent_name: agent.displayName } : {}),
@@ -230,11 +240,20 @@ export class BeeperChannelRuntime {
 
   async #queueRemoteMedia(roomId: string, options: { bytes: Uint8Array; caption?: string; filename?: string; kind: NonNullable<BeeperOutboundMedia["kind"]> }): Promise<SentEvent> {
     const route = this.#bridgeRoute(roomId);
-    const media = await uploadBridgeMediaMessage(this.client, options);
+    const upload = await route.bridge.uploadMedia({
+      bytes: options.bytes,
+      ...(options.filename !== undefined ? { filename: options.filename } : {}),
+    });
+    const content = bridgeMediaMessageContent({
+      contentUri: upload.contentUri,
+      kind: options.kind,
+      ...(options.caption !== undefined ? { caption: options.caption } : {}),
+      ...(options.filename !== undefined ? { filename: options.filename } : {}),
+    });
     const messageId = openClawRemoteId();
     route.bridge.queueRemoteEvent(route.login, createRemoteMessage({
       convert: () => ({
-        parts: [media.part],
+        parts: [{ content, type: "m.room.message" }],
       }),
       data: {},
       id: messageId,
@@ -244,6 +263,17 @@ export class BeeperChannelRuntime {
     await route.bridge.flushRemoteEvents();
     this.recordOutboundActivity();
     return { eventId: messageId, raw: { bridgeQueued: true }, roomId };
+  }
+
+  async #queueRemoteChatInfo(roomId: string, chatInfo: ChatInfo): Promise<void> {
+    const route = this.#bridgeRoute(roomId);
+    route.bridge.queueRemoteEvent(route.login, createRemoteChatInfoChange({
+      chatInfoChange: { chatInfo },
+      portalKey: route.portalKey,
+      sender: this.#eventSender(roomId),
+    }));
+    await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
   }
 
   async #queueRemoteEdit(roomId: string, targetMessageId: string, content: Record<string, unknown>): Promise<SentEvent> {

@@ -8,6 +8,8 @@ import type {
   MessageID,
   Portal,
   RemoteChatInfoChange,
+  RemoteEventWithStreamOrder,
+  RemoteEventWithTimestamp,
   RemoteEventType,
   RemoteMessage,
   RemoteMessageWithTransactionID,
@@ -53,7 +55,7 @@ export function createRemoteMessage<T>(options: CreateRemoteMessageOptions<T>): 
   };
 }
 
-export function createRemoteChatInfoChange(options: CreateRemoteChatInfoChangeOptions): RemoteChatInfoChange {
+export function createRemoteChatInfoChange(options: CreateRemoteChatInfoChangeOptions): RemoteChatInfoChange & RemoteEventWithTimestamp & RemoteEventWithStreamOrder {
   const timestamp = options.timestamp ?? new Date();
   const streamOrder = options.streamOrder ?? timestamp.getTime();
   return {

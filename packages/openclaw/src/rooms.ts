@@ -1,6 +1,5 @@
-import type { MatrixClient } from "@beeper/pickle";
-import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding } from "./types";
-import { openClawAgentGhostLocalpart, openClawRoomCreationPreset, openClawSenderLocalpart } from "./registration";
+import type { OpenClawAgentContact, OpenClawBridgeConfig } from "./types";
+import { openClawAgentGhostLocalpart, openClawSenderLocalpart } from "./registration";
 
 export function bindingIdForRoom(roomId: string): string {
   return Buffer.from(roomId).toString("base64url");
@@ -47,52 +46,6 @@ export function agentContactFromOpenClawAgent(
   if (avatarUrl) contact.avatarUrl = avatarUrl;
   if (description) contact.description = description;
   return contact;
-}
-
-export async function createSessionRoom(
-  client: Pick<MatrixClient, "appservice">,
-  config: OpenClawBridgeConfig,
-  options: {
-    agent: OpenClawAgentContact;
-    cwd?: string;
-    domain?: string;
-    label?: string;
-    sessionKey: string;
-    spaceId?: string;
-  }
-): Promise<OpenClawSessionBinding> {
-  const now = Date.now();
-  const domain = options.domain ?? matrixDomainFromHomeserver(config.homeserver);
-  const roomName = options.label ?? `${options.agent.displayName}: ${options.sessionKey}`;
-  const topic = [
-    `OpenClaw agent: ${options.agent.agentId}`,
-    `session: ${options.sessionKey}`,
-    options.cwd ? `cwd: ${options.cwd}` : undefined,
-  ].filter(Boolean).join("\n");
-  const result = await client.appservice.createRoom({
-    ...openClawRoomCreationPreset(config),
-    invite: [],
-    isDirect: true,
-    name: roomName,
-    topic,
-    userId: serviceBotUserId(config, domain),
-    visibility: "private",
-  });
-  const binding: OpenClawSessionBinding = {
-    agentId: options.agent.agentId,
-    createdAt: now,
-    ghostUserId: options.agent.ghostUserId,
-    id: bindingIdForRoom(result.roomId),
-    kind: "session",
-    owner: "bridge",
-    roomId: result.roomId,
-    sessionKey: options.sessionKey,
-    updatedAt: now,
-  };
-  if (options.cwd) binding.cwd = options.cwd;
-  if (options.label) binding.label = options.label;
-  if (options.spaceId) binding.spaceId = options.spaceId;
-  return binding;
 }
 
 function stringValue(value: unknown): string | undefined {

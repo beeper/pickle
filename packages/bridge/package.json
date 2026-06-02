@@ -28,6 +28,10 @@
       "types": "./dist/beeper-stream.d.ts",
       "import": "./dist/beeper-stream.js"
     },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js"
+    },
     "./media-message": {
       "types": "./dist/media-message.d.ts",
       "import": "./dist/media-message.js"

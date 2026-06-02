@@ -3,7 +3,9 @@ import { defineProject } from "vitest/config";
 export default defineProject({
   resolve: {
     alias: [
+      { find: "@beeper/pickle-bridge/beeper", replacement: new URL("../bridge/src/beeper.ts", import.meta.url).pathname },
       { find: "@beeper/pickle-bridge/beeper-stream", replacement: new URL("../bridge/src/beeper-stream.ts", import.meta.url).pathname },
+      { find: "@beeper/pickle-bridge/events", replacement: new URL("../bridge/src/events.ts", import.meta.url).pathname },
       { find: "@beeper/pickle-bridge/media-message", replacement: new URL("../bridge/src/media-message.ts", import.meta.url).pathname },
       { find: /^@beeper\/pickle-bridge$/, replacement: new URL("../bridge/src/index.ts", import.meta.url).pathname },
       { find: /^@beeper\/pickle-ag-ui$/, replacement: new URL("../ag-ui/src/index.ts", import.meta.url).pathname },

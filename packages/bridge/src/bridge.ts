@@ -1,6 +1,7 @@
 import { createMatrixClient } from "@beeper/pickle";
 import type { MatrixAppserviceBatchSendOptions, MatrixAppserviceInitOptions, MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixReactionEvent, MatrixSubscription, SentEvent } from "@beeper/pickle";
 import { AppserviceWebsocket, type HTTPProxyRequest, type HTTPProxyResponse } from "./appservice-websocket";
+import { BeeperTurnStream, type CreateBeeperTurnStreamOptions } from "./beeper-stream";
 import { createBeeperAppServiceInit } from "./beeper";
 import { createRemoteMessage } from "./events";
 import { getOrCreateAppserviceDeviceId } from "./store";
@@ -31,6 +32,9 @@ import type {
   BridgeSendMediaOptions,
   BridgeState,
   BridgeStatus,
+  BridgeRoomStateAPI,
+  ChatInfo,
+  ChatInfoChange,
   DownloadMediaOptions,
   DownloadMediaResult,
   Ghost,
@@ -48,6 +52,9 @@ import type {
   MatrixRoomAvatar,
   MatrixRoomName,
   MatrixRoomTopic,
+  RoomAvatarHandlingNetworkAPI,
+  RoomNameHandlingNetworkAPI,
+  RoomTopicHandlingNetworkAPI,
   EventSender,
   MatrixIntent,
   MatrixCommand,
@@ -105,6 +112,7 @@ import type {
 
 type GenericMatrixEvent = Extract<MatrixClientEvent, { content: Record<string, unknown> }> & {
   kind: string;
+  sender?: { isMe?: boolean; userId?: string };
   stateKey?: string;
   unsigned?: Record<string, unknown>;
 };
@@ -183,6 +191,7 @@ function requiredAccount(options: CreateBeeperBridgeOptions) {
 
 export class RuntimeBridge implements PickleBridge {
   readonly connector: CreateBridgeOptions["connector"];
+  readonly roomState: BridgeRoomStateAPI;
   readonly #appserviceOptions: CreateBridgeOptions["appservice"];
   readonly #beeperOptions: BridgeBeeperOptions | undefined;
   readonly #dataStore: CreateBridgeOptions["dataStore"];
@@ -216,6 +225,23 @@ export class RuntimeBridge implements PickleBridge {
     this.#dataStore = options.dataStore;
     this.#log = options.log ?? defaultLogger;
     this.#matrixClient = client;
+    this.roomState = {
+      get: (state) => this.#matrixClient.rooms.getStateEvent({
+        eventType: state.eventType,
+        roomId: state.roomId,
+        stateKey: state.stateKey ?? "",
+      }),
+      set: (state) => {
+        const roomId = state.roomId ?? state.portal?.mxid;
+        if (!roomId) throw new Error("Room state writes require a room id or a portal with a Matrix room");
+        return this.#matrixClient.rooms.sendStateEvent({
+          content: state.content,
+          eventType: state.eventType,
+          roomId,
+          stateKey: state.stateKey ?? "",
+        });
+      },
+    };
   }
 
   get client(): MatrixClient | null {
@@ -310,6 +336,13 @@ export class RuntimeBridge implements PickleBridge {
     return room;
   }
 
+  createBeeperTurnStream(options: Omit<CreateBeeperTurnStreamOptions, "client">): BeeperTurnStream {
+    return new BeeperTurnStream({
+      ...options,
+      client: this.#matrixClient,
+    });
+  }
+
   async createPortalRoom(options: BridgeCreatePortalRoomOptions): Promise<Portal> {
     this.#requestContext();
     const invite = autoJoinInvite(options.invite, this.#beeperOptions?.ownerUserId);
@@ -334,11 +367,15 @@ export class RuntimeBridge implements PickleBridge {
       userId: options.userId,
     }));
     const portal: Portal = {
+      ...(info.avatar ? { avatar: info.avatar } : {}),
       id: options.portalKey.id,
       metadata: options.metadata,
       mxid: result.roomId,
+      ...(name ? { name } : {}),
       portalKey: options.portalKey,
       ...(options.portalKey.receiver ? { receiver: options.portalKey.receiver } : {}),
+      ...(options.roomType ? { roomType: options.roomType } : {}),
+      ...(topic ? { topic } : {}),
     };
     this.registerPortal(portal);
     return portal;
@@ -1321,48 +1358,72 @@ export class RuntimeBridge implements PickleBridge {
   async #dispatchMatrixRoomName(event: GenericMatrixEvent): Promise<MatrixDispatchResult> {
     const roomId = event.roomId;
     if (!roomId) return { dispatched: false, handlers: 0, kind: event.kind };
+    if (event.sender?.isMe || event.sender?.userId === this.#ownUserId) {
+      return { dispatched: false, handlers: 0, kind: event.kind, roomId };
+    }
+    const name = stringValue(event.content.name);
+    const portal = this.#portalForRoom(roomId);
+    if (portal.name === name) return { dispatched: false, handlers: 0, kind: event.kind, roomId };
     const msg: MatrixRoomName = stripUndefined({
-      name: stringValue(event.content.name),
-      portal: this.#portalForRoom(roomId),
+      name,
+      portal,
     });
     let handlers = 0;
+    let accepted = false;
     for (const client of this.#networkClientsForPortal(msg.portal)) {
       if (!hasMethod(client, "handleMatrixRoomName")) continue;
       handlers += 1;
-      await client.handleMatrixRoomName(this.#requestContext(), msg);
+      accepted = await (client as RoomNameHandlingNetworkAPI).handleMatrixRoomName(this.#requestContext(), msg) || accepted;
     }
+    if (accepted && name !== undefined) await this.#updatePortalInfo(portal, { name });
     return { dispatched: handlers > 0, handlers, kind: event.kind, roomId };
   }
 
   async #dispatchMatrixRoomTopic(event: GenericMatrixEvent): Promise<MatrixDispatchResult> {
     const roomId = event.roomId;
     if (!roomId) return { dispatched: false, handlers: 0, kind: event.kind };
+    if (event.sender?.isMe || event.sender?.userId === this.#ownUserId) {
+      return { dispatched: false, handlers: 0, kind: event.kind, roomId };
+    }
+    const topic = stringValue(event.content.topic);
+    const portal = this.#portalForRoom(roomId);
+    if (portal.topic === topic) return { dispatched: false, handlers: 0, kind: event.kind, roomId };
     const msg: MatrixRoomTopic = stripUndefined({
-      portal: this.#portalForRoom(roomId),
-      topic: stringValue(event.content.topic),
+      portal,
+      topic,
     });
     let handlers = 0;
+    let accepted = false;
     for (const client of this.#networkClientsForPortal(msg.portal)) {
       if (!hasMethod(client, "handleMatrixRoomTopic")) continue;
       handlers += 1;
-      await client.handleMatrixRoomTopic(this.#requestContext(), msg);
+      accepted = await (client as RoomTopicHandlingNetworkAPI).handleMatrixRoomTopic(this.#requestContext(), msg) || accepted;
     }
+    if (accepted && topic !== undefined) await this.#updatePortalInfo(portal, { topic });
     return { dispatched: handlers > 0, handlers, kind: event.kind, roomId };
   }
 
   async #dispatchMatrixRoomAvatar(event: GenericMatrixEvent): Promise<MatrixDispatchResult> {
     const roomId = event.roomId;
     if (!roomId) return { dispatched: false, handlers: 0, kind: event.kind };
+    if (event.sender?.isMe || event.sender?.userId === this.#ownUserId) {
+      return { dispatched: false, handlers: 0, kind: event.kind, roomId };
+    }
+    const avatarUrl = stringValue(event.content.url);
+    const portal = this.#portalForRoom(roomId);
+    if ((portal.avatar?.mxc ?? portal.avatar?.url) === avatarUrl) return { dispatched: false, handlers: 0, kind: event.kind, roomId };
     const msg: MatrixRoomAvatar = stripUndefined({
-      avatarUrl: stringValue(event.content.url),
-      portal: this.#portalForRoom(roomId),
+      avatarUrl,
+      portal,
     });
     let handlers = 0;
+    let accepted = false;
     for (const client of this.#networkClientsForPortal(msg.portal)) {
       if (!hasMethod(client, "handleMatrixRoomAvatar")) continue;
       handlers += 1;
-      await client.handleMatrixRoomAvatar(this.#requestContext(), msg);
+      accepted = await (client as RoomAvatarHandlingNetworkAPI).handleMatrixRoomAvatar(this.#requestContext(), msg) || accepted;
     }
+    if (accepted) await this.#updatePortalInfo(portal, { avatar: avatarUrl ? { mxc: avatarUrl } : { remove: true } });
     return { dispatched: handlers > 0, handlers, kind: event.kind, roomId };
   }
 
@@ -1705,11 +1766,65 @@ export class RuntimeBridge implements PickleBridge {
     const portal = this.#portalForRemoteEvent(event);
     if (!portal) return;
     const change = await event.getChatInfoChange(this.#requestContext());
-    const metadata = {
-      ...(typeof portal.metadata === "object" && portal.metadata !== null ? portal.metadata : {}),
-      chatInfo: change,
-    };
-    await this.setPortalMetadata(portal.portalKey, metadata);
+    await this.#processChatInfoChange(portal, change);
+  }
+
+  async #processChatInfoChange(portal: Portal, change: ChatInfoChange): Promise<void> {
+    const info = change.chatInfo;
+    if (info) {
+      await this.#sendPortalInfoState(portal, info);
+      await this.#updatePortalInfo(portal, info);
+    }
+    if (change.memberChanges) {
+      const metadata = {
+        ...metadataRecord(portal.metadata),
+        memberChanges: change.memberChanges,
+      };
+      await this.setPortalMetadata(portal.portalKey, metadata);
+    }
+  }
+
+  async #sendPortalInfoState(portal: Portal, info: ChatInfo): Promise<void> {
+    if (!portal.mxid) return;
+    if (info.name !== undefined && info.name !== portal.name) {
+      await this.roomState.set({
+        content: { name: info.name },
+        eventType: "m.room.name",
+        portal,
+      });
+    }
+    if (info.topic !== undefined && info.topic !== portal.topic) {
+      await this.roomState.set({
+        content: { topic: info.topic },
+        eventType: "m.room.topic",
+        portal,
+      });
+    }
+    if (info.avatar !== undefined && avatarStateValue(info.avatar) !== avatarStateValue(portal.avatar)) {
+      await this.roomState.set({
+        content: { url: info.avatar.remove ? "" : avatarStateValue(info.avatar) ?? "" },
+        eventType: "m.room.avatar",
+        portal,
+      });
+    }
+  }
+
+  async #updatePortalInfo(portal: Portal, info: ChatInfo): Promise<Portal> {
+    const updated = stripUndefined({
+      ...portal,
+      ...(info.avatar !== undefined ? { avatar: info.avatar.remove ? undefined : info.avatar } : {}),
+      ...(info.name !== undefined ? { name: info.name } : {}),
+      ...(info.roomType !== undefined ? { roomType: info.roomType } : {}),
+      ...(info.topic !== undefined ? { topic: info.topic } : {}),
+      metadata: {
+        ...metadataRecord(portal.metadata),
+        ...(info.canBackfill !== undefined ? { canBackfill: info.canBackfill } : {}),
+        ...(info.extraUpdates !== undefined ? { extraUpdates: info.extraUpdates } : {}),
+        ...(info.members !== undefined ? { members: info.members } : {}),
+      },
+    }) as Portal;
+    this.registerPortal(updated);
+    return updated;
   }
 
   async #handleRemoteChatDelete(event: RemoteChatDelete): Promise<void> {
@@ -1953,6 +2068,11 @@ function isMatrixDeleteChatEvent(event: MatrixClientEvent): event is GenericMatr
 
 function eventType(event: MatrixClientEvent): string | undefined {
   return "type" in event && typeof event.type === "string" ? event.type : undefined;
+}
+
+function avatarStateValue(avatar: { mxc?: string; remove?: boolean; url?: string } | undefined): string | undefined {
+  if (!avatar || avatar.remove) return "";
+  return avatar.mxc ?? avatar.url;
 }
 
 function isMatrixEditEvent(event: MatrixMessageEvent): boolean {

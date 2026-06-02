@@ -1,4 +1,9 @@
 import type { MatrixAppserviceInitOptions, MatrixAppserviceNamespace, MatrixAppserviceRegistration } from "@beeper/pickle";
+export { loginWithMatrixPassword } from "@beeper/pickle/auth";
+export type { MatrixPasswordAuthOptions } from "@beeper/pickle/auth";
+export { createBeeperLogin } from "@beeper/pickle/beeper/auth";
+export type { BeeperAuthOptions, BeeperEnvironment } from "@beeper/pickle/beeper/auth";
+export type { MatrixAppserviceInitOptions, MatrixAppserviceRegistration } from "@beeper/pickle";
 
 export interface BeeperClientOptions {
   baseDomain?: string;

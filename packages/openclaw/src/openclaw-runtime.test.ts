@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { BeeperChannelRuntime, setBeeperChannelRuntimeForHost } from "./beeper-channel-runtime";
+import { BeeperTurnStream } from "@beeper/pickle-bridge/beeper-stream";
 import { createDefaultConfig } from "./config";
 import {
   createOpenClawHostRuntimeAdapter,
@@ -136,20 +137,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
   });
 
   it("sends host-backed Beeper turns through channel helpers", async () => {
-    const beeperStreams = {
-      finalizeMessage: vi.fn(async () => ({
-        eventId: "$stream-root",
-        raw: {},
-        replacementEventId: "$stream-final",
-        roomId: "!room:example",
-      })),
-      publishPart: vi.fn(async () => undefined),
-      startMessage: vi.fn(async () => ({
-        descriptor: { type: "com.beeper.llm" },
-        eventId: "$stream-root",
-        roomId: "!room:example",
-      })),
-    };
     const aiRunStreams = createTestBeeperAIRunStreams();
     const request = vi.fn(async () => {
       throw new Error("generic request should not be used");
@@ -178,13 +165,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
     };
-    setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
-      client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), aiRunStreams, streams: beeperStreams },
-        media: { upload: vi.fn() },
-      } as never,
-      userId: "@sh-openclaw-bot:example",
-    }));
+    setBeeperChannelRuntimeForHost(hostRuntime, createTestBeeperChannelRuntime(aiRunStreams));
     const runtime = new OpenClawPluginRuntimeAdapter({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
       transport: createOpenClawHostRuntimeAdapter(hostRuntime),
@@ -282,20 +263,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
   });
 
   it("runs Beeper-originated sends through OpenClaw channel inbound helpers for live AG-UI progress", async () => {
-    const beeperStreams = {
-      finalizeMessage: vi.fn(async () => ({
-        eventId: "$stream-root",
-        raw: {},
-        replacementEventId: "$stream-final",
-        roomId: "!room:example",
-      })),
-      publishPart: vi.fn(async () => undefined),
-      startMessage: vi.fn(async () => ({
-        descriptor: { type: "com.beeper.llm" },
-        eventId: "$stream-root",
-        roomId: "!room:example",
-      })),
-    };
     const aiRunStreams = createTestBeeperAIRunStreams();
     const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
@@ -341,13 +308,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
     };
-    setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
-      client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), aiRunStreams, streams: beeperStreams },
-        media: { upload: vi.fn() },
-      } as never,
-      userId: "@sh-openclaw-bot:example",
-    }));
+    setBeeperChannelRuntimeForHost(hostRuntime, createTestBeeperChannelRuntime(aiRunStreams));
     const transport = createOpenClawHostRuntimeAdapter(hostRuntime);
 
     const received: OpenClawGatewayEvent[] = [];
@@ -422,20 +383,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
   });
 
   it("preserves supported dummybridge-style tool ids and avoids replaying duplicate text callbacks", async () => {
-    const beeperStreams = {
-      finalizeMessage: vi.fn(async () => ({
-        eventId: "$stream-root",
-        raw: {},
-        replacementEventId: "$stream-final",
-        roomId: "!room:example",
-      })),
-      publishPart: vi.fn(async () => undefined),
-      startMessage: vi.fn(async () => ({
-        descriptor: { type: "com.beeper.llm" },
-        eventId: "$stream-root",
-        roomId: "!room:example",
-      })),
-    };
     const aiRunStreams = createTestBeeperAIRunStreams();
     const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
@@ -473,13 +420,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
     };
-    setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
-      client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), aiRunStreams, streams: beeperStreams },
-        media: { upload: vi.fn() },
-      } as never,
-      userId: "@sh-openclaw-bot:example",
-    }));
+    setBeeperChannelRuntimeForHost(hostRuntime, createTestBeeperChannelRuntime(aiRunStreams));
     const transport = createOpenClawHostRuntimeAdapter(hostRuntime);
 
     const done = (async () => {
@@ -522,20 +463,6 @@ describe("OpenClawPluginRuntimeAdapter", () => {
   });
 
   it("streams assistant agent events when reply callbacks only deliver the final block", async () => {
-    const beeperStreams = {
-      finalizeMessage: vi.fn(async () => ({
-        eventId: "$stream-root",
-        raw: {},
-        replacementEventId: "$stream-final",
-        roomId: "!room:example",
-      })),
-      publishPart: vi.fn(async () => undefined),
-      startMessage: vi.fn(async () => ({
-        descriptor: { type: "com.beeper.llm" },
-        eventId: "$stream-root",
-        roomId: "!room:example",
-      })),
-    };
     const aiRunStreams = createTestBeeperAIRunStreams();
     let agentEventListener: ((event: { data?: Record<string, unknown>; runId?: string; sessionKey?: string; stream?: string }) => void) | undefined;
     const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
@@ -656,13 +583,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         },
       },
     };
-    setBeeperChannelRuntimeForHost(hostRuntime, new BeeperChannelRuntime({
-      client: {
-        beeper: { aiRuns: createTestBeeperAIRuns(), aiRunStreams, streams: beeperStreams },
-        media: { upload: vi.fn() },
-      } as never,
-      userId: "@sh-openclaw-bot:example",
-    }));
+    setBeeperChannelRuntimeForHost(hostRuntime, createTestBeeperChannelRuntime(aiRunStreams));
     const transport = createOpenClawHostRuntimeAdapter(hostRuntime);
 
     const done = (async () => {
@@ -906,6 +827,59 @@ function createTestBeeperAIRunStreams() {
         { messageId: `msg-${runId}`, role: "assistant", type: "TEXT_MESSAGE_START" },
       ])),
   };
+}
+
+function createTestBeeperChannelRuntime(aiRunStreams: ReturnType<typeof createTestBeeperAIRunStreams>) {
+  const bridge = {
+    createBeeperTurnStream: vi.fn((options) => new BeeperTurnStream({
+      ...options,
+      client: {
+        beeper: {
+          aiRuns: createTestBeeperAIRuns(),
+          aiRunStreams,
+        },
+      } as never,
+    })),
+    flushRemoteEvents: vi.fn(async () => undefined),
+    getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+    queueRemoteEvent: vi.fn(),
+  };
+  return new BeeperChannelRuntime({
+    bridge: bridge as never,
+    getAgents: () => [{
+      agentId: "main",
+      displayName: "Main",
+      ghostUserId: "@sh-openclaw_agent_main:example",
+    }],
+    getBindingByRoom: (roomId) => roomId === "!room:example"
+      ? {
+          agentId: "main",
+          createdAt: 1,
+          ghostUserId: "@sh-openclaw_agent_main:example",
+          id: "binding",
+          kind: "session",
+          owner: "bridge",
+          roomId,
+          sessionKey: "agent:main:beeper:room",
+          updatedAt: 1,
+        }
+      : undefined,
+    getBindingBySessionKey: (sessionKey) => sessionKey === "agent:main:beeper:room"
+      ? {
+          agentId: "main",
+          createdAt: 1,
+          ghostUserId: "@sh-openclaw_agent_main:example",
+          id: "binding",
+          kind: "session",
+          owner: "bridge",
+          roomId: "!room:example",
+          sessionKey,
+          updatedAt: 1,
+        }
+      : undefined,
+    login: { id: "openclaw:plugin" },
+    userId: "@sh-openclaw-bot:example",
+  });
 }
 
 function startedAndAppendedParts(aiRunStreams: ReturnType<typeof createTestBeeperAIRunStreams>) {
