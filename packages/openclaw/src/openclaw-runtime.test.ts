@@ -283,6 +283,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
       await replyOptions.onReasoningStream?.({ text: "checking" });
+      await replyOptions.onReasoningStream?.({ delta: " delta-only thinking" });
       await replyOptions.onToolStart?.({ args: { path: "README.md" }, name: "read_file", phase: "start", toolCallId: "real-tool-id" });
       await replyOptions.onCommandOutput?.({ name: "read_file", output: "ok", phase: "end", status: "completed", toolCallId: "real-tool-id" });
       await replyOptions.onApprovalEvent?.({
@@ -355,7 +356,9 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     }));
     expect((dispatchReply.mock.calls[0]?.[0] as { replyOptions?: Record<string, unknown> } | undefined)?.replyOptions).toMatchObject({
       disableBlockStreaming: false,
+      reasoningLevelOverride: "stream",
       sourceReplyDeliveryMode: "automatic",
+      verboseLevelOverride: "full",
     });
     expect(received).toEqual(expect.arrayContaining([
       expect.objectContaining({ event: "thinking.delta" }),
@@ -383,6 +386,10 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       "tool_result",
       "text",
     ]));
+    expect(streamParts.filter((part) => part.kind === "reasoning").map((part) => part.text)).toEqual([
+      "checking",
+      " delta-only thinking",
+    ]);
     expect(aiRunStreams.appendEvent.mock.calls.map(([options]) => options.event.type)).toContain("CUSTOM");
     const toolOutput = streamParts.find((part) => part.kind === "tool_result" && part.output === "ok");
     expect(toolOutput).toMatchObject({
@@ -509,6 +516,35 @@ describe("OpenClawPluginRuntimeAdapter", () => {
         stream: "tool",
       });
       agentEventListener?.({
+        data: { delta: "raw reasoning delta" },
+        runId: replyOptions.runId,
+        stream: "reasoning",
+      });
+      agentEventListener?.({
+        data: {
+          method: "rawResponseItem/completed",
+          item: {
+            type: "reasoning",
+            summary: [{ type: "summary_text", text: "raw checked" }],
+            content: [{ type: "reasoning_text", text: "raw thought" }],
+          },
+        },
+        runId: replyOptions.runId,
+        stream: "raw",
+      });
+      agentEventListener?.({
+        data: {
+          item: {
+            type: "reasoning",
+            summary: ["typed checked"],
+            content: ["typed thought"],
+          },
+          method: "item/completed",
+        },
+        runId: replyOptions.runId,
+        stream: "item",
+      });
+      agentEventListener?.({
         data: {
           call: { id: "nested-tool", name: "search" },
           completedAtMs: 456,
@@ -619,6 +655,11 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       "hel",
       "lo",
       " world",
+    ]);
+    expect(parts.filter((part) => part.kind === "reasoning").map((part) => part.text)).toEqual([
+      "raw reasoning delta",
+      "raw checked\n\nraw thought",
+      "typed checked\n\ntyped thought",
     ]);
     expect(parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "tool_result", toolCallId: "codex-tool", toolName: "tool" }),

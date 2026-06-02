@@ -20,6 +20,7 @@ describe("OpenClawBridgeConnector", () => {
       contactList: true,
       createDM: true,
       lookupUsername: true,
+      search: true,
     });
     expect(connector.getLoginFlows()).toEqual([]);
     expect(() => connector.createLogin({} as never, { id: "@alice:example.com" }, "openclaw.gateway")).toThrow("Beeper channel runtime");
@@ -524,6 +525,39 @@ describe("OpenClawBridgeConnector", () => {
       contacts: [{
         ghost: codexGhost(),
         userId: "@sh-openclaw_agent_codex:localhost",
+      }],
+    });
+  });
+
+  it("searches OpenClaw agent contacts for BridgeV2 user search", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-search-test.json");
+    const runtime = runtimeWith({
+      responses: {
+        "agents.list": {
+          agents: [
+            { id: "codex", name: "Codex" },
+            { id: "planner", name: "Planner" },
+          ],
+        },
+      },
+    });
+    const api = new OpenClawNetworkAPI({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      login: login(),
+      registry,
+      runtime,
+    });
+
+    await expect(api.searchUsers({} as BridgeRequestContext, { query: "plan" })).resolves.toEqual({
+      results: [{
+        ghost: expect.objectContaining({
+          displayName: "Planner",
+          id: "planner",
+          identifiers: ["openclaw:agent:planner", "@sh-openclaw_agent_planner:localhost"],
+          isBot: true,
+          mxid: "@sh-openclaw_agent_planner:localhost",
+        }),
+        userId: "@sh-openclaw_agent_planner:localhost",
       }],
     });
   });

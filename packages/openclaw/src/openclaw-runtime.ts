@@ -960,6 +960,8 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
       replyOptions: {
         runId: params.runId,
         disableBlockStreaming: false,
+        reasoningLevelOverride: "stream",
+        verboseLevelOverride: "full",
         sourceReplyDeliveryMode: "automatic",
         timeoutOverrideSeconds: Math.max(1, Math.ceil(params.timeoutMs / 1000)),
         suppressDefaultToolProgressMessages: true,
@@ -1037,6 +1039,14 @@ function forwardAgentRuntimeStreamEvents(params: {
       normalizedStream: stream,
     });
     if (!matched) return;
+    const exposedReasoningText = exposedCodexReasoningText(stream, data);
+    if (exposedReasoningText) {
+      params.enqueue(() => params.stream.reasoningPayload({
+        text: exposedReasoningText,
+        isReasoningSnapshot: true,
+      }));
+      return;
+    }
     switch (stream) {
       case "assistant":
         params.enqueue(() => params.stream.textPayload(data, "partial"));
@@ -1731,11 +1741,17 @@ function createBeeperReplyStreamEmitter(base: {
     if (sourceEvents.length > 0) await publishCustomEvents(sourceEvents);
   };
   const reasoningPayload = async (payload: unknown) => {
-    const text = replyPayloadText(payload);
+    const text = reasoningPayloadText(payload);
     if (!text) return;
-    const explicitDelta = stringValue(recordValue(payload)?.delta);
-    const delta = explicitDelta ?? (text.startsWith(lastReasoningText) ? text.slice(lastReasoningText.length) : text);
-    lastReasoningText = text;
+    const payloadRecord = recordValue(payload);
+    const explicitDelta = reasoningDeltaText(payloadRecord);
+    const isSnapshot = booleanValue(payloadRecord?.isReasoningSnapshot) === true;
+    const delta = explicitDelta && !isSnapshot
+      ? explicitDelta
+      : (text.startsWith(lastReasoningText) ? text.slice(lastReasoningText.length) : text);
+    lastReasoningText = explicitDelta && !isSnapshot
+      ? `${lastReasoningText}${explicitDelta}`
+      : text;
     if (!delta) return;
     emit("thinking.delta", { delta, text });
     await publishPart({ kind: "reasoning", text: delta });
@@ -2258,7 +2274,13 @@ function replyPayloadText(payload: unknown): string | undefined {
   if (typeof payload === "string") return payload;
   const record = recordValue(payload);
   if (!record) return undefined;
-  const direct = stringValue(record.text) ?? stringValue(record.body) ?? stringValue(record.content);
+  const direct =
+    stringValue(record.text) ??
+    stringValue(record.body) ??
+    stringValue(record.content) ??
+    stringValue(record.textDelta) ??
+    stringValue(record.text_delta) ??
+    stringValue(record.delta);
   if (direct) return direct;
   const parts = arrayValue(record.parts) ?? arrayValue(record.content);
   if (!parts) return undefined;
@@ -2270,6 +2292,82 @@ function replyPayloadText(payload: unknown): string | undefined {
     if (text) chunks.push(text);
   }
   return chunks.length > 0 ? chunks.join("") : undefined;
+}
+
+function reasoningPayloadText(payload: unknown): string | undefined {
+  if (typeof payload === "string") return payload;
+  const record = recordValue(payload);
+  if (!record) return undefined;
+  return stringValue(record.text)
+    ?? stringValue(record.body)
+    ?? stringValue(record.reasoningText)
+    ?? stringValue(record.reasoning_text)
+    ?? stringValue(record.thinking)
+    ?? stringValue(record.reasoning)
+    ?? stringValue(record.summaryText)
+    ?? stringValue(record.summary_text)
+    ?? reasoningDeltaText(record)
+    ?? reasoningTextFromRecord(recordValue(record.item) ?? record, true);
+}
+
+function reasoningDeltaText(record: Record<string, unknown> | undefined): string | undefined {
+  if (!record) return undefined;
+  return stringValue(record.delta)
+    ?? stringValue(record.reasoningDelta)
+    ?? stringValue(record.reasoning_delta)
+    ?? stringValue(record.thinkingDelta)
+    ?? stringValue(record.thinking_delta)
+    ?? stringValue(record.summaryTextDelta)
+    ?? stringValue(record.summary_text_delta);
+}
+
+function exposedCodexReasoningText(stream: string | undefined, data: Record<string, unknown>): string | undefined {
+  const method = stringValue(data.method);
+  const item = recordValue(data.item) ?? recordValue(recordValue(data.params)?.item);
+  if (
+    stream === "raw" ||
+    stream === "item" ||
+    method === "rawResponseItem/completed" ||
+    method === "item/completed"
+  ) {
+    return reasoningTextFromRecord(item ?? data, false);
+  }
+  if (stream === "reasoning") {
+    return reasoningTextFromRecord(item ?? data, true);
+  }
+  return undefined;
+}
+
+function reasoningTextFromRecord(record: Record<string, unknown> | undefined, allowUntyped: boolean): string | undefined {
+  if (!record) return undefined;
+  if (stringValue(record.type) !== "reasoning" && !allowUntyped) {
+    return undefined;
+  }
+  if (!record.summary && !record.content) {
+    return undefined;
+  }
+  const chunks = [
+    ...reasoningTextEntries(record.summary),
+    ...reasoningTextEntries(record.content),
+  ].filter((text) => text.trim().length > 0);
+  return chunks.length > 0 ? chunks.join("\n\n") : undefined;
+}
+
+function reasoningTextEntries(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  const entries = arrayValue(value);
+  if (!entries) return [];
+  return entries.flatMap((entry) => {
+    if (typeof entry === "string") return [entry];
+    const record = recordValue(entry);
+    if (!record) return [];
+    const type = stringValue(record.type);
+    if (type && type !== "summary_text" && type !== "reasoning_text" && type !== "text") {
+      return [];
+    }
+    const text = stringValue(record.text) ?? stringValue(record.content);
+    return text ? [text] : [];
+  });
 }
 
 function isVisibleTextPart(type: string | undefined): boolean {

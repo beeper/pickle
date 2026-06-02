@@ -17,3 +17,12 @@ for (const file of ["pickle.wasm", "wasm_exec.js"]) {
   }
   await copyFile(source, resolve(outputDir, file));
 }
+
+for (const file of ["setup", "secret-contract"]) {
+  await copyFile(resolve(outputDir, `${file}.mjs`), resolve(outputDir, `${file}.js`));
+  try {
+    await copyFile(resolve(outputDir, `${file}.mjs.map`), resolve(outputDir, `${file}.js.map`));
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}

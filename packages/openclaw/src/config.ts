@@ -2,9 +2,10 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { getBeeperChannelSettings, type OpenClawSetupConfig } from "./setup";
+import { getBeeperAccountSettings, getBeeperChannelSettings, type OpenClawSetupConfig } from "./setup";
 import { openClawBeeperBridgeId } from "./ids";
 import type { OpenClawBridgeConfig } from "./types";
+import { resolveConfiguredSecretInputString } from "openclaw/plugin-sdk/secret-input-runtime";
 
 export const DEFAULT_APPSERVICE_ID = "sh-openclaw";
 export const DEFAULT_REGISTRATION_URL = "websocket";
@@ -29,7 +30,7 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
       bridgeId ??
       DEFAULT_APPSERVICE_ID,
     dataDir,
-    beeperEnv: overrides.beeperEnv ?? envBeeperEnv(process.env.PICKLE_OPENCLAW_BEEPER_ENV) ?? "production",
+    serverEnv: overrides.serverEnv ?? "prod",
   };
   const asToken = overrides.asToken;
   const homeserver = overrides.homeserver;
@@ -55,10 +56,14 @@ function configInput(input: unknown): Partial<OpenClawBridgeConfig> {
   const record = recordValue(input);
   const beeper = recordValue(recordValue(record?.channels)?.beeper);
   if (beeper) {
-    const beeperEnv = envBeeperEnv(stringValue(beeper.beeperEnv));
+    const serverEnv = normalizeServerEnv(stringValue(beeper.serverEnv));
     const bridge = recordValue(beeper.bridge) as Partial<OpenClawBridgeConfig> | undefined;
     const config: Partial<OpenClawBridgeConfig> = { ...(bridge ?? {}) };
-    if (beeperEnv) config.beeperEnv = beeperEnv;
+    const asToken = stringValue(beeper.asToken);
+    const hsToken = stringValue(beeper.hsToken);
+    if (serverEnv) config.serverEnv = serverEnv;
+    if (asToken) config.asToken = asToken;
+    if (hsToken) config.hsToken = hsToken;
     const dataDir = stringValue(beeper.dataDir);
     if (dataDir) config.dataDir = dataDir;
     return config;
@@ -69,14 +74,42 @@ function configInput(input: unknown): Partial<OpenClawBridgeConfig> {
 export function createConfigFromOpenClawSetup(
   cfg: OpenClawSetupConfig,
   overrides: Partial<OpenClawBridgeConfig> = {},
+  accountId?: string | null,
 ): OpenClawBridgeConfig {
-  const settings = getBeeperChannelSettings(cfg);
+  const settings = getBeeperAccountSettings(cfg, accountId);
   return createDefaultConfig({
     ...settings.bridge,
-    ...(settings.beeperEnv ? { beeperEnv: settings.beeperEnv } : {}),
+    ...(typeof settings.asToken === "string" ? { asToken: settings.asToken } : {}),
+    ...(typeof settings.hsToken === "string" ? { hsToken: settings.hsToken } : {}),
+    ...(settings.serverEnv ? { serverEnv: settings.serverEnv } : {}),
     ...(settings.dataDir ? { dataDir: settings.dataDir } : {}),
     ...overrides,
   });
+}
+
+export async function createRuntimeConfigFromOpenClawSetup(
+  cfg: OpenClawSetupConfig,
+  overrides: Partial<OpenClawBridgeConfig> = {},
+  accountId?: string | null,
+): Promise<OpenClawBridgeConfig> {
+  const settings = getBeeperAccountSettings(cfg, accountId);
+  const accountPrefix = accountId && accountId !== "default" ? `channels.beeper.accounts.${accountId}` : "channels.beeper";
+  const config = createConfigFromOpenClawSetup(cfg, overrides, accountId);
+  const asToken = await resolveConfiguredSecretInputString({
+    config: cfg,
+    env: process.env,
+    value: settings.asToken,
+    path: `${accountPrefix}.asToken`,
+  });
+  if (asToken.value) config.asToken = asToken.value;
+  const hsToken = await resolveConfiguredSecretInputString({
+    config: cfg,
+    env: process.env,
+    value: settings.hsToken,
+    path: `${accountPrefix}.hsToken`,
+  });
+  if (hsToken.value) config.hsToken = hsToken.value;
+  return config;
 }
 
 export async function writeConfig(config: OpenClawBridgeConfig, path = defaultConfigPath(config.dataDir)): Promise<void> {
@@ -89,8 +122,8 @@ export function secretToken(bytes = 32): string {
   return randomBytes(bytes).toString("hex");
 }
 
-function envBeeperEnv(value: string | undefined): OpenClawBridgeConfig["beeperEnv"] | undefined {
-  if (value === "production" || value === "staging" || value === "dev" || value === "local") return value;
+function normalizeServerEnv(value: string | undefined): OpenClawBridgeConfig["serverEnv"] | undefined {
+  if (value === "prod" || value === "staging" || value === "dev" || value === "local") return value;
   return undefined;
 }
 

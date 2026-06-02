@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
-import { setupOpenClawBeeperBridge, type BeeperEnvironment } from "./beeper-setup";
+import { setupOpenClawBeeperBridge, type BeeperServerEnv } from "./beeper-setup";
 import { createDefaultConfig, defaultConfigPath, readConfig, writeConfig } from "./config";
 import type { OpenClawBridgeConfig } from "./types";
 
@@ -34,7 +34,7 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       if (email !== undefined) setupOptions.email = email;
       if (username !== undefined) setupOptions.username = username;
       if (password !== undefined) setupOptions.password = password;
-      const env = beeperEnvOption(options);
+      const env = serverEnvOption(options);
       if (env !== undefined) setupOptions.env = env;
       if (email !== undefined) setupOptions.getLoginCode = () => promptForLoginCode(io);
       const result = await (deps.setupBridge ?? setupOpenClawBeeperBridge)(setupOptions);
@@ -76,7 +76,6 @@ function helpText(): string {
     "  --email <address>",
     "  --username <user>",
     "  --password <password>",
-    "  --env <production|staging|dev|local>",
     "",
   ].join("\n");
 }
@@ -90,8 +89,8 @@ function configOverridesFromOptions(options: Map<string, string | boolean>): Par
 
 function beeperRuntimeOverridesFromOptions(options: Map<string, string | boolean>): Partial<OpenClawBridgeConfig> {
   const overrides: Partial<OpenClawBridgeConfig> = {};
-  const env = beeperEnvOption(options);
-  if (env !== undefined) overrides.beeperEnv = env;
+  const env = serverEnvOption(options);
+  if (env !== undefined) overrides.serverEnv = env;
   return overrides;
 }
 
@@ -104,7 +103,6 @@ async function loadConfig(options: Map<string, string | boolean>): Promise<OpenC
 function whoamiPayload(config: OpenClawBridgeConfig): Record<string, unknown> {
   return {
     appserviceId: config.appserviceId,
-    beeperEnv: config.beeperEnv ?? "production",
     bridgeId: config.bridgeId ?? null,
     canConnect: Boolean(
       config.asToken &&
@@ -115,6 +113,7 @@ function whoamiPayload(config: OpenClawBridgeConfig): Record<string, unknown> {
     ),
     deviceId: config.matrixDeviceId ?? null,
     homeserver: config.homeserver ?? null,
+    serverEnv: config.serverEnv ?? "prod",
     userId: config.matrixUserId ?? null,
   };
 }
@@ -141,11 +140,11 @@ function stringOption(options: Map<string, string | boolean>, key: string): stri
   return typeof value === "string" ? value : undefined;
 }
 
-function beeperEnvOption(options: Map<string, string | boolean>): BeeperEnvironment | undefined {
-  const env = stringOption(options, "env");
+function serverEnvOption(options: Map<string, string | boolean>): BeeperServerEnv | undefined {
+  const env = stringOption(options, "server-env");
   if (env === undefined) return undefined;
-  if (env === "production" || env === "staging" || env === "dev" || env === "local") return env;
-  throw new Error(`Invalid --env: ${env}`);
+  if (env === "prod" || env === "staging" || env === "dev" || env === "local") return env;
+  throw new Error(`Invalid --server-env: ${env}`);
 }
 
 async function promptForLoginCode(io: CliIO): Promise<string> {

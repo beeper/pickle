@@ -3,8 +3,12 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
@@ -90,6 +94,69 @@ func TestProcessEventSkipsDuplicateTimelineEvents(t *testing.T) {
 	}
 	if message.EventID != "$event" {
 		t.Fatalf("unexpected event id %q", message.EventID)
+	}
+}
+
+func TestFinalizeBeeperStreamMessageUsesAIBridgeFinalEditEnvelope(t *testing.T) {
+	requests := make(chan map[string]any, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var content map[string]any
+		if err := json.Unmarshal(body, &content); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		requests <- content
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"event_id":"$edit"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@bot:example"), "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	core.client = cli
+
+	_, err = core.finalizeBeeperStreamMessage(context.Background(), MatrixFinalizeBeeperStreamMessageOptions{
+		Content: OutboundEvent{
+			"body":          "done",
+			"com.beeper.ai": map[string]any{"kind": "final"},
+			"msgtype":       "m.text",
+		},
+		EventID: "$stream",
+		RoomID:  "!room:example",
+		TopLevelContent: OutboundEvent{
+			"custom": "value",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := <-requests
+	if replacement["body"] != "done" || replacement["msgtype"] != "m.text" {
+		t.Fatalf("unexpected replacement fallback content: %#v", replacement)
+	}
+	if replacement["com.beeper.dont_render_edited"] != true || replacement["custom"] != "value" {
+		t.Fatalf("replacement missing top-level final edit markers: %#v", replacement)
+	}
+	if stream, ok := replacement["com.beeper.stream"]; !ok || stream != nil {
+		t.Fatalf("replacement must clear top-level stream descriptor: %#v", replacement)
+	}
+	newContent, ok := replacement["m.new_content"].(map[string]any)
+	if !ok {
+		t.Fatalf("replacement missing m.new_content: %#v", replacement)
+	}
+	if stream, ok := newContent["com.beeper.stream"]; !ok || stream != nil {
+		t.Fatalf("replacement must clear stream descriptor in m.new_content: %#v", newContent)
+	}
+	if ai, ok := newContent["com.beeper.ai"].(map[string]any); !ok || ai["kind"] != "final" {
+		t.Fatalf("replacement lost final AI payload: %#v", newContent)
+	}
+	relatesTo, ok := replacement["m.relates_to"].(map[string]any)
+	if !ok || relatesTo["rel_type"] != "m.replace" || relatesTo["event_id"] != "$stream" {
+		t.Fatalf("replacement has unexpected relation: %#v", replacement["m.relates_to"])
 	}
 }
 

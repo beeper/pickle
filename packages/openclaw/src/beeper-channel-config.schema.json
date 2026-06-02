@@ -4,12 +4,124 @@
   "properties": {
     "enabled": {
       "type": "boolean",
-      "description": "Enable the Beeper bridge channel."
+      "description": "Enable Beeper agent chat."
     },
-    "beeperEnv": {
+    "defaultAccount": {
       "type": "string",
-      "enum": ["production", "staging", "dev", "local"],
-      "description": "Beeper environment for login and appservice registration."
+      "description": "Default Beeper account id for outbound agent DMs when no agent-specific default is set."
+    },
+    "accounts": {
+      "type": "object",
+      "description": "Named Beeper accounts. Each account is set up through the normal OpenClaw channel setup flow.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable this Beeper account."
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name for this Beeper account in settings and status."
+          },
+          "serverEnv": {
+            "type": "string",
+            "enum": ["prod", "staging", "dev", "local"],
+            "default": "prod",
+            "description": "Beeper server environment to use before login. Changing it after login requires logging out and logging back in."
+          },
+          "asToken": {
+            "description": "OpenClaw-managed Beeper appservice token.",
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source", "provider", "id"],
+                "properties": {
+                  "source": { "type": "string", "enum": ["env", "file", "exec"] },
+                  "provider": { "type": "string" },
+                  "id": { "type": "string" }
+                }
+              }
+            ]
+          },
+          "hsToken": {
+            "description": "OpenClaw-managed Beeper homeserver token.",
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["source", "provider", "id"],
+                "properties": {
+                  "source": { "type": "string", "enum": ["env", "file", "exec"] },
+                  "provider": { "type": "string" },
+                  "id": { "type": "string" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Per-agent Beeper account assignments. Account ids are not mutually exclusive.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "accountIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Beeper account ids this agent may use."
+          },
+          "defaultAccount": {
+            "type": "string",
+            "description": "Preferred Beeper account for this agent when multiple assigned accounts are available."
+          }
+        }
+      }
+    },
+    "serverEnv": {
+      "type": "string",
+      "enum": ["prod", "staging", "dev", "local"],
+      "default": "prod",
+      "description": "Beeper server environment to use before login. Changing it after login requires logging out and logging back in."
+    },
+    "asToken": {
+      "description": "OpenClaw-managed Beeper appservice token.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "provider", "id"],
+          "properties": {
+            "source": { "type": "string", "enum": ["env", "file", "exec"] },
+            "provider": { "type": "string" },
+            "id": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "hsToken": {
+      "description": "OpenClaw-managed Beeper homeserver token.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "provider", "id"],
+          "properties": {
+            "source": { "type": "string", "enum": ["env", "file", "exec"] },
+            "provider": { "type": "string" },
+            "id": { "type": "string" }
+          }
+        }
+      ]
     }
   }
 }

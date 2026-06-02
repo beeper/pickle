@@ -1,3 +1,7 @@
+import type { SecretInput } from "openclaw/plugin-sdk/secret-input-runtime";
+
+export type BeeperServerEnv = "prod" | "staging" | "dev" | "local";
+
 export interface OpenClawAgentContact {
   agentId: string;
   displayName: string;
@@ -35,7 +39,6 @@ export interface OpenClawSessionBinding {
 export interface OpenClawBridgeConfig {
   asToken?: string;
   appserviceId: string;
-  beeperEnv?: "production" | "staging" | "dev" | "local";
   bridgeId?: string;
   dataDir: string;
   homeserver?: string;
@@ -43,7 +46,10 @@ export interface OpenClawBridgeConfig {
   homeserverDomain?: string;
   matrixDeviceId?: string;
   matrixUserId?: string;
+  serverEnv?: BeeperServerEnv;
 }
+
+export type OpenClawBridgeSecretInput = SecretInput;
 
 export interface OpenClawBridgeRegistryData {
   agents: OpenClawAgentContact[];

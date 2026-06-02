@@ -8,7 +8,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import extension from "./openclaw-extension";
+import extension from "./plugin-entry";
 import setupEntry from "./setup-entry";
 import {
   BeeperChannelRuntime,
@@ -17,14 +17,19 @@ import {
 import { BeeperTurnStream } from "@beeper/pickle-bridge/beeper-stream";
 import {
   applyBeeperChannelSettings,
+  applyBeeperAccountSettings,
   beeperChannelConfig,
   beeperChannelPlugin,
   beeperStatusAdapter,
   beeperSetupAdapter,
   beeperSetupWizard,
   defaultBeeperChannelSettings,
+  getBeeperAccountSettings,
   getBeeperChannelSettings,
   isBeeperChannelConfigured,
+  listBeeperAccountIds,
+  resolveBeeperAgentAccountId,
+  resolveDefaultBeeperAccountId,
   setBeeperOpenClawPluginRuntime,
   startBeeperGatewayAccount,
   validateBeeperSetupInput,
@@ -64,11 +69,11 @@ describe("OpenClaw Beeper official channel contracts", () => {
       name: "non-login setup environment patch",
       cfg: {},
       input: {
-        beeperEnv: "staging",
+        serverEnv: "staging",
       },
       assertPatchedConfig: (cfg) => {
         expect(getBeeperChannelSettings(cfg)).toMatchObject({
-          beeperEnv: "staging",
+          serverEnv: "staging",
           enabled: true,
         });
       },
@@ -88,10 +93,10 @@ describe("OpenClaw Beeper official channel contracts", () => {
         name: "configured account",
         cfg: applyBeeperChannelSettings({}, {
           enabled: true,
+          asToken: "as",
+          hsToken: "hs",
           bridge: {
-            asToken: "as",
             homeserver: "https://matrix.example",
-            hsToken: "hs",
             matrixDeviceId: "DEV",
             matrixUserId: "@alice:example",
           },
@@ -133,7 +138,7 @@ describe("OpenClaw Beeper setup surface", () => {
   });
 
   it("exposes a channel plugin through the setup entry shape OpenClaw loads", () => {
-    expect(extension.channelPlugin).toBe(beeperChannelPlugin);
+    expect(extension.loadChannelPlugin()).toMatchObject({ id: "beeper" });
     expect(beeperChannelPlugin).toMatchObject({
       id: "beeper",
       meta: {
@@ -154,7 +159,13 @@ describe("OpenClaw Beeper setup surface", () => {
         startAccount: expect.any(Function),
         stopAccount: expect.any(Function),
       },
-      uiHints: {},
+      uiHints: expect.objectContaining({
+        asToken: expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
+        hsToken: expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
+        serverEnv: expect.objectContaining({
+          help: expect.stringContaining("Choose before Beeper login"),
+        }),
+      }),
     });
     expect(beeperChannelPlugin.setup).toBe(beeperSetupAdapter);
     expect(beeperChannelPlugin.setupWizard).toBe(beeperSetupWizard);
@@ -169,6 +180,7 @@ describe("OpenClaw Beeper setup surface", () => {
       label: "Beeper",
       selectionLabel: expect.any(String),
     }));
+    expect(beeperChannelPlugin.meta).not.toHaveProperty("quickstartAllowFrom");
     expect(beeperChannelPlugin.capabilities.chatTypes).toEqual(["direct", "thread"]);
     expect(beeperChannelPlugin.message).toEqual(expect.objectContaining({
       durableFinal: expect.objectContaining({
@@ -358,12 +370,12 @@ describe("OpenClaw Beeper setup surface", () => {
       inbound: { buildContext: vi.fn(), dispatchReply: vi.fn() },
     };
     const cfg = applyBeeperChannelSettings({}, {
+      asToken: "as",
       dataDir: "/tmp/openclaw-beeper",
       enabled: true,
+      hsToken: "hs",
       bridge: {
-        asToken: "as",
         homeserver: "https://matrix.example",
-        hsToken: "hs",
         matrixDeviceId: "DEV",
         matrixUserId: "@alice:example",
       },
@@ -401,12 +413,12 @@ describe("OpenClaw Beeper setup surface", () => {
     appserviceMocks.startOpenClawBeeperBridge.mockResolvedValueOnce({ stop });
     const abort = new AbortController();
     const cfg = applyBeeperChannelSettings({}, {
+      asToken: "as",
       dataDir: "/tmp/openclaw-beeper",
       enabled: true,
+      hsToken: "hs",
       bridge: {
-        asToken: "as",
         homeserver: "https://matrix.example",
-        hsToken: "hs",
         matrixDeviceId: "DEV",
         matrixUserId: "@alice:example",
       },
@@ -439,8 +451,10 @@ describe("OpenClaw Beeper setup surface", () => {
 
   it("exposes the lightweight OpenClaw setup-entry contract", () => {
     expect(setupEntry).toMatchObject({
-      plugin: beeperChannelPlugin,
+      kind: "bundled-channel-setup-entry",
+      loadSetupPlugin: expect.any(Function),
     });
+    expect(setupEntry.loadSetupPlugin()).toMatchObject({ id: "beeper" });
   });
 
   it("applies dashboard setup input into non-login channels.beeper settings", async () => {
@@ -448,12 +462,12 @@ describe("OpenClaw Beeper setup surface", () => {
       accountId: "default",
       cfg: {},
       input: {
-        beeperEnv: "staging",
+        serverEnv: "staging",
       },
     });
     expect(getBeeperChannelSettings(cfg)).toEqual({
-      beeperEnv: "staging",
       enabled: true,
+      serverEnv: "staging",
     });
     expect(isBeeperChannelConfigured(cfg)).toBe(false);
     expect(cfg.plugins?.entries?.beeper).toBeUndefined();
@@ -466,7 +480,7 @@ describe("OpenClaw Beeper setup surface", () => {
       input: {
         email: "alice@example.com",
       },
-    })).toThrow("Beeper login is asynchronous");
+    })).toThrow("Beeper login runs through");
 
     expect(() => beeperSetupAdapter.applyAccountConfig({
       accountId: "default",
@@ -475,7 +489,7 @@ describe("OpenClaw Beeper setup surface", () => {
         password: "secret",
         username: "alice",
       },
-    })).toThrow("Beeper login is asynchronous");
+    })).toThrow("Beeper login runs through");
   });
 
   it("runs Beeper login and appservice registration from dashboard setup wizard input", async () => {
@@ -485,7 +499,7 @@ describe("OpenClaw Beeper setup surface", () => {
     };
     const promptValues: Record<string, string> = {
       "Beeper email": "alice@example.com",
-      "Beeper login code": "123456",
+      "Beeper sign in code": "123456",
     };
     const result = await beeperSetupWizard.configureInteractive({
       cfg: {},
@@ -494,6 +508,7 @@ describe("OpenClaw Beeper setup surface", () => {
         multiselect: async () => ["dashboard", "tui"],
         progress: () => progress,
         select: async ({ message }) => {
+          if (message === "Beeper server environment") return "prod";
           if (message === "Beeper login method") return "email";
           if (message === "Beeper contact visibility") return "agents";
           if (message === "Approval behavior") return "native";
@@ -510,7 +525,7 @@ describe("OpenClaw Beeper setup surface", () => {
       runtime: {
         setupBridge: async (options) => {
           expect(options.email).toBe("alice@example.com");
-          expect(options.env).toBe("production");
+          expect(options.env).toBe("prod");
           expect(options).not.toHaveProperty("bridgeManagerToken");
           expect(options).not.toHaveProperty("homeserverDomain");
           expect(await options.getLoginCode?.()).toBe("123456");
@@ -547,14 +562,14 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(result.accountId).toBe("default");
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       enabled: true,
+      asToken: "as",
       bridge: {
-        asToken: "as",
         bridgeId: "sh-openclaw-dev",
         homeserver: "https://matrix.example",
-        hsToken: "hs",
         matrixDeviceId: "DEV",
         matrixUserId: "@alice:example",
       },
+      hsToken: "hs",
     });
   });
 
@@ -563,8 +578,8 @@ describe("OpenClaw Beeper setup surface", () => {
     const cfg = await applyBeeperSetupConfig({
       cfg: {},
       input: {
-        beeperEnv: "dev",
         password: "secret",
+        serverEnv: "dev",
         username: "alice",
       },
       runtime: {
@@ -603,16 +618,16 @@ describe("OpenClaw Beeper setup surface", () => {
       },
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
-      beeperEnv: "dev",
+      asToken: "as",
       bridge: {
         appserviceId: "sh-openclaw-dev",
-        asToken: "as",
         bridgeId: "sh-openclaw-dev",
         homeserver: "https://matrix.example",
-        hsToken: "hs",
         matrixDeviceId: "DEV",
         matrixUserId: "@alice:example",
       },
+      hsToken: "hs",
+      serverEnv: "dev",
     });
   });
 
@@ -621,11 +636,11 @@ describe("OpenClaw Beeper setup surface", () => {
       enabled: true,
     }))).toBe(false);
     const cfg = applyBeeperChannelSettings({}, {
+      asToken: "as",
       enabled: true,
+      hsToken: "hs",
       bridge: {
-        asToken: "as",
         homeserver: "https://matrix.example",
-        hsToken: "hs",
         matrixDeviceId: "DEV",
         matrixUserId: "@alice:example",
       },
@@ -638,9 +653,9 @@ describe("OpenClaw Beeper setup surface", () => {
     const cfg = await applyBeeperSetupConfig({
       cfg: {},
       input: {
-        beeperEnv: "dev",
-        code: "123456",
         email: "alice@example.com",
+        getLoginCode: () => "123456",
+        serverEnv: "dev",
       },
       runtime: {
         setupBridge: async (options) => {
@@ -680,15 +695,15 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       enabled: true,
+      asToken: "as",
       bridge: {
         appserviceId: "sh-openclaw-dev",
-        asToken: "as",
         bridgeId: "sh-openclaw-dev",
         homeserver: "https://matrix.example",
-        hsToken: "hs",
         matrixDeviceId: "DEV",
         matrixUserId: "@alice:example",
       },
+      hsToken: "hs",
     });
   });
 
@@ -713,6 +728,33 @@ describe("OpenClaw Beeper setup surface", () => {
       channel: "beeper",
       configured: false,
       quickstartScore: 20,
+      statusLines: expect.arrayContaining([
+        "Server environment: prod",
+      ]),
+    });
+  });
+
+  it("reports read-only Beeper login identity after setup", async () => {
+    const cfg = applyBeeperChannelSettings({}, {
+      asToken: "as",
+      bridge: {
+        homeserver: "https://matrix.example",
+        homeserverDomain: "matrix.example",
+        matrixDeviceId: "DEV",
+        matrixUserId: "@alice:example",
+      },
+      enabled: true,
+      hsToken: "hs",
+      serverEnv: "staging",
+    });
+
+    await expect(beeperSetupWizard.getStatus({ cfg })).resolves.toMatchObject({
+      configured: true,
+      statusLines: expect.arrayContaining([
+        "Server environment: staging (change requires logout and login)",
+        "Beeper user: @alice:example",
+        "Homeserver: matrix.example",
+      ]),
     });
   });
 
@@ -736,7 +778,7 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(beeperStatusAdapter.resolveAccountState({ configured: false, enabled: true })).toBe("not configured");
     expect(beeperStatusAdapter.collectStatusIssues([snapshot])).toEqual([
       expect.objectContaining({
-        message: expect.stringContaining("not fully configured"),
+        message: expect.stringContaining("not connected"),
         severity: "warning",
       }),
     ]);
@@ -746,10 +788,10 @@ describe("OpenClaw Beeper setup surface", () => {
     const cfg = createConfigFromOpenClawSetup({
       channels: {
         beeper: {
+          hsToken: "hs",
           dataDir: "/tmp/beeper",
           bridge: {
             homeserver: "https://matrix.example",
-            hsToken: "hs",
             matrixDeviceId: "DEV",
             matrixUserId: "@alice:example",
           },
@@ -954,7 +996,7 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(getBeeperChannelSettings({
       channels: {
         beeper: {
-          beeperEnv: "staging",
+          serverEnv: "staging",
         },
       },
       plugins: {
@@ -967,12 +1009,75 @@ describe("OpenClaw Beeper setup surface", () => {
         },
       },
     })).toEqual({
-      beeperEnv: "staging",
+      serverEnv: "staging",
     });
 
     expect(createConfigFromOpenClawSetup({ plugins: { entries: { beeper: { config: { enabled: true } } } } })).toMatchObject({
       appserviceId: "sh-openclaw",
     });
+  });
+
+  it("uses official channels.beeper accounts for multiple Beeper accounts", () => {
+    const cfg = applyBeeperAccountSettings({
+      channels: {
+        beeper: {
+          defaultAccount: "work",
+          dataDir: "/legacy/default",
+          serverEnv: "prod",
+        },
+      },
+    } as OpenClawSetupConfig, "work", {
+      dataDir: "/work",
+      enabled: true,
+      name: "Work Beeper",
+      serverEnv: "staging",
+    });
+
+    expect(listBeeperAccountIds(cfg)).toEqual(["default", "work"]);
+    expect(resolveDefaultBeeperAccountId(cfg)).toBe("work");
+    expect(getBeeperAccountSettings(cfg, "default")).toMatchObject({
+      dataDir: "/legacy/default",
+      serverEnv: "prod",
+    });
+    expect(getBeeperAccountSettings(cfg, "work")).toMatchObject({
+      dataDir: "/work",
+      name: "Work Beeper",
+      serverEnv: "staging",
+    });
+    expect(beeperChannelConfig.resolveAccount(cfg, "work")).toMatchObject({
+      accountId: "work",
+      settings: { name: "Work Beeper" },
+    });
+  });
+
+  it("allows non-exclusive agent account assignment with per-agent defaults", () => {
+    const cfg = {
+      channels: {
+        beeper: {
+          defaultAccount: "personal",
+          accounts: {
+            personal: { enabled: true },
+            work: { enabled: true },
+            alerts: { enabled: true },
+          },
+          agents: {
+            codex: {
+              accountIds: ["work", "alerts"],
+              defaultAccount: "alerts",
+            },
+            helper: {
+              accountIds: ["work"],
+            },
+          },
+        },
+      },
+    } as OpenClawSetupConfig;
+
+    expect(resolveBeeperAgentAccountId(cfg, "codex")).toBe("alerts");
+    expect(resolveBeeperAgentAccountId(cfg, "codex", "work")).toBe("work");
+    expect(resolveBeeperAgentAccountId(cfg, "helper")).toBe("work");
+    expect(resolveBeeperAgentAccountId(cfg, "unassigned")).toBe("personal");
+    expect(() => resolveBeeperAgentAccountId(cfg, "helper", "alerts")).toThrow(/not assigned/);
   });
 });
 

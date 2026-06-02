@@ -168,6 +168,10 @@ export interface ContactListingNetworkAPI extends NetworkAPI {
   listContacts(ctx: BridgeRequestContext, params: ListContactsParams): Promise<ListContactsResponse>;
 }
 
+export interface UserSearchingNetworkAPI extends NetworkAPI {
+  searchUsers(ctx: BridgeRequestContext, params: SearchUsersParams): Promise<SearchUsersResponse>;
+}
+
 export interface MessageRequestHandlingNetworkAPI extends NetworkAPI {
   handleMessageRequest(ctx: BridgeRequestContext, request: MessageRequest): Promise<MessageRequest>;
 }
@@ -761,10 +765,13 @@ export interface ProvisioningCapabilities {
 }
 
 export interface ResolveIdentifierCapabilities {
+  anyPhone?: boolean;
   contactList?: boolean;
   createDM?: boolean;
+  lookupEmail?: boolean;
   lookupPhone?: boolean;
   lookupUsername?: boolean;
+  search?: boolean;
 }
 
 export interface GroupTypeCapabilities {
@@ -932,6 +939,14 @@ export interface ListContactsParams {
 export interface ListContactsResponse {
   contacts: ResolveIdentifierResponse[];
   nextBatch?: string;
+}
+
+export interface SearchUsersParams {
+  query: string;
+}
+
+export interface SearchUsersResponse {
+  results: ResolveIdentifierResponse[];
 }
 
 export interface UserProfile {

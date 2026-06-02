@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import extension, { openClawBeeperPlugin } from "./openclaw-extension";
+import extension, { openClawBeeperPlugin } from "./plugin-entry";
 
 describe("OpenClaw plugin package metadata", () => {
   it("exports a loadable OpenClaw plugin object", () => {
@@ -17,7 +17,14 @@ describe("OpenClaw plugin package metadata", () => {
       },
     });
     expect(extension.id).toBe("beeper");
-    expect(extension.channelPlugin).toBe(registered[0]);
+    expect(extension.kind).toBe("bundled-channel-entry");
+    expect(extension.loadChannelPlugin()).toMatchObject({ id: "beeper" });
+    expect(extension.loadChannelSecrets()).toMatchObject({
+      secretTargetRegistryEntries: [
+        expect.objectContaining({ pathPattern: "channels.beeper.asToken" }),
+        expect.objectContaining({ pathPattern: "channels.beeper.hsToken" }),
+      ],
+    });
     expect(resolveBundledRuntimeChannelRegistration(extension)).toMatchObject({
       id: "beeper",
       plugin: expect.objectContaining({
@@ -43,7 +50,7 @@ describe("OpenClaw plugin package metadata", () => {
         threading: expect.any(Object),
       }),
     ]);
-  });
+  }, 15_000);
 
   it("honors SDK channel registration modes", () => {
     const registerChannel = vi.fn();
@@ -81,6 +88,7 @@ describe("OpenClaw plugin package metadata", () => {
       version?: string;
     };
     const manifest = JSON.parse(await readFile(resolve("openclaw.plugin.json"), "utf8")) as {
+      activation?: { onStartup?: boolean };
       id?: string;
       channels?: string[];
       channelConfigs?: Record<string, {
@@ -97,8 +105,9 @@ describe("OpenClaw plugin package metadata", () => {
     const schema = JSON.parse(await readFile(resolve("src/beeper-channel-config.schema.json"), "utf8"));
 
     expect(packageJson.files).toContain("openclaw.plugin.json");
-    expect(packageJson.openclaw?.extensions).toEqual(["./src/plugin-entry.ts"]);
-    expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs"]);
+    expect(packageJson.files).toContain("skills");
+    expect(packageJson.openclaw?.extensions).toEqual(["./src/plugin-entry.ts", "./src/function-entry.ts"]);
+    expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs", "./dist/function-entry.mjs"]);
     expect(packageJson.openclaw?.setupEntry).toBe("./src/setup-entry.ts");
     expect(packageJson.openclaw?.runtimeSetupEntry).toBe("./dist/setup-entry.mjs");
     expect(packageJson.openclaw?.channel?.id).toBe("beeper");
@@ -109,16 +118,20 @@ describe("OpenClaw plugin package metadata", () => {
     expect(packageJson.openclaw?.install?.npmSpec).toBe(
       `@beeper/openclaw@${packageJson.version}`,
     );
-    expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.5.22");
-    expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.5.22");
+    expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.6.2");
+    expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.6.2");
     expect(packageJson.scripts?.prepublishOnly).toBe("node ../../scripts/guard-pnpm-publish.mjs");
     expect(packageJson.files).toContain("dist");
-    expect(manifest).toEqual(expect.objectContaining({ id: "beeper", channels: ["beeper"] }));
-    expect(manifest.channelEnvVars?.beeper).toEqual(["PICKLE_OPENCLAW_BEEPER_ENV"]);
-    expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_ACCESS_TOKEN");
-    expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_GATEWAY_ACCESS_TOKEN");
-    expect(manifest.channelEnvVars?.beeper).not.toContain("OPENCLAW_GATEWAY_TOKEN");
-    expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_DEVICE_ID");
+    expect(manifest).toEqual(expect.objectContaining({
+      commandAliases: [{ name: "beeper" }],
+      contracts: { tools: ["beeper_cli"] },
+      id: "beeper",
+      channels: ["beeper"],
+      skills: ["./skills"],
+      toolMetadata: { beeper_cli: { optional: true } },
+    }));
+    expect(manifest.activation?.onStartup).toBe(false);
+    expect(manifest.channelEnvVars).toBeUndefined();
     expect(manifest.uiHints).toBeUndefined();
     expect(manifest.configSchema).toEqual({
       type: "object",
@@ -135,23 +148,28 @@ describe("OpenClaw plugin package metadata", () => {
       schema: {
         properties: expect.not.objectContaining({
           appserviceId: expect.anything(),
-          asToken: expect.anything(),
           backfillLimit: expect.anything(),
           bridgeId: expect.anything(),
           homeserver: expect.anything(),
           homeserverDomain: expect.anything(),
-          hsToken: expect.anything(),
           importSources: expect.anything(),
           matrixDeviceId: expect.anything(),
           matrixUserId: expect.anything(),
         }),
       },
-      uiHints: expect.not.objectContaining({
-        accessToken: expect.anything(),
-        asToken: expect.anything(),
-        hsToken: expect.anything(),
+      uiHints: expect.objectContaining({
+        asToken: expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
+        hsToken: expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
+        serverEnv: expect.objectContaining({
+          help: expect.stringContaining("Choose before Beeper login"),
+        }),
       }),
     });
+    expect(manifest.channelConfigs?.beeper?.schema?.properties).toEqual(expect.objectContaining({
+      asToken: expect.any(Object),
+      hsToken: expect.any(Object),
+      serverEnv: expect.objectContaining({ enum: ["prod", "staging", "dev", "local"] }),
+    }));
   });
 
   it("keeps the public package manifest publishable and installable from built files", async () => {
@@ -178,9 +196,9 @@ describe("OpenClaw plugin package metadata", () => {
     ]));
     expect(packageJson.main).toBe("./dist/plugin-entry.mjs");
     expect(packageJson.bin?.["pickle-openclaw"]).toBe("./dist/cli.mjs");
-    expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs"]);
+    expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs", "./dist/function-entry.mjs"]);
     expect(packageJson.openclaw?.runtimeSetupEntry).toBe("./dist/setup-entry.mjs");
-    expect(dependencies).toEqual([]);
+    expect(dependencies).toEqual([["beeper-cli", "^0.6.2"]]);
     expect(devDependencies).toEqual(expect.arrayContaining([
       ["@beeper/pickle-ag-ui", "workspace:^"],
       ["@beeper/pickle-bridge", "workspace:^"],
@@ -196,17 +214,17 @@ function resolveBundledRuntimeChannelRegistration(moduleExport: unknown): { id?:
   if (!resolved || typeof resolved !== "object") return {};
   const entry = resolved as {
     id?: unknown;
-    channelPlugin?: unknown;
+    loadChannelPlugin?: () => unknown;
   };
   if (
     typeof entry.id !== "string" ||
-    !entry.channelPlugin
+    typeof entry.loadChannelPlugin !== "function"
   ) {
     return {};
   }
   return {
     id: entry.id,
-    plugin: entry.channelPlugin,
+    plugin: entry.loadChannelPlugin(),
   };
 }
 

@@ -62,7 +62,7 @@ describe("pickle-openclaw CLI", () => {
       dir,
       "--email",
       "you@example.com",
-      "--env",
+      "--server-env",
       "staging",
     ], io, { setupBridge })).resolves.toBe(0);
 
@@ -76,19 +76,19 @@ describe("pickle-openclaw CLI", () => {
     expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
       appserviceId: "sh-openclaw-device",
       asToken: "as-token",
-      beeperEnv: "staging",
       homeserver: "https://matrix.beeper.com",
       hsToken: "hs-token",
       matrixDeviceId: "DEVICE",
       matrixUserId: "@batuhan:beeper.com",
+      serverEnv: "staging",
     });
     const output = JSON.parse(io.stdoutText);
     expect(output.account).toMatchObject({
       appserviceId: "sh-openclaw-device",
-      beeperEnv: "staging",
       bridgeId: "sh-openclaw-device",
       canConnect: true,
       deviceId: "DEVICE",
+      serverEnv: "staging",
       userId: "@batuhan:beeper.com",
     });
     expect(output).not.toHaveProperty("init");
@@ -154,7 +154,7 @@ describe("pickle-openclaw CLI", () => {
       "batuhan",
       "--password",
       "secret",
-      "--env",
+      "--server-env",
       "staging",
     ], io, { setupBridge })).resolves.toBe(0);
 
@@ -199,11 +199,11 @@ describe("pickle-openclaw CLI", () => {
 
     expect(JSON.parse(io.stdoutText)).toEqual({
       appserviceId: "sh-openclaw-device",
-      beeperEnv: "production",
       bridgeId: "sh-openclaw-device",
       canConnect: true,
       deviceId: "DEVICE",
       homeserver: "https://matrix.beeper.com",
+      serverEnv: "prod",
       userId: "@batuhan:beeper.com",
     });
   });

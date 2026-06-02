@@ -50,7 +50,10 @@ import {
   Reaction,
   ResolveIdentifierParams,
   ResolveIdentifierResponse,
+  type SearchUsersParams,
+  type SearchUsersResponse,
   UserLogin,
+  type UserSearchingNetworkAPI,
 } from "@beeper/pickle-bridge/types";
 import { parseApprovalReactionContent, parseApprovalResponseContent } from "./approval";
 import {
@@ -165,6 +168,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
           contactList: true,
           createDM: true,
           lookupUsername: true,
+          search: true,
         },
       },
     };
@@ -230,7 +234,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
   };
 }
 
-export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, ReactionRemoveHandlingNetworkAPI, RedactionHandlingNetworkAPI, ReadReceiptHandlingNetworkAPI, MarkedUnreadHandlingNetworkAPI, TypingHandlingNetworkAPI, RoomNameHandlingNetworkAPI, RoomTopicHandlingNetworkAPI, RoomAvatarHandlingNetworkAPI, MembershipHandlingNetworkAPI, DeleteChatHandlingNetworkAPI {
+export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, UserSearchingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, ReactionRemoveHandlingNetworkAPI, RedactionHandlingNetworkAPI, ReadReceiptHandlingNetworkAPI, MarkedUnreadHandlingNetworkAPI, TypingHandlingNetworkAPI, RoomNameHandlingNetworkAPI, RoomTopicHandlingNetworkAPI, RoomAvatarHandlingNetworkAPI, MembershipHandlingNetworkAPI, DeleteChatHandlingNetworkAPI {
   readonly #agent: OpenClawMatrixBridgeAgent;
   readonly #config: OpenClawBridgeConfig;
   readonly #login: UserLogin;
@@ -308,17 +312,24 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
   }
 
   async listContacts(_ctx: BridgeRequestContext, params: ListContactsParams = {}): Promise<ListContactsResponse> {
+    return { contacts: await this.#agentContactResponses(params.query, params.limit) };
+  }
+
+  async searchUsers(_ctx: BridgeRequestContext, params: SearchUsersParams): Promise<SearchUsersResponse> {
+    return { results: await this.#agentContactResponses(params.query) };
+  }
+
+  async #agentContactResponses(query?: string, limit?: number): Promise<ResolveIdentifierResponse[]> {
     await this.#agent.syncAgentContacts();
-    const query = params.query?.trim().toLowerCase();
-    const contacts = this.#registry.data.agents
+    const normalizedQuery = query?.trim().toLowerCase();
+    return this.#registry.data.agents
       .map((contact) => ({
         response: contactResponse(contact),
         text: `${contact.agentId} ${contact.displayName}`.toLowerCase(),
       }))
-      .filter((contact) => !query || contact.text.includes(query))
-      .slice(0, params.limit ?? 100)
+      .filter((contact) => !normalizedQuery || contact.text.includes(normalizedQuery))
+      .slice(0, limit ?? 100)
       .map((contact) => contact.response);
-    return { contacts };
   }
 
   async handleMatrixMessage(ctx: BridgeRequestContext, msg: MatrixMessage): Promise<MatrixMessageResponse> {

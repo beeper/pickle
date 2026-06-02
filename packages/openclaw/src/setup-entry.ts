@@ -1,6 +1,10 @@
-import { defineSetupPluginEntry } from "openclaw/plugin-sdk/channel-core";
-import { beeperChannelPlugin } from "./setup";
+import { defineBundledChannelSetupEntry } from "openclaw/plugin-sdk/channel-entry-contract";
 
-export const openClawBeeperSetupEntry = defineSetupPluginEntry(beeperChannelPlugin);
+export const openClawBeeperSetupEntry = defineBundledChannelSetupEntry({
+  importMetaUrl: import.meta.url,
+  plugin: { specifier: "./setup.js", exportName: "beeperChannelPlugin" },
+  runtime: { specifier: "./setup.js", exportName: "setBeeperOpenClawPluginRuntime" },
+  secrets: { specifier: "./secret-contract.js", exportName: "channelSecrets" },
+});
 
 export default openClawBeeperSetupEntry;

@@ -898,18 +898,22 @@ export class RuntimeBridge implements PickleBridge {
         ...params,
         portal: this.#portalForRoom(roomId),
       }),
-      listContacts: async (login, query, limit) => {
+      listContacts: async (login) => {
         const client = await this.loadUserLogin(login);
         if (!hasMethod(client, "listContacts")) {
           throw new Error(`Login ${login.id} does not support contact listing`);
         }
-        return (client as import("./types").ContactListingNetworkAPI).listContacts(this.#requestContext(), {
-          ...(limit !== undefined ? { limit } : {}),
-          ...(query !== undefined ? { query } : {}),
-        });
+        return (client as import("./types").ContactListingNetworkAPI).listContacts(this.#requestContext(), {});
       },
       requestContext: () => this.#requestContext(),
       resolveIdentifier: (login, identifier, createDM) => this.resolveIdentifier(login, { createDM, identifier }),
+      searchUsers: async (login, query) => {
+        const client = await this.loadUserLogin(login);
+        if (!hasMethod(client, "searchUsers")) {
+          throw new Error(`Login ${login.id} does not support user search`);
+        }
+        return (client as import("./types").UserSearchingNetworkAPI).searchUsers(this.#requestContext(), { query });
+      },
     }, { logins: this.#provisioningLogins }, request);
   }
 

@@ -12,6 +12,7 @@ import (
 
 	agui "github.com/beeper/ai-bridge/pkg/ag-ui"
 	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
+	aibridgev2 "github.com/beeper/ai-bridge/pkg/ai-stream/bridgev2"
 	"maunium.net/go/mautrix"
 	mautrixbeeperstream "maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
@@ -330,9 +331,8 @@ func (c *Core) finalizeBeeperStreamMessage(ctx context.Context, req MatrixFinali
 	if content["msgtype"] == nil {
 		content["msgtype"] = "m.text"
 	}
-	content["com.beeper.stream"] = nil
-	topLevel := copyOutboundEvent(req.TopLevelContent)
-	topLevel["com.beeper.stream"] = nil
+	content = OutboundEvent(aibridgev2.FinalEditExtra(content))
+	topLevel := mergeOutboundEvent(req.TopLevelContent, OutboundEvent(aibridgev2.FinalEditTopLevelExtra()))
 	replacement, err := c.sendBeeperStreamReplacementEvent(ctx, req.RoomID, req.EventID, req.UserID, content, topLevel)
 	if err != nil {
 		return MatrixFinalizeBeeperStreamMessageResult{}, err
@@ -869,6 +869,14 @@ func (c *Core) handleFetchThreadMessages(ctx context.Context, cli *mautrix.Clien
 		nextCursor = resp.PrevBatch
 	}
 	return json.Marshal(OutboundEvent{"messages": messages, "nextCursor": nextCursor})
+}
+
+func mergeOutboundEvent(base, extra OutboundEvent) OutboundEvent {
+	out := copyOutboundEvent(base)
+	for key, value := range extra {
+		out[key] = value
+	}
+	return out
 }
 
 func (c *Core) applyLatestReplacement(ctx context.Context, cli *mautrix.Client, roomID id.RoomID, msg *MatrixMessageEvent) *MatrixMessageEvent {

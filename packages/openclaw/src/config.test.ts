@@ -7,7 +7,6 @@ import { createDefaultConfig, createConfigFromOpenClawSetup, readConfig, writeCo
 
 describe("OpenClaw bridge config", () => {
   afterEach(() => {
-    delete process.env.PICKLE_OPENCLAW_BEEPER_ENV;
     delete process.env.PICKLE_OPENCLAW_DEVICE_ID;
     delete process.env.PICKLE_OPENCLAW_HS_TOKEN;
     delete process.env.OPENCLAW_DEVICE_ID;
@@ -31,14 +30,14 @@ describe("OpenClaw bridge config", () => {
 
   it("accepts saved login and registration state from OpenClaw config", () => {
     expect(createDefaultConfig({
-      beeperEnv: "staging",
       asToken: "as-token",
       dataDir: "/tmp/openclaw-bridge",
       homeserverDomain: "beeper.local",
+      serverEnv: "staging",
     })).toMatchObject({
-      beeperEnv: "staging",
       asToken: "as-token",
       homeserverDomain: "beeper.local",
+      serverEnv: "staging",
     });
   });
 
@@ -58,15 +57,14 @@ describe("OpenClaw bridge config", () => {
     });
   });
 
-  it("accepts only Beeper environment and OpenClaw device id from environment variables", () => {
-    process.env.PICKLE_OPENCLAW_BEEPER_ENV = "staging";
+  it("accepts only OpenClaw device id from environment variables", () => {
     process.env.PICKLE_OPENCLAW_DEVICE_ID = "openclaw.device";
     process.env.PICKLE_OPENCLAW_HS_TOKEN = "ignored";
 
     expect(createDefaultConfig({ dataDir: "/tmp/openclaw-bridge" })).toMatchObject({
       appserviceId: "sh-openclaw-openclaw-device",
-      beeperEnv: "staging",
       bridgeId: "sh-openclaw-openclaw-device",
+      serverEnv: "prod",
     });
     expect(createDefaultConfig({ dataDir: "/tmp/openclaw-bridge" }).hsToken).toBeUndefined();
   });
@@ -92,13 +90,13 @@ describe("OpenClaw bridge config", () => {
     await writeFile(path, `${JSON.stringify({
       channels: {
         beeper: {
-          beeperEnv: "staging",
+          asToken: "as-secret",
           dataDir: dir,
+          hsToken: "hs-secret",
+          serverEnv: "staging",
           bridge: {
             appserviceId: "sh-openclaw-device",
-            asToken: "as-secret",
             homeserver: "https://matrix.example",
-            hsToken: "hs-secret",
             matrixDeviceId: "DEVICE",
             matrixUserId: "@alice:example",
           },
@@ -109,12 +107,12 @@ describe("OpenClaw bridge config", () => {
     await expect(readConfig(path)).resolves.toMatchObject({
       appserviceId: "sh-openclaw-device",
       asToken: "as-secret",
-      beeperEnv: "staging",
       dataDir: dir,
       homeserver: "https://matrix.example",
       hsToken: "hs-secret",
       matrixDeviceId: "DEVICE",
       matrixUserId: "@alice:example",
+      serverEnv: "staging",
     });
   });
 });

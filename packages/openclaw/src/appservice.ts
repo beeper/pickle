@@ -32,7 +32,7 @@ export async function createOpenClawBeeperBridge(options: CreateOpenClawBeeperBr
   };
   if (config?.matrixUserId !== undefined) bridgeOptions.ownerUserId = config.matrixUserId;
   bridgeOptions.address = "websocket";
-  const baseDomain = beeperBaseDomain(config?.beeperEnv);
+  const baseDomain = beeperBaseDomain(config?.serverEnv === "prod" ? "production" : config?.serverEnv);
   if (baseDomain !== undefined) bridgeOptions.baseDomain = baseDomain;
   bridgeOptions.bridgeManagerPostState = true;
   if (config?.homeserverDomain !== undefined) bridgeOptions.homeserverDomain = config.homeserverDomain;

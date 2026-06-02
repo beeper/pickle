@@ -13,6 +13,8 @@ import type {
   ResolveIdentifierResponse,
   BackfillQueueResult,
   BackfillQueueParams,
+  ResolveIdentifierCapabilities,
+  SearchUsersResponse,
   UserLogin,
 } from "./types";
 
@@ -22,9 +24,10 @@ export interface ProvisioningRuntime {
   listLogins(): UserLogin[];
   loginFlows(): unknown[];
   loadLogin(login: UserLogin): Promise<void>;
-  listContacts?(login: UserLogin, query?: string, limit?: number): Promise<ListContactsResponse>;
+  listContacts?(login: UserLogin): Promise<ListContactsResponse>;
   requestContext(): BridgeRequestContext;
   resolveIdentifier(login: UserLogin, identifier: string, createDM: boolean): Promise<ResolveIdentifierResponse>;
+  searchUsers?(login: UserLogin, query: string): Promise<SearchUsersResponse>;
   backfill?(login: UserLogin, roomId: string, params: ProvisioningBackfillParams): Promise<BackfillQueueResult>;
 }
 
@@ -49,19 +52,22 @@ export async function handleProvisioningHTTPProxy(runtime: ProvisioningRuntime, 
   }
 
   if (method === "GET" && path === "/_matrix/provision/v3/contacts") {
-    if (!runtime.listContacts) return jsonHTTPResponse(404, matrixError("M_UNSUPPORTED", "Contact listing is not supported"));
+    if (!runtime.listContacts) return notSupportedResponse("Contact listing is not supported");
     const login = provisioningLogin(runtime, request);
     if (!login) return jsonHTTPResponse(404, matrixError("M_NOT_FOUND", "Login not found"));
-    return jsonHTTPResponse(200, contactsListResponse(await runtime.listContacts(
-      login,
-      queryParam(request.query, "q"),
-      intQueryParam(request.query, "limit"),
-    )));
+    return jsonHTTPResponse(200, contactsListResponse(await runtime.listContacts(login)));
+  }
+
+  if (method === "POST" && path === "/_matrix/provision/v3/search_users") {
+    if (!runtime.searchUsers) return notSupportedResponse("User search is not supported");
+    const login = provisioningLogin(runtime, request);
+    if (!login) return jsonHTTPResponse(404, matrixError("M_NOT_FOUND", "Login not found"));
+    return jsonHTTPResponse(200, searchUsersResponse(await runtime.searchUsers(login, bodyStringParam(request, "query") ?? "")));
   }
 
   const backfill = match(path, /^\/_matrix\/provision\/v3\/backfill\/([^/]+)$/);
   if ((method === "GET" || method === "POST") && backfill) {
-    if (!runtime.backfill) return jsonHTTPResponse(404, matrixError("M_UNSUPPORTED", "Backfill is not supported"));
+    if (!runtime.backfill) return notSupportedResponse("Backfill is not supported");
     const [roomId] = backfill;
     if (!roomId) return null;
     const login = provisioningLogin(runtime, request);
@@ -157,8 +163,20 @@ export function jsonHTTPResponse(status: number, body: unknown): HTTPProxyRespon
 function capabilitiesResponse(capabilities: NetworkGeneralCapabilities): unknown {
   return {
     group_creation: capabilities.provisioning?.groupCreation ?? {},
-    resolve_identifier: capabilities.provisioning?.resolveIdentifier ?? {},
+    resolve_identifier: resolveIdentifierCapabilitiesResponse(capabilities.provisioning?.resolveIdentifier),
   };
+}
+
+function resolveIdentifierCapabilitiesResponse(capabilities?: ResolveIdentifierCapabilities): Record<string, boolean> {
+  return stripUndefined({
+    any_phone: capabilities?.anyPhone,
+    contact_list: capabilities?.contactList,
+    create_dm: capabilities?.createDM,
+    lookup_email: capabilities?.lookupEmail,
+    lookup_phone: capabilities?.lookupPhone,
+    lookup_username: capabilities?.lookupUsername,
+    search: capabilities?.search,
+  });
 }
 
 function resolvedIdentifierResponse(resolved: ResolveIdentifierResponse): Record<string, unknown> {
@@ -166,6 +184,7 @@ function resolvedIdentifierResponse(resolved: ResolveIdentifierResponse): Record
     avatar_url: resolved.ghost?.avatar?.url,
     dm_room_mxid: resolved.portal?.mxid,
     id: resolved.ghost?.id ?? resolved.userId,
+    identifiers: resolved.ghost?.identifiers,
     mxid: resolved.userId ?? resolved.ghost?.mxid,
     name: resolved.ghost?.displayName,
   });
@@ -176,6 +195,12 @@ function contactsListResponse(response: ListContactsResponse): Record<string, un
     contacts: response.contacts.map((contact) => resolvedIdentifierResponse(contact)),
     next_batch: response.nextBatch,
   });
+}
+
+function searchUsersResponse(response: SearchUsersResponse): Record<string, unknown> {
+  return {
+    results: response.results.map((result) => resolvedIdentifierResponse(result)),
+  };
 }
 
 function backfillResponse(response: BackfillQueueResult): Record<string, unknown> {
@@ -258,6 +283,10 @@ function loginStepJSON(step: LoginStep): Record<string, unknown> {
 
 function matrixError(errcode: string, error: string): Record<string, string> {
   return { errcode, error };
+}
+
+function notSupportedResponse(message: string): HTTPProxyResponse {
+  return jsonHTTPResponse(501, matrixError("M_UNRECOGNIZED", message));
 }
 
 function match(path: string, regex: RegExp): string[] | null {

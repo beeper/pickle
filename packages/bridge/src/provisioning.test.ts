@@ -12,7 +12,7 @@ describe("handleProvisioningHTTPProxy", () => {
     })).resolves.toMatchObject({
       body: {
         group_creation: {},
-        resolve_identifier: { createDM: true },
+        resolve_identifier: { create_dm: true },
       },
       status: 200,
     });
@@ -52,11 +52,12 @@ describe("handleProvisioningHTTPProxy", () => {
     await expect(handleProvisioningHTTPProxy(runtime, { logins: new Map() }, {
       method: "GET",
       path: "/_matrix/provision/v3/contacts",
-      query: "q=codex&limit=10",
+      query: "login_id=intern",
     })).resolves.toMatchObject({
       body: {
         contacts: [{
           id: "intern",
+          identifiers: ["openclaw:agent:intern", "@intern:example"],
           mxid: "@intern:example",
           name: "Intern",
         }],
@@ -64,7 +65,30 @@ describe("handleProvisioningHTTPProxy", () => {
       status: 200,
     });
 
-    expect(runtime.listContacts).toHaveBeenCalledWith({ id: "intern" }, "codex", 10);
+    expect(runtime.listContacts).toHaveBeenCalledWith({ id: "intern" });
+  });
+
+  it("searches users through the BridgeV2 search_users endpoint", async () => {
+    const runtime = provisioningRuntime();
+
+    await expect(handleProvisioningHTTPProxy(runtime, { logins: new Map() }, {
+      body: { query: "codex" },
+      method: "POST",
+      path: "/_matrix/provision/v3/search_users",
+      query: "login_id=intern",
+    })).resolves.toMatchObject({
+      body: {
+        results: [{
+          id: "intern",
+          identifiers: ["openclaw:agent:intern", "@intern:example"],
+          mxid: "@intern:example",
+          name: "Intern",
+        }],
+      },
+      status: 200,
+    });
+
+    expect(runtime.searchUsers).toHaveBeenCalledWith({ id: "intern" }, "codex");
   });
 
   it("runs room backfill through provisioning", async () => {
@@ -147,7 +171,13 @@ function provisioningRuntime(): ProvisioningRuntime {
     listLogins: () => [login],
     listContacts: vi.fn(async () => ({
       contacts: [{
-        ghost: { displayName: "Intern", id: "intern", mxid: "@intern:example" },
+        ghost: { displayName: "Intern", id: "intern", identifiers: ["openclaw:agent:intern", "@intern:example"], mxid: "@intern:example" },
+        userId: "@intern:example",
+      }],
+    })),
+    searchUsers: vi.fn(async () => ({
+      results: [{
+        ghost: { displayName: "Intern", id: "intern", identifiers: ["openclaw:agent:intern", "@intern:example"], mxid: "@intern:example" },
         userId: "@intern:example",
       }],
     })),

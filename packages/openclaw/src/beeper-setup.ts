@@ -11,10 +11,10 @@ import {
 import { DEFAULT_REGISTRATION_URL } from "./config";
 import { DEFAULT_BEEPER_BRIDGE_TYPE, openClawBeeperBridgeId } from "./ids";
 import { resolveOpenClawDeviceId } from "./openclaw-identity";
-import type { OpenClawBridgeConfig } from "./types";
+import type { BeeperServerEnv, OpenClawBridgeConfig } from "./types";
 
 export { DEFAULT_BEEPER_BRIDGE_TYPE, openClawBeeperBridgeId };
-export type { BeeperEnvironment };
+export type { BeeperEnvironment, BeeperServerEnv };
 
 export interface BeeperSetupAccount {
   accessToken: string;
@@ -25,7 +25,7 @@ export interface BeeperSetupAccount {
 
 export interface BeeperLoginForOpenClawOptions {
   email?: string;
-  env?: BeeperEnvironment;
+  env?: BeeperServerEnv;
   fetch?: typeof fetch;
   getLoginCode?: () => Promise<string> | string;
   initialDeviceDisplayName?: string;
@@ -77,7 +77,7 @@ export interface SetupOpenClawBeeperBridgeResult {
 }
 
 export async function loginToBeeperForOpenClaw(options: BeeperLoginForOpenClawOptions): Promise<BeeperLoginForOpenClawResult> {
-  const env = options.env ?? "production";
+  const env = beeperAuthEnv(options.env);
   const openClawDeviceId = options.openClawDeviceId ?? await resolveOpenClawDeviceId();
   const bridgeId = openClawBeeperBridgeId(openClawDeviceId);
   const metadata = { ...options.metadata, bridge: bridgeId, bridgeType: DEFAULT_BEEPER_BRIDGE_TYPE, openClawDeviceId };
@@ -158,7 +158,8 @@ export async function createOpenClawBeeperAppService(
 export async function setupOpenClawBeeperBridge(
   options: SetupOpenClawBeeperBridgeOptions
 ): Promise<SetupOpenClawBeeperBridgeResult> {
-  const env = options.env ?? "production";
+  const env = options.env ?? "prod";
+  const authEnv = beeperAuthEnv(env);
   const openClawDeviceId = options.openClawDeviceId ?? await resolveOpenClawDeviceId();
   const login = await loginToBeeperForOpenClaw({ ...options, env, openClawDeviceId });
   const bridgeId = openClawBeeperBridgeId(openClawDeviceId);
@@ -166,7 +167,7 @@ export async function setupOpenClawBeeperBridge(
     accessToken: login.account.accessToken,
     bridge: bridgeId,
   };
-  const baseDomain = beeperBaseDomain(env);
+  const baseDomain = beeperBaseDomain(authEnv);
   if (baseDomain !== undefined) appserviceOptions.baseDomain = baseDomain;
   if (options.createAppServiceInit !== undefined) appserviceOptions.createAppServiceInit = options.createAppServiceInit;
   if (options.fetch !== undefined) appserviceOptions.fetch = options.fetch;
@@ -190,4 +191,9 @@ export function beeperBaseDomain(env: BeeperEnvironment | undefined): string | u
 
 export function beeperMatrixHomeserver(env: BeeperEnvironment | undefined): string {
   return `https://matrix.${beeperBaseDomain(env) ?? "beeper.com"}`;
+}
+
+function beeperAuthEnv(env: BeeperServerEnv | undefined): BeeperEnvironment {
+  if (env === undefined || env === "prod") return "production";
+  return env;
 }
