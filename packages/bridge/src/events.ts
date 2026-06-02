@@ -1,10 +1,13 @@
 import type {
   BridgeRequestContext,
+  ChatInfoChange,
   ConvertedMessage,
+  CreateRemoteChatInfoChangeOptions,
   CreateRemoteMessageOptions,
   MatrixIntent,
   MessageID,
   Portal,
+  RemoteChatInfoChange,
   RemoteEventType,
   RemoteMessage,
   RemoteMessageWithTransactionID,
@@ -46,6 +49,31 @@ export function createRemoteMessage<T>(options: CreateRemoteMessageOptions<T>): 
     ...event,
     getTransactionID(): string {
       return transactionId;
+    },
+  };
+}
+
+export function createRemoteChatInfoChange(options: CreateRemoteChatInfoChangeOptions): RemoteChatInfoChange {
+  const timestamp = options.timestamp ?? new Date();
+  const streamOrder = options.streamOrder ?? timestamp.getTime();
+  return {
+    getChatInfoChange(): ChatInfoChange {
+      return options.chatInfoChange;
+    },
+    getPortalKey() {
+      return options.portalKey;
+    },
+    getSender() {
+      return options.sender;
+    },
+    getStreamOrder() {
+      return streamOrder;
+    },
+    getTimestamp() {
+      return timestamp;
+    },
+    getType(): RemoteEventType {
+      return "chat_info_change";
     },
   };
 }

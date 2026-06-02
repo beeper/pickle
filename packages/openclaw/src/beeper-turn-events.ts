@@ -4,234 +4,12 @@ export type { AGUIEvent } from "@beeper/pickle-ag-ui";
 import { EventType as AGUIEventType, type AGUIEvent } from "@beeper/pickle-ag-ui";
 import { defaultBeeperApprovalActions, defaultBeeperApprovalChoices } from "./approval";
 
-export interface StreamRunState {
-  messageStarted: boolean;
-  reasoningStarted: boolean;
-  textStarted: boolean;
+export interface ApprovalRunState {
   toolCallIdToApprovalId: Record<string, string>;
-  turnId: string;
 }
 
-export function createStreamRunState(turnId: string): StreamRunState {
-  return {
-    messageStarted: false,
-    reasoningStarted: false,
-    textStarted: false,
-    toolCallIdToApprovalId: {},
-    turnId,
-  };
-}
-
-export function createTurnId(): string {
-  return `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export function mapOpenClawMessageDelta(
-  state: StreamRunState,
-  delta: { kind: "text" | "thinking"; value: string }
-): AGUIEvent[] {
-  if (delta.kind === "text") {
-    return [
-      ...openTextPart(state),
-      {
-        delta: delta.value,
-        messageId: state.turnId,
-        type: AGUIEventType.TEXT_MESSAGE_CONTENT,
-      },
-    ];
-  }
-  return [
-    ...openReasoningPart(state),
-    {
-      delta: delta.value,
-      messageId: state.turnId,
-      type: AGUIEventType.REASONING_MESSAGE_CONTENT,
-    },
-  ];
-}
-
-export function openTextPart(state: StreamRunState): AGUIEvent[] {
-  if (state.textStarted) return [];
-  state.textStarted = true;
-  return [
-    {
-      messageId: state.turnId,
-      role: "assistant",
-      type: AGUIEventType.TEXT_MESSAGE_START,
-    },
-  ];
-}
-
-export function openReasoningPart(state: StreamRunState): AGUIEvent[] {
-  if (state.reasoningStarted) return [];
-  state.reasoningStarted = true;
-  return [
-    {
-      messageId: state.turnId,
-      type: AGUIEventType.REASONING_START,
-    },
-    {
-      messageId: state.turnId,
-      role: "reasoning",
-      type: AGUIEventType.REASONING_MESSAGE_START,
-    },
-  ];
-}
-
-export function closeReasoningPart(state: StreamRunState): AGUIEvent[] {
-  if (!state.reasoningStarted) return [];
-  state.reasoningStarted = false;
-  return [
-    {
-      messageId: state.turnId,
-      type: AGUIEventType.REASONING_MESSAGE_END,
-    },
-    {
-      messageId: state.turnId,
-      type: AGUIEventType.REASONING_END,
-    },
-  ];
-}
-
-export function mapOpenClawToolInput(event: {
-  approval?: { id?: string; needsApproval?: boolean } | Record<string, unknown>;
-  dynamic?: boolean;
-  index?: number;
-  input?: unknown;
-  metadata?: Record<string, unknown>;
-  providerExecuted?: boolean;
-  startedAtMs?: number;
-  title?: string;
-  toolCallId: string;
-  toolName?: string;
-}): AGUIEvent[] {
-  const toolName = event.toolName || "tool";
-  const parts: AGUIEvent[] = [
-    {
-      parentMessageId: event.toolCallId,
-      state: event.approval ? "approval-requested" : "awaiting-input",
-      toolCallId: event.toolCallId,
-      toolCallName: toolName,
-      toolName,
-      type: AGUIEventType.TOOL_CALL_START,
-      ...(event.approval !== undefined ? { approval: event.approval } : {}),
-      ...(event.dynamic !== undefined ? { dynamic: event.dynamic } : {}),
-      ...(event.index !== undefined ? { index: event.index } : {}),
-      ...(event.metadata !== undefined ? { metadata: event.metadata } : {}),
-      ...(event.providerExecuted !== undefined ? { providerExecuted: event.providerExecuted } : {}),
-      ...(event.startedAtMs !== undefined ? { startedAtMs: event.startedAtMs } : {}),
-      ...(event.title !== undefined ? { title: event.title } : {}),
-    },
-  ];
-  if (event.input !== undefined) {
-    parts.push({
-      args: stringifyToolValue(event.input),
-      delta: stringifyToolValue(event.input),
-      state: "input-streaming",
-      toolCallId: event.toolCallId,
-      type: AGUIEventType.TOOL_CALL_ARGS,
-    } as AGUIEvent);
-  }
-  return parts;
-}
-
-export function mapOpenClawToolInputDelta(event: {
-  input?: unknown;
-  inputTextDelta?: string;
-  toolCallId: string;
-  toolName?: string;
-}): AGUIEvent[] {
-  return [
-    {
-      args: event.inputTextDelta ?? stringifyToolValue(event.input),
-      delta: event.inputTextDelta ?? stringifyToolValue(event.input),
-      state: "input-streaming",
-      toolCallId: event.toolCallId,
-      type: AGUIEventType.TOOL_CALL_ARGS,
-    },
-  ];
-}
-
-export function mapOpenClawToolEnd(event: {
-  error?: unknown;
-  input?: unknown;
-  state?: string;
-  toolCallId: string;
-  toolName?: string;
-}): AGUIEvent[] {
-  return [{
-    ...(event.error !== undefined ? { error: stringifyToolValue(event.error) } : {}),
-    ...(event.input !== undefined ? { input: event.input } : {}),
-    state: event.state ?? (event.error !== undefined ? "error" : "input-complete"),
-    toolCallId: event.toolCallId,
-    ...(event.toolName !== undefined ? { toolCallName: event.toolName, toolName: event.toolName } : {}),
-    type: AGUIEventType.TOOL_CALL_END,
-  } as AGUIEvent];
-}
-
-export function mapOpenClawToolOutput(event: {
-  completedAtMs?: number;
-  error?: unknown;
-  output?: unknown;
-  preliminary?: boolean;
-  providerExecuted?: boolean;
-  toolCallId: string;
-  toolName?: string;
-}): AGUIEvent[] {
-  const state = event.error !== undefined ? "error" : event.preliminary ? "streaming" : "complete";
-  return [
-    {
-      content: stringifyToolValue(event.error !== undefined ? event.error : event.output),
-      messageId: event.toolCallId,
-      role: "tool",
-      state,
-      toolCallId: event.toolCallId,
-      type: AGUIEventType.TOOL_CALL_RESULT,
-      ...(event.completedAtMs !== undefined ? { completedAtMs: event.completedAtMs } : {}),
-      ...(event.preliminary !== undefined ? { preliminary: event.preliminary } : {}),
-      ...(event.providerExecuted !== undefined ? { providerExecuted: event.providerExecuted } : {}),
-      ...(event.toolName ? { toolName: event.toolName } : {}),
-    },
-  ];
-}
-
-export function mapOpenClawStep(event: { phase?: string; stepName: string }): AGUIEvent[] {
-  return [
-    {
-      messageId: event.stepName,
-      stepName: event.stepName,
-      type: event.phase === "end" || event.phase === "complete" ? AGUIEventType.STEP_FINISHED : AGUIEventType.STEP_STARTED,
-    },
-  ];
-}
-
-export function mapOpenClawActivitySnapshot(
-  state: StreamRunState,
-  event: {
-    activityType?: string;
-    content: Record<string, unknown>;
-    replace?: boolean;
-  },
-): AGUIEvent[] {
-  return [{
-    activityType: event.activityType ?? "activity",
-    content: event.content,
-    messageId: state.turnId,
-    ...(event.replace !== undefined ? { replace: event.replace } : {}),
-    type: "ACTIVITY_SNAPSHOT",
-  } as unknown as AGUIEvent];
-}
-
-export function mapOpenClawStateDelta(delta: unknown): AGUIEvent[] {
-  return [{ delta: Array.isArray(delta) ? delta : [{ op: "add", path: "/state", value: delta }], type: AGUIEventType.STATE_DELTA }];
-}
-
-export function mapOpenClawStateSnapshot(snapshot: unknown): AGUIEvent[] {
-  return [{ snapshot, type: AGUIEventType.STATE_SNAPSHOT }];
-}
-
-export function mapOpenClawRaw(source: string, event: unknown): AGUIEvent[] {
-  return [{ event, source, type: AGUIEventType.RAW } as unknown as AGUIEvent];
+export function createApprovalRunState(): ApprovalRunState {
+  return { toolCallIdToApprovalId: {} };
 }
 
 export function mapOpenClawCustom(name: string, value: unknown): AGUIEvent[] {
@@ -239,8 +17,8 @@ export function mapOpenClawCustom(name: string, value: unknown): AGUIEvent[] {
 }
 
 export function mapOpenClawApprovalRequest(
-  state: StreamRunState,
-  event: { approvalId?: string; message?: string; toolCallId?: string; toolName?: string }
+  state: ApprovalRunState,
+  event: { approvalId?: string; message?: string; toolCallId?: string; toolName?: string },
 ): AGUIEvent {
   const toolCallId = event.toolCallId ?? event.approvalId ?? "approval";
   const approvalId = event.approvalId ?? `approval_${toolCallId}`;
@@ -253,8 +31,8 @@ export function mapOpenClawApprovalRequest(
         id: approvalId,
         needsApproval: true,
       },
-      approvalMessageId: approvalId,
       approvalActions: defaultBeeperApprovalActions(),
+      approvalMessageId: approvalId,
       choices: defaultBeeperApprovalChoices(),
       message: event.message,
       toolCallId,
@@ -281,14 +59,4 @@ export function mapOpenClawApprovalResponse(event: {
       toolCallId: event.toolCallId,
     },
   };
-}
-
-function stringifyToolValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === undefined) return "";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
 }

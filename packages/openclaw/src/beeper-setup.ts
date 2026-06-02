@@ -39,23 +39,16 @@ export interface CreateOpenClawBeeperAppServiceOptions {
   accessToken: string;
   baseDomain?: string;
   bridge?: string;
-  bridgeManagerToken?: string;
   bridgeType?: string;
   createAppServiceInit?: (options: CreateOpenClawBeeperAppServiceRequest) => Promise<MatrixAppserviceInitOptions>;
   fetch?: typeof fetch;
-  getOnly?: boolean;
-  homeserver?: string;
-  homeserverDomain?: string;
   matrixDeviceId?: string;
-  push?: boolean;
-  selfHosted?: boolean;
   username?: string;
 }
 
 export type CreateOpenClawBeeperAppServiceRequest = CreateAppServiceOptions & {
   baseDomain?: string;
   fetch?: typeof fetch;
-  hungryToken?: string;
   token: string;
   username?: string;
 };
@@ -67,10 +60,7 @@ export interface CreateOpenClawBeeperAppServiceResult {
 
 export interface SetupOpenClawBeeperBridgeOptions extends BeeperLoginForOpenClawOptions {
   createAppServiceInit?: CreateOpenClawBeeperAppServiceOptions["createAppServiceInit"];
-  getOnly?: boolean;
   openClawDeviceId?: string;
-  push?: boolean;
-  selfHosted?: boolean;
 }
 
 export interface SetupOpenClawBeeperBridgeResult {
@@ -135,18 +125,13 @@ export async function createOpenClawBeeperAppService(
   const request: CreateOpenClawBeeperAppServiceRequest = {
     bridge,
     bridgeType: options.bridgeType ?? DEFAULT_BEEPER_BRIDGE_TYPE,
-    selfHosted: options.selfHosted ?? true,
+    selfHosted: true,
     token: options.accessToken,
   };
   request.address = DEFAULT_REGISTRATION_URL;
   if (options.baseDomain !== undefined) request.baseDomain = options.baseDomain;
-  if (options.bridgeManagerToken !== undefined) request.hungryToken = options.bridgeManagerToken;
   if (options.fetch !== undefined) request.fetch = options.fetch;
-  if (options.getOnly !== undefined) request.getOnly = options.getOnly;
-  if (options.homeserver !== undefined) request.homeserver = options.homeserver;
-  if (options.homeserverDomain !== undefined) request.homeserverDomain = options.homeserverDomain;
   request.postState = true;
-  if (options.push !== undefined) request.push = options.push;
   if (options.username !== undefined) request.username = options.username;
   const init = await createInit(request);
   const config: CreateOpenClawBeeperAppServiceResult["config"] = {
@@ -178,9 +163,6 @@ export async function setupOpenClawBeeperBridge(
   if (baseDomain !== undefined) appserviceOptions.baseDomain = baseDomain;
   if (options.createAppServiceInit !== undefined) appserviceOptions.createAppServiceInit = options.createAppServiceInit;
   if (options.fetch !== undefined) appserviceOptions.fetch = options.fetch;
-  if (options.getOnly !== undefined) appserviceOptions.getOnly = options.getOnly;
-  if (options.push !== undefined) appserviceOptions.push = options.push;
-  if (options.selfHosted !== undefined) appserviceOptions.selfHosted = options.selfHosted;
   const appservice = await createOpenClawBeeperAppService(appserviceOptions);
   return {
     account: login.account,

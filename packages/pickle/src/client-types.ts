@@ -79,6 +79,7 @@ import type {
   MatrixAppserviceSendMessageOptions,
   MatrixAppserviceUserOptions,
   MatrixAppendBeeperAIRunEventOptions,
+  MatrixAppendBeeperAIRunPartOptions,
   MatrixBeginBeeperAIRunOptions,
   MatrixBeeperAIRunSnapshot,
   MatrixBeeperAIRunStreamResult,
@@ -161,6 +162,7 @@ export interface MatrixBeeper {
   };
   aiRunStreams: {
     appendEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult>;
+    appendPart(options: MatrixAppendBeeperAIRunPartOptions): Promise<MatrixBeeperAIRunStreamResult>;
     error(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
     finish(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
     start(options: MatrixStartBeeperAIRunStreamOptions): Promise<MatrixBeeperAIRunStreamResult>;

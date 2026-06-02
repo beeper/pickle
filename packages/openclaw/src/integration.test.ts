@@ -240,24 +240,21 @@ describe("OpenClaw bridge integration", () => {
     ]));
   });
 
-  it("smokes contact DM creation, Matrix ingress, approval, and backfill with local fakes", async () => {
+  it("smokes contact DM creation, Matrix ingress, and approval with local fakes", async () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-local-smoke-"));
     const config = createDefaultConfig({
       asToken: "as-token",
       dataDir: dir,
       homeserver: "https://matrix.example",
       hsToken: "hs-token",
-      importSources: ["dashboard"],
       matrixDeviceId: "DEVICE",
       matrixUserId: "@sh-openclawbot:example",
     });
     const transport = fakeTransport({
       responses: {
         "agents.list": { agents: [{ id: "codex", name: "Codex" }] },
-        "chat.history": { messages: [{ content: "older desktop turn", id: "m1", role: "user" }] },
         "exec.approval.resolve": { ok: true },
         "sessions.create": { key: "session_1" },
-        "sessions.list": { sessions: [{ displayName: "Desktop chat", key: "agent:codex:desktop", origin: { surface: "mac-app" } }] },
         "beeper.turn": { runId: "run_1", sessionKey: "session_1" },
       },
     });
@@ -293,15 +290,15 @@ describe("OpenClaw bridge integration", () => {
       type: "username",
     });
     expect(resolved.portal).toMatchObject({
-      id: "session:c2Vzc2lvbl8x",
+      id: expect.stringMatching(/^conversation:/),
       mxid: "!created:example",
-      portalKey: { id: "session:c2Vzc2lvbl8x", receiver: login.id },
+      portalKey: { id: expect.stringMatching(/^conversation:/), receiver: login.id },
     });
-    expect(client.appservice.createPortalRoom).toHaveBeenCalledWith(expect.objectContaining({
+    expect(client.appservice.createPortalRoom).toHaveBeenLastCalledWith(expect.objectContaining({
       creationContent: { "m.federate": false },
       isDirect: true,
       name: "Codex",
-      portalKey: { id: "session:c2Vzc2lvbl8x", receiver: login.id },
+      portalKey: { id: expect.stringMatching(/^conversation:/), receiver: login.id },
       roomType: "dm",
     }));
 
@@ -561,7 +558,7 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
   return {
     accountData: {} as MatrixClient["accountData"],
     appservice: {
-      batchSend: vi.fn(async () => ({ eventIds: ["$backfilled"], raw: {} })),
+      batchSend: vi.fn(async () => ({ eventIds: ["$batch"], raw: {} })),
       createManagementRoom: vi.fn(async () => ({ raw: {}, roomId: "!created:example" })),
       createPortalRoom: vi.fn(async () => ({ raw: {}, roomId: "!created:example" })),
       createRoom: vi.fn(async () => ({ raw: {}, roomId: "!created:example" })),

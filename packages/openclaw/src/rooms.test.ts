@@ -8,8 +8,6 @@ import {
   createSessionRoom,
   matrixDomainFromHomeserver,
   serviceBotUserId,
-  userContactFromOpenClawSession,
-  userGhostUserId,
 } from "./rooms";
 
 describe("OpenClaw room and contact helpers", () => {
@@ -17,7 +15,6 @@ describe("OpenClaw room and contact helpers", () => {
     const config = createDefaultConfig({ dataDir: "/tmp/openclaw", homeserver: "https://matrix.example.com" });
     expect(matrixDomainFromHomeserver(config.homeserver)).toBe("matrix.example.com");
     expect(agentGhostUserId(config, "Codex Main")).toBe("@sh-openclaw_agent_codex_main:matrix.example.com");
-    expect(userGhostUserId(config, "whatsapp:+1 555")).toBe("@sh-openclaw_user_whatsapp_1_555:matrix.example.com");
     expect(serviceBotUserId(config)).toBe("@sh-openclawbot:matrix.example.com");
     expect(agentContactFromOpenClawAgent(config, {
       avatarMxc: "mxc://example/avatar",
@@ -27,19 +24,10 @@ describe("OpenClaw room and contact helpers", () => {
     })).toEqual({
       agentId: "codex",
       avatarMxc: "mxc://example/avatar",
+      avatarUrl: "mxc://example/avatar",
       description: "Local code agent",
       displayName: "Codex",
       ghostUserId: "@sh-openclaw_agent_codex:matrix.example.com",
-    });
-    expect(userContactFromOpenClawSession(config, {
-      displayName: "Alice",
-      lastProvider: "whatsapp",
-      lastTo: "whatsapp:+1 555",
-    })).toEqual({
-      displayName: "Alice",
-      ghostUserId: "@sh-openclaw_user_whatsapp_1_555:matrix.example.com",
-      source: "whatsapp",
-      userId: "whatsapp:+1 555",
     });
   });
 
@@ -49,7 +37,6 @@ describe("OpenClaw room and contact helpers", () => {
     const createRoom = vi.fn(async () => ({ raw: {}, roomId: "!session:example.com" }));
     const client = { appservice: { createRoom } } as unknown as MatrixClient;
     const config = createDefaultConfig({
-      allowedUserIds: ["@owner:example.com"],
       dataDir: "/tmp/openclaw",
       homeserver: "https://example.com",
     });
@@ -69,7 +56,7 @@ describe("OpenClaw room and contact helpers", () => {
 
       expect(createRoom).toHaveBeenCalledWith({
         creation_content: { "m.federate": false },
-        invite: ["@owner:example.com"],
+        invite: [],
         isDirect: true,
         name: "Fix tests",
         preset: "private_chat",

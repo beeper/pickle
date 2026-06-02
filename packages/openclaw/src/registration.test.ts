@@ -5,11 +5,10 @@ import {
   openClawAgentGhostLocalpart,
   openClawAliasLocalpart,
   openClawRoomCreationPreset,
-  openClawUserGhostLocalpart,
 } from "./registration";
 
 describe("OpenClaw appservice registration", () => {
-  it("reserves bridge bot, OpenClaw agent, and human ghost namespaces", () => {
+  it("reserves bridge bot and OpenClaw agent namespaces", () => {
     const config = createDefaultConfig({
       appserviceId: "sh-openclaw-device",
       bridgeId: "sh-openclaw-device",
@@ -28,7 +27,6 @@ describe("OpenClaw appservice registration", () => {
     });
     expect(registration.namespaces.users).toEqual([
       { exclusive: true, regex: "^@sh-openclaw-device_agent_.+:beeper\\.local$" },
-      { exclusive: true, regex: "^@sh-openclaw-device_user_.+:beeper\\.local$" },
       { exclusive: true, regex: "^@sh-openclaw-devicebot:beeper\\.local$" },
     ]);
     expect(registration.namespaces.aliases).toEqual([
@@ -39,7 +37,6 @@ describe("OpenClaw appservice registration", () => {
   it("derives Matrix-safe localparts and non-federated room presets", () => {
     const config = createDefaultConfig({ dataDir: "/tmp/openclaw" });
     expect(openClawAgentGhostLocalpart(config, "Codex/Main Agent")).toBe("sh-openclaw_agent_codex/main_agent");
-    expect(openClawUserGhostLocalpart(config, "@alice:beeper.local")).toBe("sh-openclaw_user_alice_beeper.local");
     expect(openClawAliasLocalpart(config, "session 1")).toBe("sh-openclaw_session_1");
     expect(openClawRoomCreationPreset(config)).toEqual({
       creation_content: { "m.federate": false },

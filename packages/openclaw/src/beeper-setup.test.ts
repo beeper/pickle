@@ -127,36 +127,6 @@ describe("OpenClaw Beeper setup", () => {
     });
   });
 
-  it("passes a bridge manager token as the Beeper hungry token", async () => {
-    const seen: unknown[] = [];
-    await createOpenClawBeeperAppService({
-      accessToken: "mx-token",
-      bridgeManagerToken: "hungry-token",
-      matrixDeviceId: "DEV",
-      createAppServiceInit: async (options) => {
-        seen.push(options);
-        return {
-          homeserver: "https://matrix.beeper.com/_hungryserv/batuhan",
-          registration: {
-            asToken: "as",
-            hsToken: "hs",
-            id: "appservice-uuid",
-            namespaces: { aliases: [], rooms: [], users: [] },
-            senderLocalpart: "sh-openclawbot",
-            url: "http://127.0.0.1:29391",
-          },
-        };
-      },
-    });
-
-    expect(seen).toEqual([
-      expect.objectContaining({
-        hungryToken: "hungry-token",
-        token: "mx-token",
-      }),
-    ]);
-  });
-
   it("combines Beeper login and appservice registration config", async () => {
     const result = await setupOpenClawBeeperBridge({
       email: "batuhan@example.com",

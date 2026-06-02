@@ -139,6 +139,47 @@ export interface MatrixAppendBeeperAIRunEventOptions {
   event: { [key: string]: unknown };
   runId: string;
 }
+export interface MatrixBeeperAIRunPartOptions {
+  activityType?: string;
+  aggregated?: string;
+  approval?: unknown;
+  command?: string;
+  completedAtMs?: number /* int64 */;
+  content?: { [key: string]: unknown };
+  cwd?: string;
+  description?: string;
+  delta?: unknown;
+  details?: unknown;
+  dynamic?: boolean;
+  error?: unknown;
+  exitCode?: number /* int */;
+  index?: number /* int */;
+  input?: unknown;
+  kind: "text" | "reasoning" | "reasoning_end" | "tool_start" | "tool_input" | "tool_end" | "tool_result" | "activity" | "activity_delta" | "state_delta" | "state_snapshot" | "raw" | "custom" | string;
+  metadata?: { [key: string]: unknown };
+  name?: string;
+  output?: unknown;
+  patch?: unknown;
+  preliminary?: boolean;
+  providerExecuted?: boolean;
+  replace?: boolean;
+  response?: unknown;
+  result?: unknown;
+  source?: string;
+  state?: string;
+  status?: string;
+  startedAtMs?: number /* int64 */;
+  stderr?: string;
+  stdout?: string;
+  text?: string;
+  title?: string;
+  toolCallId?: string;
+  toolName?: string;
+  value?: unknown;
+}
+export interface MatrixAppendBeeperAIRunPartOptions extends MatrixBeeperAIRunPartOptions {
+  runId: string;
+}
 export interface MatrixFinishBeeperAIRunOptions {
   finishReason?: string;
   runId: string;
@@ -165,6 +206,8 @@ export interface MatrixBeeperAIRunSnapshot {
   threadId: string;
 }
 export interface MatrixStartBeeperAIRunStreamOptions extends MatrixBeginBeeperAIRunOptions {
+  initialEvents?: Array<{ [key: string]: unknown }>;
+  initialParts?: MatrixBeeperAIRunPartOptions[];
   roomId: string;
   streamType?: string;
   subscribers?: MatrixBeeperStreamSubscriber[];

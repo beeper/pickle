@@ -4,18 +4,13 @@ import {
   type CreateNodeBeeperBridgeOptions,
   type PickleBridge,
 } from "@beeper/pickle-bridge";
-import { backfillAllOpenClawSessions } from "./backfill";
 import { beeperBaseDomain } from "./beeper-setup";
 import { DEFAULT_BEEPER_BRIDGE_TYPE } from "./ids";
-import { createOpenClawConnector, userLoginFromOpenClawConfig, type OpenClawConnectorOptions } from "./connector";
-import { createOpenClawHostRuntimeAdapter, OpenClawPluginRuntimeAdapter, type OpenClawSessionHistoryRuntime } from "./openclaw-runtime";
+import { createOpenClawConnector, type OpenClawConnectorOptions } from "./connector";
 import { createAppserviceRegistration } from "./registration";
-import { OpenClawBridgeRegistry } from "./registry";
 import type { OpenClawBridgeConfig } from "./types";
 
 export interface CreateOpenClawBeeperBridgeOptions extends OpenClawConnectorOptions {
-  backfill?: boolean;
-  backfillLimit?: number;
   bridge?: string;
   bridgeFactory?: (options: CreateNodeBeeperBridgeOptions) => Promise<PickleBridge>;
   bridgeType?: string;
@@ -39,7 +34,6 @@ export async function createOpenClawBeeperBridge(options: CreateOpenClawBeeperBr
   bridgeOptions.address = "websocket";
   const baseDomain = beeperBaseDomain(config?.beeperEnv);
   if (baseDomain !== undefined) bridgeOptions.baseDomain = baseDomain;
-  if (config?.bridgeManagerToken !== undefined) bridgeOptions.bridgeManagerToken = config.bridgeManagerToken;
   bridgeOptions.bridgeManagerPostState = true;
   if (config?.homeserverDomain !== undefined) bridgeOptions.homeserverDomain = config.homeserverDomain;
   if (options.dataDir !== undefined) bridgeOptions.dataDir = options.dataDir;
@@ -56,51 +50,7 @@ export async function startOpenClawBeeperBridge(options: CreateOpenClawBeeperBri
   const bridge = await createOpenClawBeeperBridge(options);
   await bridge.start();
   await bridge.setBridgeState("running");
-  if (options.backfill) {
-    await runStartupBackfill(options, bridge);
-  }
   return bridge;
-}
-
-async function runStartupBackfill(options: CreateOpenClawBeeperBridgeOptions, bridge: PickleBridge): Promise<void> {
-  const config = options.config;
-  if (!config) {
-    options.log?.("warn", "openclaw_backfill_skipped", { reason: "missing_config" });
-    return;
-  }
-  const registry = options.registry ?? registryFromConnector(bridge.connector);
-  if (!registry) {
-    options.log?.("warn", "openclaw_backfill_skipped", { reason: "missing_registry" });
-    return;
-  }
-  const runtime = tryResolveOpenClawHistoryRuntime(options, config);
-  if (!runtime) {
-    options.log?.("warn", "openclaw_backfill_skipped", { reason: "missing_runtime" });
-    return;
-  }
-  const login = userLoginFromOpenClawConfig(config);
-  const backfillOptions: Parameters<typeof backfillAllOpenClawSessions>[0] = {
-    bridge,
-    login,
-    registry,
-    runtime,
-  };
-  if (config.importSources !== undefined) backfillOptions.importSources = config.importSources;
-  if (options.backfillLimit !== undefined) backfillOptions.limit = options.backfillLimit;
-  try {
-    const result = await backfillAllOpenClawSessions(backfillOptions);
-    await registry.save();
-    options.log?.("info", "openclaw_backfill_finished", {
-      portals: result.portals.length,
-      sessions: result.sessions.length,
-      skipped: result.skipped.length,
-    });
-  } catch (error) {
-    options.log?.("error", "openclaw_backfill_failed", {
-      error: errorMessage(error),
-      stack: errorStack(error),
-    });
-  }
 }
 
 function connectorOptions(options: CreateOpenClawBeeperBridgeOptions): OpenClawConnectorOptions {
@@ -111,45 +61,6 @@ function connectorOptions(options: CreateOpenClawBeeperBridgeOptions): OpenClawC
   if (options.runtimeFactory !== undefined) output.runtimeFactory = options.runtimeFactory;
   if (options.runtime !== undefined) output.runtime = options.runtime;
   return output;
-}
-
-function resolveOpenClawHistoryRuntime(options: CreateOpenClawBeeperBridgeOptions, config: OpenClawBridgeConfig): OpenClawSessionHistoryRuntime {
-  if (options.runtime instanceof OpenClawPluginRuntimeAdapter) return options.runtime;
-  if (options.runtime !== undefined) {
-    return new OpenClawPluginRuntimeAdapter({ config, transport: createOpenClawHostRuntimeAdapter(options.runtime) });
-  }
-  if (options.runtimeFactory) return options.runtimeFactory(config);
-  const connector = options.connector;
-  if (connector && typeof connector === "object" && "runtime" in connector) {
-    const runtime = (connector as { runtime?: unknown }).runtime;
-    if (runtime instanceof OpenClawPluginRuntimeAdapter) return runtime;
-  }
-  throw new Error("OpenClaw direct plugin runtime is required");
-}
-
-function tryResolveOpenClawHistoryRuntime(
-  options: CreateOpenClawBeeperBridgeOptions,
-  config: OpenClawBridgeConfig
-): OpenClawSessionHistoryRuntime | undefined {
-  try {
-    return resolveOpenClawHistoryRuntime(options, config);
-  } catch {
-    return undefined;
-  }
-}
-
-function registryFromConnector(connector: unknown): OpenClawBridgeRegistry | undefined {
-  if (!connector || typeof connector !== "object" || !("registry" in connector)) return undefined;
-  const registry = (connector as { registry?: unknown }).registry;
-  return registry instanceof OpenClawBridgeRegistry ? registry : undefined;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function errorStack(error: unknown): string | undefined {
-  return error instanceof Error ? error.stack : undefined;
 }
 
 function matrixOptionsFromConfig(

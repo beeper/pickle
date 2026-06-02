@@ -70,8 +70,6 @@ describe("pickle-openclaw CLI", () => {
       email: "you@example.com",
       env: "staging",
       getLoginCode: expect.any(Function),
-      push: false,
-      selfHosted: true,
     }));
     await expect(setupBridge.mock.calls[0]?.[0].getLoginCode()).resolves.toBe("123456");
     expect((await stat(configPath)).mode & 0o777).toBe(0o600);
@@ -163,8 +161,6 @@ describe("pickle-openclaw CLI", () => {
     expect(setupBridge).toHaveBeenCalledWith(expect.objectContaining({
       env: "staging",
       password: "secret",
-      push: false,
-      selfHosted: true,
       username: "batuhan",
     }));
     expect(setupBridge.mock.calls[0]?.[0]).not.toHaveProperty("getLoginCode");
@@ -208,7 +204,6 @@ describe("pickle-openclaw CLI", () => {
       canConnect: true,
       deviceId: "DEVICE",
       homeserver: "https://matrix.beeper.com",
-      registrationUrl: "websocket",
       userId: "@batuhan:beeper.com",
     });
   });

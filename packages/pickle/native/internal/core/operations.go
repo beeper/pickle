@@ -83,6 +83,8 @@ const (
 	opStartBeeperAIRunStream = "start_beeper_ai_run_stream"
 	// ts:operation appendBeeperAIRunStreamEvent append_beeper_ai_run_stream_event MatrixAppendBeeperAIRunEventOptions MatrixBeeperAIRunStreamResult
 	opAppendBeeperAIRunStreamEvent = "append_beeper_ai_run_stream_event"
+	// ts:operation appendBeeperAIRunStreamPart append_beeper_ai_run_stream_part MatrixAppendBeeperAIRunPartOptions MatrixBeeperAIRunStreamResult
+	opAppendBeeperAIRunStreamPart = "append_beeper_ai_run_stream_part"
 	// ts:operation finishBeeperAIRunStream finish_beeper_ai_run_stream MatrixFinishBeeperAIRunOptions MatrixBeeperAIRunStreamResult
 	opFinishBeeperAIRunStream = "finish_beeper_ai_run_stream"
 	// ts:operation errorBeeperAIRunStream error_beeper_ai_run_stream MatrixErrorBeeperAIRunOptions MatrixBeeperAIRunStreamResult

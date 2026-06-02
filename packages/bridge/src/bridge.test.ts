@@ -292,6 +292,7 @@ describe("RuntimeBridge", () => {
       convert: () => ({
         parts: [{
           content: { body: "hello from remote", msgtype: "m.text" },
+          extra: { "com.beeper.ai": { kind: "anchor", schema: "com.beeper.ai.v1" } },
           type: "m.room.message",
         }],
       }),
@@ -303,7 +304,11 @@ describe("RuntimeBridge", () => {
     await bridge.flushRemoteEvents();
 
     expect(client.raw.request).toHaveBeenCalledWith({
-      body: { body: "hello from remote", msgtype: "m.text" },
+      body: {
+        body: "hello from remote",
+        "com.beeper.ai": { kind: "anchor", schema: "com.beeper.ai.v1" },
+        msgtype: "m.text",
+      },
       method: "PUT",
       path: expect.stringContaining("/rooms/!room%3Aexample/send/m.room.message/pickle-bridge-"),
     });
@@ -336,6 +341,8 @@ describe("RuntimeBridge", () => {
       convertEdit: async () => ({
         modifiedParts: [{
           content: { body: "edited remote", msgtype: "m.text" },
+          extra: { "com.beeper.ai": { kind: "final", schema: "com.beeper.ai.v1" } },
+          topLevelExtra: { "com.beeper.dont_render_edited": true },
           type: "m.room.message",
         }],
       }),
@@ -402,10 +409,15 @@ describe("RuntimeBridge", () => {
     await bridge.flushRemoteEvents();
 
     expect(client.messages.edit).toHaveBeenCalledWith({
-      content: { body: "edited remote", msgtype: "m.text" },
+      content: {
+        body: "edited remote",
+        "com.beeper.ai": { kind: "final", schema: "com.beeper.ai.v1" },
+        msgtype: "m.text",
+      },
       eventId: "$sent",
       roomId: "!room:example",
       text: "edited remote",
+      topLevelContent: { "com.beeper.dont_render_edited": true },
     });
     expect(client.reactions.send).toHaveBeenCalledWith({ eventId: "$edit", key: "+1", roomId: "!room:example" });
     expect(client.reactions.redact).toHaveBeenCalledWith({ eventId: "$edit", key: "+1", roomId: "!room:example" });
@@ -415,6 +427,48 @@ describe("RuntimeBridge", () => {
     expect(client.messages.markRead).toHaveBeenCalledWith({ eventId: "$edit", roomId: "!room:example" });
     expect(bridge.getPortal(portalKey)?.metadata).toMatchObject({ unread: false });
     expect(client.typing.set).toHaveBeenCalledWith({ roomId: "!room:example", timeoutMs: 5000, typing: true });
+  });
+
+  it("updates bundled Matrix event targets through bridgev2 remote events", async () => {
+    const client = createFakeMatrixClient();
+    const connector = createFakeConnector(createFakeNetworkAPI());
+    const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
+    const login: UserLogin = { id: "login:a" };
+    const portalKey = { id: "remote-room", receiver: login.id };
+
+    await bridge.start();
+    bridge.registerPortal({ id: "remote-room", mxid: "!room:example", portalKey });
+    bridge.queueRemoteEvent(login, {
+      convertEdit: async () => ({
+        modifiedParts: [{
+          content: { body: "stream final", msgtype: "m.text" },
+          extra: { "com.beeper.ai": { kind: "final", schema: "com.beeper.ai.v1" } },
+          type: "m.room.message",
+        }],
+      }),
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: true, sender: "@bot:example" }),
+      getTargetDBMessage: () => [{ id: "$stream", mxid: "$stream", partId: "0" }],
+      getTargetMessage: () => "$stream",
+      getType: () => "edit",
+    });
+    bridge.queueRemoteEvent(login, {
+      getEmoji: () => "+1",
+      getID: () => "reaction-1",
+      getPortalKey: () => portalKey,
+      getSender: () => ({ isFromMe: true, sender: "@bot:example" }),
+      getTargetDBMessage: () => [{ id: "$stream", mxid: "$stream", partId: "0" }],
+      getTargetMessage: () => "$stream",
+      getType: () => "reaction",
+    });
+    await bridge.flushRemoteEvents();
+
+    expect(client.messages.edit).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.objectContaining({ "com.beeper.ai": { kind: "final", schema: "com.beeper.ai.v1" } }),
+      eventId: "$stream",
+      roomId: "!room:example",
+    }));
+    expect(client.reactions.send).toHaveBeenCalledWith({ eventId: "$stream", key: "+1", roomId: "!room:example" });
   });
 
   it("dispatches Matrix read receipts and marked-unread account data to network clients", async () => {

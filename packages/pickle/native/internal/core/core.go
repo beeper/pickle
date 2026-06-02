@@ -154,6 +154,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleStartBeeperAIRunStream(ctx, payload)
 	case opAppendBeeperAIRunStreamEvent:
 		return c.handleAppendBeeperAIRunStreamEvent(ctx, payload)
+	case opAppendBeeperAIRunStreamPart:
+		return c.handleAppendBeeperAIRunStreamPart(ctx, payload)
 	case opFinishBeeperAIRunStream:
 		return c.handleFinishBeeperAIRunStream(ctx, payload)
 	case opErrorBeeperAIRunStream:

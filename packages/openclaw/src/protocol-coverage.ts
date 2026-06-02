@@ -211,7 +211,7 @@ export const OPENCLAW_BRIDGE_COVERAGE = {
     stream: ["chat", "session.message", "session.operation", "session.tool"],
   },
   methodAccess: {
-    pluginRuntimeAdapters: ["agents.list", "sessions.list", "sessions.create", "chat.history", "exec.approval.resolve", "plugin.approval.resolve"],
+    pluginRuntimeAdapters: ["agents.list", "sessions.list", "sessions.create", "sessions.patch", "chat.history", "exec.approval.resolve", "plugin.approval.resolve"],
     commonGatewayMethods: OPENCLAW_GATEWAY_COMMON_METHODS,
     beeperTurnDispatch: "runtime.channel.turn.runAssembled",
   },

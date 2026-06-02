@@ -86,7 +86,7 @@ describe("OpenClawBridgeConnector", () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     const runtime = runtimeWith({
       responses: {
-        "agents.list": { agents: [{ id: "codex", name: "Codex" }] },
+        "agents.list": { agents: [{ avatarMxc: "mxc://example/codex", id: "codex", name: "Codex" }] },
         "sessions.create": { key: "agent:codex:beeper:bootstrap" },
       },
     });
@@ -99,11 +99,18 @@ describe("OpenClawBridgeConnector", () => {
     const { ctx, registerGhost } = connectContext();
     await api.connect(ctx);
     expect(registerGhost).toHaveBeenCalledWith({
+      avatar: {
+        id: "mxc://example/codex",
+        mxc: "mxc://example/codex",
+        url: "mxc://example/codex",
+      },
       displayName: "Codex",
       id: "codex",
       metadata: {
         openclaw: {
           agentId: "codex",
+          avatarMxc: "mxc://example/codex",
+          avatarUrl: "mxc://example/codex",
           displayName: "Codex",
           ghostUserId: "@sh-openclaw_agent_codex:localhost",
         },
@@ -112,12 +119,14 @@ describe("OpenClawBridgeConnector", () => {
     });
   });
 
-  it("creates a default room and sends a Beeper-owner ping when no rooms exist", async () => {
+  it("creates a stable welcome room for each agent without starting a session turn", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-bootstrap-test.json");
     const runtime = runtimeWith({
       responses: {
-        "agents.list": { agents: [] },
-        "sessions.create": { key: "agent:main:beeper:bootstrap" },
+        "agents.list": { agents: [
+          { id: "main", name: "Main" },
+          { id: "codex", name: "Codex" },
+        ] },
       },
     });
     const api = new OpenClawNetworkAPI({
@@ -127,35 +136,135 @@ describe("OpenClawBridgeConnector", () => {
       runtime,
     });
     const { createPortal, ctx, registerPortal, sendMessage } = connectContext();
+    createPortal.mockImplementation(async (_login, portal) => ({
+      ...portal,
+      mxid: portal.id === "agent:main" ? "!main:example.com" : "!codex:example.com",
+      portalKey: { id: portal.id, receiver: "openclaw:plugin" },
+      receiver: "openclaw:plugin",
+    }));
 
     await api.connect(ctx);
 
+    expect(createPortal).toHaveBeenCalledTimes(2);
     expect(createPortal).toHaveBeenCalledWith(login(), expect.objectContaining({
       creationContent: { "m.federate": false },
+      id: "agent:main",
+      metadata: {
+        openclaw: {
+          agentId: "main",
+          ghostUserId: "@sh-openclaw_agent_main:localhost",
+          label: "Main",
+          sessionKey: "agent:main",
+        },
+      },
       name: "Main",
       roomType: "dm",
       sender: "@sh-openclaw_agent_main:localhost",
     }));
-    expect(sendMessage).toHaveBeenCalledWith({
-      content: {
-        body: "hey, are you alive? - sent from my beeper",
-        msgtype: "m.text",
+    expect(createPortal).toHaveBeenCalledWith(login(), expect.objectContaining({
+      id: "agent:codex",
+      metadata: {
+        openclaw: {
+          agentId: "codex",
+          ghostUserId: "@sh-openclaw_agent_codex:localhost",
+          label: "Codex",
+          sessionKey: "agent:codex",
+        },
       },
-      roomId: "!bootstrap:example.com",
-      userId: "@alice:example.com",
-    });
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      idempotencyKey: "$bootstrap",
-      message: "hey, are you alive? - sent from my beeper",
-      sessionKey: "agent:main:beeper:bootstrap",
+      name: "Codex",
+      roomType: "dm",
+      sender: "@sh-openclaw_agent_codex:localhost",
     }));
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(runtime.sendMessage).not.toHaveBeenCalled();
     expect(registerPortal).toHaveBeenCalledWith(expect.objectContaining({
-      mxid: "!bootstrap:example.com",
+      mxid: "!main:example.com",
       portalKey: expect.objectContaining({ receiver: "openclaw:plugin" }),
     }));
+    expect(registry.getBindingByRoom("!main:example.com")).toMatchObject({
+      agentId: "main",
+      id: "agent:main",
+      kind: "agent",
+      sessionKey: "agent:main",
+    });
+    expect(registry.getBindingByRoom("!codex:example.com")).toMatchObject({
+      agentId: "codex",
+      id: "agent:codex",
+      kind: "agent",
+      sessionKey: "agent:codex",
+    });
   });
 
-  it("does not create a bootstrap room when a room binding already exists", async () => {
+  it("does not create another welcome room on a later connect", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-bootstrap-repeat-test.json");
+    const runtime = runtimeWith({
+      responses: {
+        "agents.list": { agents: [{ id: "main", name: "Main" }] },
+      },
+    });
+    const api = new OpenClawNetworkAPI({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      login: login(),
+      registry,
+      runtime,
+    });
+    const { createPortal, ctx, sendMessage } = connectContext();
+    createPortal.mockImplementation(async (_login, portal) => ({
+      ...portal,
+      mxid: "!main:example.com",
+      portalKey: { id: portal.id, receiver: "openclaw:plugin" },
+      receiver: "openclaw:plugin",
+    }));
+
+    await api.connect(ctx);
+    await api.connect(ctx);
+
+    expect(createPortal).toHaveBeenCalledOnce();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(registry.getBindingById("agent:main")).toMatchObject({
+      agentId: "main",
+      kind: "agent",
+      roomId: "!main:example.com",
+    });
+  });
+
+  it("creates only one welcome room when connect is called concurrently", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-bootstrap-concurrent-test.json");
+    const runtime = runtimeWith({
+      responses: {
+        "agents.list": { agents: [] },
+      },
+    });
+    const api = new OpenClawNetworkAPI({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      login: login(),
+      registry,
+      runtime,
+    });
+    const { createPortal, ctx, sendMessage } = connectContext();
+    let unblockCreatePortal!: () => void;
+    createPortal.mockImplementationOnce(async (_login, portal) => {
+      await new Promise<void>((resolve) => { unblockCreatePortal = resolve; });
+      return {
+        ...portal,
+        mxid: "!bootstrap:example.com",
+        portalKey: { id: portal.id, receiver: "openclaw:plugin" },
+        receiver: "openclaw:plugin",
+      };
+    });
+
+    const first = api.connect(ctx);
+    const second = api.connect(ctx);
+    await vi.waitFor(() => expect(createPortal).toHaveBeenCalledOnce());
+    unblockCreatePortal();
+    await Promise.all([first, second]);
+
+    expect(createPortal).toHaveBeenCalledOnce();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(registry.getBindingByRoom("!bootstrap:example.com")).toBeDefined();
+  });
+
+  it("still creates an agent welcome room when only a session room exists", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-bootstrap-existing-test.json");
     registry.upsertBinding({
       agentId: "main",
@@ -181,22 +290,31 @@ describe("OpenClawBridgeConnector", () => {
 
     await api.connect(ctx);
 
-    expect(createPortal).not.toHaveBeenCalled();
+    expect(createPortal).toHaveBeenCalledWith(login(), expect.objectContaining({
+      id: "agent:main",
+      metadata: {
+        openclaw: {
+          agentId: "main",
+          ghostUserId: "@sh-openclaw_agent_main:localhost",
+          label: "Main",
+          sessionKey: "agent:main",
+        },
+      },
+    }));
     expect(sendMessage).not.toHaveBeenCalled();
     expect(runtime.sendMessage).not.toHaveBeenCalled();
+    expect(registry.getBindingsByAgent("main")).toHaveLength(2);
   });
 
-  it("honors contact visibility when registering ghosts", async () => {
+  it("registers current agent ghosts only", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     registry.upsertAgent({ agentId: "codex", displayName: "Codex", ghostUserId: "@codex:example.com" });
-    registry.upsertUser({ displayName: "Alice", ghostUserId: "@alice-ghost:example.com", userId: "alice" });
     const runtime = runtimeWith({
       responses: {
-        "agents.list": { agents: [] },
+        "agents.list": { agents: [{ id: "codex", name: "Codex" }] },
         "sessions.create": { key: "agent:codex:beeper:bootstrap" },
       },
     });
-    runtime.config.contactVisibility = "agents-and-users";
     const api = new OpenClawNetworkAPI({
       config: runtime.config,
       login: login(),
@@ -205,24 +323,42 @@ describe("OpenClawBridgeConnector", () => {
     });
     const { ctx, registerGhost } = connectContext();
     await api.connect(ctx);
-    expect(registerGhost).toHaveBeenCalledWith(expect.objectContaining({ id: "alice", mxid: "@alice-ghost:example.com" }));
+    expect(registerGhost).toHaveBeenCalledWith(expect.objectContaining({ id: "codex", mxid: "@sh-openclaw_agent_codex:localhost" }));
+  });
 
-    const hidden = runtimeWith({
+  it("keeps existing agent room bindings aligned to the latest ghost profile", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-ghost-sync-test.json");
+    registry.upsertBinding({
+      agentId: "codex",
+      createdAt: 1,
+      ghostUserId: "@old-codex:example.com",
+      id: "agent:codex",
+      kind: "agent",
+      label: "Old Codex",
+      owner: "bridge",
+      roomId: "!codex:example.com",
+      sessionKey: "agent:codex",
+      updatedAt: 1,
+    });
+    const runtime = runtimeWith({
       responses: {
-        "agents.list": { agents: [] },
-        "sessions.create": { key: "agent:main:beeper:bootstrap" },
+        "agents.list": { agents: [{ id: "codex", name: "Codex" }] },
       },
     });
-    hidden.config.contactVisibility = "none";
-    const hiddenApi = new OpenClawNetworkAPI({
-      config: hidden.config,
+    const api = new OpenClawNetworkAPI({
+      config: runtime.config,
       login: login(),
       registry,
-      runtime: hidden,
+      runtime,
     });
-    const { ctx: hiddenCtx, registerGhost: hiddenRegisterGhost } = connectContext();
-    await hiddenApi.connect(hiddenCtx);
-    expect(hiddenRegisterGhost).not.toHaveBeenCalled();
+    const { ctx } = connectContext();
+
+    await api.connect(ctx);
+
+    expect(registry.getBindingById("agent:codex")).toMatchObject({
+      ghostUserId: "@sh-openclaw_agent_codex:localhost",
+      label: "Codex",
+    });
   });
 
   it("resolves agent identifiers into DM portals", async () => {
@@ -232,7 +368,7 @@ describe("OpenClawBridgeConnector", () => {
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
       login: login(),
       registry,
-      runtime: runtimeWith({ responses: { "sessions.create": { key: "agent:codex:session_1" } } }),
+      runtime: runtimeWith({ responses: { "agents.list": { agents: [{ id: "codex", name: "Codex" }] } } }),
     });
     await expect(api.resolveIdentifier({ bridge: { createPortal: vi.fn() } } as unknown as BridgeRequestContext, {
       createDM: false,
@@ -246,33 +382,26 @@ describe("OpenClawBridgeConnector", () => {
           openclaw: {
             agentId: "codex",
             displayName: "Codex",
-            ghostUserId: "@codex:example.com",
+            ghostUserId: "@sh-openclaw_agent_codex:localhost",
           },
         },
-        mxid: "@codex:example.com",
+        mxid: "@sh-openclaw_agent_codex:localhost",
       },
-      userId: "@codex:example.com",
+      userId: "@sh-openclaw_agent_codex:localhost",
     });
 
-    const createPortal = vi.fn(async () => ({
-      id: "session:YWdlbnQ6Y29kZXg6c2Vzc2lvbl8x",
-      metadata: {
-        openclaw: {
-          agentId: "codex",
-          label: "Codex",
-          ghostUserId: "@codex:example.com",
-          sessionKey: "agent:codex:session_1",
-        },
-      },
+    const createPortal = vi.fn(async (loginArg, options) => ({
+      id: options.id,
+      metadata: options.metadata,
       mxid: "!codex-dm:example.com",
-      portalKey: { id: "session:YWdlbnQ6Y29kZXg6c2Vzc2lvbl8x", receiver: "login" },
-      receiver: "login",
+      portalKey: { id: options.id, receiver: loginArg.id },
+      receiver: loginArg.id,
     }));
     await expect(api.resolveIdentifier({ bridge: { createPortal } } as unknown as BridgeRequestContext, {
       createDM: true,
       identifier: "codex",
       type: "username",
-    })).resolves.toEqual({
+    })).resolves.toMatchObject({
       ghost: {
         displayName: "Codex",
         id: "codex",
@@ -280,47 +409,47 @@ describe("OpenClawBridgeConnector", () => {
           openclaw: {
             agentId: "codex",
             displayName: "Codex",
-            ghostUserId: "@codex:example.com",
+            ghostUserId: "@sh-openclaw_agent_codex:localhost",
           },
         },
-        mxid: "@codex:example.com",
+        mxid: "@sh-openclaw_agent_codex:localhost",
       },
       portal: {
-        id: "session:YWdlbnQ6Y29kZXg6c2Vzc2lvbl8x",
+        id: expect.stringMatching(/^conversation:/),
         metadata: {
           openclaw: {
             agentId: "codex",
-            ghostUserId: "@codex:example.com",
+            ghostUserId: "@sh-openclaw_agent_codex:localhost",
             label: "Codex",
-            sessionKey: "agent:codex:session_1",
+            sessionKey: "agent:codex",
           },
         },
-        portalKey: { id: "session:YWdlbnQ6Y29kZXg6c2Vzc2lvbl8x", receiver: "login" },
-        receiver: "login",
+        portalKey: { id: expect.stringMatching(/^conversation:/), receiver: "openclaw:plugin" },
+        receiver: "openclaw:plugin",
         roomType: "dm",
         mxid: "!codex-dm:example.com",
       },
-      userId: "@codex:example.com",
+      userId: "@sh-openclaw_agent_codex:localhost",
     });
-    expect(createPortal).toHaveBeenCalledWith(login(), {
+    expect(createPortal).toHaveBeenCalledWith(login(), expect.objectContaining({
       creationContent: { "m.federate": false },
-      id: "session:YWdlbnQ6Y29kZXg6c2Vzc2lvbl8x",
+      id: expect.stringMatching(/^conversation:/),
       metadata: {
         openclaw: {
           agentId: "codex",
-          ghostUserId: "@codex:example.com",
+          ghostUserId: "@sh-openclaw_agent_codex:localhost",
           label: "Codex",
-          sessionKey: "agent:codex:session_1",
+          sessionKey: "agent:codex",
         },
       },
       name: "Codex",
       roomType: "dm",
-      sender: "@codex:example.com",
-    });
+      sender: "@sh-openclaw_agent_codex:localhost",
+    }));
     expect(registry.getBindingByRoom("!codex-dm:example.com")).toMatchObject({
       agentId: "codex",
       roomId: "!codex-dm:example.com",
-      sessionKey: "agent:codex:session_1",
+      sessionKey: "agent:codex",
     });
   });
 
@@ -365,7 +494,7 @@ describe("OpenClawBridgeConnector", () => {
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
       login: login(),
       registry,
-      runtime: runtimeWith({ responses: { "sessions.create": { key: "agent:codex:session_2" } } }),
+      runtime: runtimeWith({ responses: { "agents.list": { agents: [{ id: "codex", name: "Codex" }] } } }),
     });
     const createPortal = vi.fn(async (loginArg, options) => ({
       id: options.id,
@@ -381,11 +510,11 @@ describe("OpenClawBridgeConnector", () => {
       type: "username",
     })).resolves.toMatchObject({
       portal: {
-        id: "session:YWdlbnQ6Y29kZXg6c2Vzc2lvbl8y",
+        id: expect.stringMatching(/^conversation:/),
         mxid: "!second-codex-dm:example.com",
-        portalKey: { id: "session:YWdlbnQ6Y29kZXg6c2Vzc2lvbl8y", receiver: "openclaw:plugin" },
+        portalKey: { id: expect.stringMatching(/^conversation:/), receiver: "openclaw:plugin" },
       },
-      userId: "@codex:example.com",
+      userId: "@sh-openclaw_agent_codex:localhost",
     });
     expect(createPortal).toHaveBeenCalledOnce();
     expect(registry.getBindingsByAgent("codex")).toHaveLength(2);
@@ -429,14 +558,8 @@ describe("OpenClawBridgeConnector", () => {
     });
   });
 
-  it("applies contact visibility to Beeper contact listing", async () => {
+  it("lists current agent contacts", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-contacts-test.json");
-    registry.upsertUser({
-      displayName: "Alice from Telegram",
-      ghostUserId: "@sh-openclaw_user_alice:example.com",
-      source: "telegram",
-      userId: "alice",
-    });
     const runtime = runtimeWith({
       responses: {
         "agents.list": {
@@ -444,7 +567,6 @@ describe("OpenClawBridgeConnector", () => {
         },
       },
     });
-    runtime.config.contactVisibility = "agents-and-users";
     const api = new OpenClawNetworkAPI({
       config: runtime.config,
       login: login(),
@@ -452,30 +574,26 @@ describe("OpenClawBridgeConnector", () => {
       runtime,
     });
 
-    await expect(api.listContacts({} as BridgeRequestContext, { query: "telegram" })).resolves.toEqual({
+    await expect(api.listContacts({} as BridgeRequestContext, { query: "codex" })).resolves.toEqual({
       contacts: [{
         ghost: {
-          displayName: "Alice from Telegram",
-          id: "alice",
+          displayName: "Codex",
+          id: "codex",
           metadata: {
             openclaw: {
-              displayName: "Alice from Telegram",
-              ghostUserId: "@sh-openclaw_user_alice:example.com",
-              source: "telegram",
-              userId: "alice",
+              agentId: "codex",
+              displayName: "Codex",
+              ghostUserId: "@sh-openclaw_agent_codex:localhost",
             },
           },
-          mxid: "@sh-openclaw_user_alice:example.com",
+          mxid: "@sh-openclaw_agent_codex:localhost",
         },
-        userId: "@sh-openclaw_user_alice:example.com",
+        userId: "@sh-openclaw_agent_codex:localhost",
       }],
     });
-
-    runtime.config.contactVisibility = "none";
-    await expect(api.listContacts({} as BridgeRequestContext, {})).resolves.toEqual({ contacts: [] });
   });
 
-  it("drops disallowed rooms, users, and bridge-owned ghost senders before forwarding to OpenClaw", async () => {
+  it("drops bridge-owned ghost senders before forwarding to OpenClaw", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     registry.upsertAgent({ agentId: "codex", displayName: "Codex", ghostUserId: "@codex:example.com" });
     const runtime = runtimeWith({
@@ -484,8 +602,6 @@ describe("OpenClawBridgeConnector", () => {
         "beeper.turn": { runId: "run_1", sessionKey: "agent:codex:session_1" },
       },
     });
-    runtime.config.allowedRoomIds = ["!allowed:example.com"];
-    runtime.config.allowedUserIds = ["@alice:example.com"];
     runtime.config.matrixUserId = "@sh-openclawbot:example.com";
     const api = new OpenClawNetworkAPI({
       config: runtime.config,
@@ -496,31 +612,41 @@ describe("OpenClawBridgeConnector", () => {
     const portal = {
       id: "agent:codex",
       metadata: { openclaw: { agentId: "codex", ghostUserId: "@codex:example.com", sessionKey: "agent:codex" } },
-      mxid: "!blocked:example.com",
+      mxid: "!room:example.com",
       portalKey: { id: "agent:codex", receiver: "login" },
       receiver: "login",
     };
 
     await api.handleMatrixMessage({} as BridgeRequestContext, {
-      event: { eventId: "$blocked-room" },
+      event: { eventId: "$alice" },
       portal,
       sender: { userId: "@alice:example.com" },
       text: "hello",
     } as MatrixMessage);
     await api.handleMatrixMessage({} as BridgeRequestContext, {
-      event: { eventId: "$blocked-user" },
-      portal: { ...portal, mxid: "!allowed:example.com" },
+      event: { eventId: "$mallory" },
+      portal,
       sender: { userId: "@mallory:example.com" },
       text: "hello",
     } as MatrixMessage);
     await api.handleMatrixMessage({} as BridgeRequestContext, {
       event: { eventId: "$ghost" },
-      portal: { ...portal, mxid: "!allowed:example.com" },
+      portal,
       sender: { userId: "@codex:example.com" },
       text: "hello",
     } as MatrixMessage);
 
-    expect(runtime.transport.request).not.toHaveBeenCalled();
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$alice",
+      sessionKey: "agent:codex:session_1",
+    }));
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$mallory",
+      sessionKey: "agent:codex:session_1",
+    }));
+    expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$ghost",
+    }));
   });
 
   it("accepts the Beeper owner MXID as a sender in self-hosted cloud rooms", async () => {
@@ -1119,7 +1245,6 @@ describe("OpenClawBridgeConnector", () => {
         "exec.approval.resolve": { ok: true },
       },
     });
-    runtime.config.approvalBehavior = "native";
     const api = new OpenClawNetworkAPI({
       config: runtime.config,
       login: login(),
@@ -1144,24 +1269,23 @@ describe("OpenClawBridgeConnector", () => {
     });
     expect(runtime.transport.request).not.toHaveBeenCalledWith("exec.approval.resolve", expect.anything());
 
-    runtime.config.approvalBehavior = "disabled";
     await api.handleMatrixMessage({} as BridgeRequestContext, {
       content: {
-        approvalId: "approval_native_disabled",
+        approvalId: "approval_native",
         approved: true,
         type: "tool-approval-response",
       },
-      event: { eventId: "$native-disabled" },
+      event: { eventId: "$native" },
       portal,
       sender: { userId: "@alice:example.com" },
       text: "Approved",
     } as MatrixMessage);
-    expect(runtime.transport.request).not.toHaveBeenCalledWith("exec.approval.resolve", {
-      approvalId: "approval_native_disabled",
+    expect(runtime.transport.request).toHaveBeenCalledWith("exec.approval.resolve", {
+      approvalId: "approval_native",
       decision: "approve",
     });
     expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
-      idempotencyKey: "$native-disabled",
+      idempotencyKey: "$native",
     }));
 
     await api.handleMatrixMessage({} as BridgeRequestContext, {
@@ -1199,19 +1323,6 @@ describe("OpenClawBridgeConnector", () => {
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       idempotencyKey: "$deny-reply",
       message: "/deny",
-      sessionKey: "agent:codex:session_1",
-    }));
-
-    runtime.config.approvalBehavior = "disabled";
-    await api.handleMatrixMessage({} as BridgeRequestContext, {
-      event: { eventId: "$approve-disabled" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "/approve approval_2",
-    } as MatrixMessage);
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      idempotencyKey: "$approve-disabled",
-      message: "/approve approval_2",
       sessionKey: "agent:codex:session_1",
     }));
 
@@ -1302,52 +1413,6 @@ describe("OpenClawBridgeConnector", () => {
     }));
   });
 
-  it("fetches OpenClaw chat history for Pickle backfill", async () => {
-    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
-    const runtime = runtimeWith({
-      responses: {
-        "chat.history": {
-          messages: [
-            { content: "hello", id: "m1", messageSeq: 1, role: "user", timestamp: "2026-05-16T11:59:00.000Z" },
-            { content: "hi", id: "m2", messageSeq: 2, role: "assistant", timestamp: 1_779_000_000 },
-          ],
-        },
-      },
-    });
-    const api = new OpenClawNetworkAPI({
-      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
-      login: login(),
-      registry,
-      runtime,
-    });
-    const portal = {
-      id: "agent:codex",
-      metadata: {
-        openclaw: {
-          agentId: "codex",
-          ghostUserId: "@codex:example.com",
-          sessionKey: "agent:codex",
-        },
-      },
-      mxid: "!room:example.com",
-      portalKey: { id: "agent:codex", receiver: "login" },
-      receiver: "login",
-    };
-
-    const response = await api.fetchMessages({} as BridgeRequestContext, { limit: 2, portal });
-    expect(response.hasMore).toBe(false);
-    expect(response.messages).toHaveLength(2);
-    expect(response.messages.map((message) => message.event.getID())).toEqual(["m1", "m2"]);
-    expect(response.messages.map((message) => message.event.getSender().sender)).toEqual(["@alice:example.com", "@codex:example.com"]);
-    expect(response.messages.map((message) => message.event.getTimestamp())).toEqual([
-      new Date("2026-05-16T11:59:00.000Z"),
-      new Date(1_779_000_000_000),
-    ]);
-    expect(runtime.transport.request).toHaveBeenCalledWith("chat.history", {
-      limit: 2,
-      sessionKey: "agent:codex",
-    });
-  });
 });
 
 function login(): UserLogin {

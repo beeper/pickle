@@ -31,10 +31,7 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
       if (authMethods === 0) throw new Error("Missing required option --email or --username/--password");
       if (authMethods > 1) throw new Error("Choose only one login method");
       if ((username && !password) || (password && !username)) throw new Error("Username/password login requires both --username and --password");
-      const setupOptions: Parameters<typeof setupOpenClawBeeperBridge>[0] = {
-        push: booleanOption(options, "push"),
-        selfHosted: !booleanOption(options, "not-self-hosted"),
-      };
+      const setupOptions: Parameters<typeof setupOpenClawBeeperBridge>[0] = {};
       if (email !== undefined) setupOptions.email = email;
       if (username !== undefined) setupOptions.username = username;
       if (password !== undefined) setupOptions.password = password;
@@ -119,7 +116,6 @@ function whoamiPayload(config: OpenClawBridgeConfig): Record<string, unknown> {
     ),
     deviceId: config.matrixDeviceId ?? null,
     homeserver: config.homeserver ?? null,
-    registrationUrl: "websocket",
     userId: config.matrixUserId ?? null,
   };
 }
@@ -144,10 +140,6 @@ function parseOptions(args: string[]): Map<string, string | boolean> {
 function stringOption(options: Map<string, string | boolean>, key: string): string | undefined {
   const value = options.get(key);
   return typeof value === "string" ? value : undefined;
-}
-
-function booleanOption(options: Map<string, string | boolean>, key: string): boolean {
-  return options.get(key) === true;
 }
 
 function beeperEnvOption(options: Map<string, string | boolean>): BeeperEnvironment | undefined {

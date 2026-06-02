@@ -3,6 +3,7 @@
 import type {
   MatrixAccountDataResult,
   MatrixAppendBeeperAIRunEventOptions,
+  MatrixAppendBeeperAIRunPartOptions,
   MatrixApplySyncResponseOptions,
   MatrixAppserviceBatchSendOptions,
   MatrixAppserviceBatchSendResult,
@@ -138,6 +139,7 @@ export interface MatrixCoreOperations {
   deleteBeeperAIRun(options: MatrixDeleteBeeperAIRunOptions): Promise<void>;
   startBeeperAIRunStream(options: MatrixStartBeeperAIRunStreamOptions): Promise<MatrixBeeperAIRunStreamResult>;
   appendBeeperAIRunStreamEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  appendBeeperAIRunStreamPart(options: MatrixAppendBeeperAIRunPartOptions): Promise<MatrixBeeperAIRunStreamResult>;
   finishBeeperAIRunStream(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
   errorBeeperAIRunStream(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
   setTyping(options: MatrixTypingOptions): Promise<void>;
@@ -339,6 +341,10 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   appendBeeperAIRunStreamEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult> {
     return this.call<MatrixBeeperAIRunStreamResult>("append_beeper_ai_run_stream_event", options);
+  }
+
+  appendBeeperAIRunStreamPart(options: MatrixAppendBeeperAIRunPartOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("append_beeper_ai_run_stream_part", options);
   }
 
   finishBeeperAIRunStream(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult> {

@@ -1,14 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { defaultDataDir } from "./config";
-import type { OpenClawAgentContact, OpenClawBridgeRegistryData, OpenClawSessionBinding, OpenClawUserContact } from "./types";
+import type { OpenClawAgentContact, OpenClawBridgeRegistryData, OpenClawSessionBinding } from "./types";
 
 export function defaultRegistryPath(dataDir = defaultDataDir()): string {
   return resolve(dataDir, "registry.json");
 }
 
 export function emptyRegistry(): OpenClawBridgeRegistryData {
-  return { agents: [], bindings: [], dedupe: {}, schemaVersion: 1, users: [] };
+  return { agents: [], bindings: [], dedupe: {}, schemaVersion: 1 };
 }
 
 export class OpenClawBridgeRegistry {
@@ -34,7 +35,7 @@ export class OpenClawBridgeRegistry {
 
   async save(): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true });
-    const tmp = `${this.path}.${process.pid}.tmp`;
+    const tmp = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
     await writeFile(tmp, `${JSON.stringify(this.#data, null, 2)}\n`, { mode: 0o600 });
     await rename(tmp, this.path);
   }
@@ -51,16 +52,6 @@ export class OpenClawBridgeRegistry {
 
   replaceAgents(agents: OpenClawAgentContact[]): void {
     this.#data.agents = [...agents];
-  }
-
-  getUser(userId: string): OpenClawUserContact | undefined {
-    return this.#data.users.find((user) => user.userId === userId);
-  }
-
-  upsertUser(user: OpenClawUserContact): void {
-    const index = this.#data.users.findIndex((item) => item.userId === user.userId);
-    if (index === -1) this.#data.users.push(user);
-    else this.#data.users[index] = user;
   }
 
   getBindingById(id: string): OpenClawSessionBinding | undefined {
@@ -122,6 +113,5 @@ function normalizeRegistry(value: unknown): OpenClawBridgeRegistryData {
     bindings: Array.isArray(data.bindings) ? data.bindings : [],
     dedupe: data.dedupe && typeof data.dedupe === "object" ? data.dedupe : {},
     schemaVersion: 1,
-    users: Array.isArray(data.users) ? data.users : [],
   };
 }

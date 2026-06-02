@@ -460,6 +460,12 @@ func TestBeeperAIRunStreamUsesCanonicalAIBridgeRun(t *testing.T) {
 	if startResult.EventID != "$event" || startResult.MessageID != "msg-run-1" {
 		t.Fatalf("unexpected start result: %#v", startResult)
 	}
+	anchorBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"com.beeper.ai"`) && strings.Contains(req.body, `"com.beeper.stream"`)
+	})
+	if strings.Contains(anchorBody, "Working...") || !strings.Contains(anchorBody, `"body":""`) {
+		t.Fatalf("empty stream anchor should not expose working fallback, got %s", anchorBody)
+	}
 
 	appendReq, err := json.Marshal(MatrixAppendBeeperAIRunEventOptions{
 		Event: OutboundEvent{
@@ -481,8 +487,8 @@ func TestBeeperAIRunStreamUsesCanonicalAIBridgeRun(t *testing.T) {
 	if !strings.Contains(carrierBody, `"messageId":"msg-run-1"`) {
 		t.Fatalf("expected canonical envelope message id, got %s", carrierBody)
 	}
-	if !strings.Contains(carrierBody, `"messageId":"provider-msg"`) {
-		t.Fatalf("expected original part payload to remain intact, got %s", carrierBody)
+	if strings.Contains(carrierBody, `"messageId":"provider-msg"`) {
+		t.Fatalf("expected provider message id to be canonicalized by native stream, got %s", carrierBody)
 	}
 
 	finishReq, err := json.Marshal(MatrixFinishBeeperAIRunOptions{
@@ -511,6 +517,71 @@ func TestBeeperAIRunStreamUsesCanonicalAIBridgeRun(t *testing.T) {
 	})
 	if !strings.Contains(replacementBody, `"com.beeper.ai"`) || !strings.Contains(replacementBody, `"hello"`) {
 		t.Fatalf("expected final replacement to use ai-bridge final content, got %s", replacementBody)
+	}
+}
+
+func TestBeeperAIRunStreamStartUsesInitialTextPartForAnchorPreview(t *testing.T) {
+	requests := make(chan recordedRequest, 16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.URL.Path}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"event_id":"$event"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@testbot:example"), "device-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.DeviceID = id.DeviceID("PICKLE")
+	cli.StateStore = mautrix.NewMemoryStateStore()
+	core.client = cli
+	core.beeperStream, err = beeperstream.New(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startReq, err := json.Marshal(MatrixStartBeeperAIRunStreamOptions{
+		MatrixBeginBeeperAIRunOptions: MatrixBeginBeeperAIRunOptions{
+			AgentID:   "codex",
+			AgentName: "Codex",
+			Model:     "openclaw/plugin",
+			RunID:     "run-preview",
+			ThreadID:  "thread-preview",
+		},
+		InitialParts: []MatrixBeeperAIRunPartOptions{{
+			Kind: "text",
+			Text: "hello",
+		}},
+		RoomID: "!room:example",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawStart, err := core.handleStartBeeperAIRunStream(context.Background(), startReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var startResult MatrixBeeperAIRunStreamResult
+	if err = json.Unmarshal(rawStart, &startResult); err != nil {
+		t.Fatal(err)
+	}
+	if startResult.Body != "hello" {
+		t.Fatalf("expected start snapshot body to use initial text, got %#v", startResult)
+	}
+	anchorBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"com.beeper.ai"`) && strings.Contains(req.body, `"com.beeper.stream"`)
+	})
+	if !strings.Contains(anchorBody, `"body":"hello"`) || strings.Contains(anchorBody, "Working...") {
+		t.Fatalf("expected anchor preview to use initial text, got %s", anchorBody)
+	}
+	carrierBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"TEXT_MESSAGE_CONTENT"`) && strings.Contains(req.body, `"delta":"hello"`)
+	})
+	if !strings.Contains(carrierBody, `"seq":`) {
+		t.Fatalf("expected initial text part to be published as a stream carrier, got %s", carrierBody)
 	}
 }
 

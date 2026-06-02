@@ -961,6 +961,7 @@ describe("createMatrixClient", () => {
     const calls = installRuntime({
       append_beeper_ai_run_event: { body: "hello", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, runId: "run", threadId: "thread" },
       append_beeper_ai_run_stream_event: { body: "hello", descriptor: {}, eventId: "$stream", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, roomId: "!room", runId: "run", threadId: "thread" },
+      append_beeper_ai_run_stream_part: { body: "hello", descriptor: {}, eventId: "$stream", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, roomId: "!room", runId: "run", threadId: "thread" },
       begin_beeper_ai_run: { body: "", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, runId: "run", threadId: "thread" },
       delete_beeper_ai_run: {},
       error_beeper_ai_run: { body: "failed", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, runId: "run", threadId: "thread" },
@@ -989,6 +990,7 @@ describe("createMatrixClient", () => {
       event: { delta: "hello", messageId: "msg", type: "TEXT_MESSAGE_CONTENT" },
       runId: "run",
     });
+    await client.beeper.aiRunStreams.appendPart({ kind: "text", runId: "run", text: "hello" });
     await client.beeper.aiRunStreams.finish({ finishReason: "stop", runId: "run" });
     await client.beeper.aiRunStreams.error({ message: "failed", runId: "run", type: "error" });
 
@@ -1001,6 +1003,7 @@ describe("createMatrixClient", () => {
       "delete_beeper_ai_run",
       "start_beeper_ai_run_stream",
       "append_beeper_ai_run_stream_event",
+      "append_beeper_ai_run_stream_part",
       "finish_beeper_ai_run_stream",
       "error_beeper_ai_run_stream",
     ]);
@@ -1017,8 +1020,9 @@ describe("createMatrixClient", () => {
       event: { delta: "hello", messageId: "msg", type: "TEXT_MESSAGE_CONTENT" },
       runId: "run",
     });
-    expect(calls[8]?.payload).toEqual({ finishReason: "stop", runId: "run" });
-    expect(calls[9]?.payload).toEqual({ message: "failed", runId: "run", type: "error" });
+    expect(calls[8]?.payload).toEqual({ kind: "text", runId: "run", text: "hello" });
+    expect(calls[9]?.payload).toEqual({ finishReason: "stop", runId: "run" });
+    expect(calls[10]?.payload).toEqual({ message: "failed", runId: "run", type: "error" });
   });
 
   it("keeps accumulated UI message parts in the Beeper final edit", async () => {

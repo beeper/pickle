@@ -2,16 +2,12 @@ import {
   randomUUID,
 } from "node:crypto";
 import {
-  createRemoteMessage,
-  type BackfillingNetworkAPI,
   BridgeConnector,
   BridgeContext,
   BridgeRequestContext,
   BridgeUser,
   ConnectContext,
   type ContactListingNetworkAPI,
-  FetchMessagesParams,
-  FetchMessagesResponse,
   type EditHandlingNetworkAPI,
   IdentifierResolvingNetworkAPI,
   type ListContactsParams,
@@ -41,6 +37,7 @@ import {
   NetworkAPI,
   NetworkGeneralCapabilities,
   Portal,
+  type Avatar,
   type PortalKey,
   ReactionHandlingNetworkAPI,
   type ReadReceiptHandlingNetworkAPI,
@@ -55,7 +52,6 @@ import {
   ResolveIdentifierResponse,
   UserLogin,
 } from "@beeper/pickle-bridge";
-import { buildBackfillImport } from "./backfill";
 import { parseApprovalReactionContent, parseApprovalResponseContent } from "./approval";
 import {
   BEEPER_CHANNEL_RUNTIME_CONTEXT_CAPABILITY,
@@ -66,6 +62,7 @@ import { agentPortalSessionKey, OpenClawMatrixBridgeAgent } from "./bridge-agent
 import { createDefaultConfig } from "./config";
 import { parseMatrixTextMessage, type ParsedMatrixTextMessage } from "./matrix-parser";
 import {
+  BEEPER_SESSION_REASONING_LEVEL,
   createOpenClawHostRuntimeAdapter,
   type OpenClawBridgeRuntime,
   OpenClawPluginRuntimeAdapter,
@@ -78,10 +75,9 @@ import {
 import { OpenClawBridgeRegistry } from "./registry";
 import { agentContactFromOpenClawAgent, agentGhostUserId, serviceBotUserId } from "./rooms";
 import { matrixDomainFromHomeserver } from "./rooms";
-import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
+import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding } from "./types";
 
 const DEFAULT_NEW_SESSION_LABEL = "New OpenClaw Session";
-const DEFAULT_BOOTSTRAP_MESSAGE = "hey, are you alive? - sent from my beeper";
 
 export interface OpenClawConnectorOptions {
   config?: OpenClawBridgeConfig;
@@ -236,13 +232,14 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
   };
 }
 
-export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, ReactionRemoveHandlingNetworkAPI, RedactionHandlingNetworkAPI, ReadReceiptHandlingNetworkAPI, MarkedUnreadHandlingNetworkAPI, TypingHandlingNetworkAPI, RoomNameHandlingNetworkAPI, RoomTopicHandlingNetworkAPI, RoomAvatarHandlingNetworkAPI, MembershipHandlingNetworkAPI, DeleteChatHandlingNetworkAPI, BackfillingNetworkAPI {
+export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetworkAPI, ContactListingNetworkAPI, MessageHandlingNetworkAPI, EditHandlingNetworkAPI, ReactionHandlingNetworkAPI, ReactionRemoveHandlingNetworkAPI, RedactionHandlingNetworkAPI, ReadReceiptHandlingNetworkAPI, MarkedUnreadHandlingNetworkAPI, TypingHandlingNetworkAPI, RoomNameHandlingNetworkAPI, RoomTopicHandlingNetworkAPI, RoomAvatarHandlingNetworkAPI, MembershipHandlingNetworkAPI, DeleteChatHandlingNetworkAPI {
   readonly #agent: OpenClawMatrixBridgeAgent;
   readonly #config: OpenClawBridgeConfig;
   readonly #login: UserLogin;
   readonly #onActivity: ((patch: OpenClawBridgeActivityPatch) => void) | undefined;
   readonly #registry: OpenClawBridgeRegistry;
   readonly #runtime: OpenClawBridgeRuntime;
+  #welcomeRooms: Promise<void> | undefined;
 
   constructor(options: {
     config: OpenClawBridgeConfig;
@@ -266,29 +263,13 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
 
   async connect(ctx: ConnectContext): Promise<void> {
     await this.#agent.syncAgentContacts();
-    const bootstrapContact = this.bootstrapAgentContact();
-    const contactVisibility = this.#runtime.config.contactVisibility ?? "agents";
-    if (contactVisibility !== "none") {
-      for (const contact of this.#registry.data.agents) {
-        ctx.bridge.registerGhost({
-          displayName: contact.displayName,
-          id: contact.agentId,
-          metadata: { openclaw: contact },
-          mxid: contact.ghostUserId,
-        });
-      }
+    this.ensureDefaultAgentContact();
+    for (const contact of this.#registry.data.agents) {
+      ctx.bridge.registerGhost(agentGhost(contact));
     }
-    if (contactVisibility === "agents-and-users") {
-      for (const contact of this.#registry.data.users) {
-        ctx.bridge.registerGhost({
-          displayName: contact.displayName,
-          id: contact.userId,
-          metadata: { openclaw: contact },
-          mxid: contact.ghostUserId,
-        });
-      }
-    }
-    await this.ensureBootstrapRoom(ctx, bootstrapContact);
+    this.syncAgentBindings();
+    await this.#registry.save();
+    await this.ensureAgentWelcomeRooms(ctx);
   }
 
   async disconnect(): Promise<void> {
@@ -330,21 +311,12 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
 
   async listContacts(_ctx: BridgeRequestContext, params: ListContactsParams = {}): Promise<ListContactsResponse> {
     await this.#agent.syncAgentContacts();
-    const contactVisibility = this.#runtime.config.contactVisibility ?? "agents";
-    if (contactVisibility === "none") return { contacts: [] };
     const query = params.query?.trim().toLowerCase();
-    const contacts = [
-      ...this.#registry.data.agents.map((contact) => ({
+    const contacts = this.#registry.data.agents
+      .map((contact) => ({
         response: contactResponse(contact),
         text: `${contact.agentId} ${contact.displayName}`.toLowerCase(),
-      })),
-      ...(contactVisibility === "agents-and-users"
-        ? this.#registry.data.users.map((contact) => ({
-            response: userContactResponse(contact),
-            text: `${contact.userId} ${contact.displayName} ${contact.source ?? ""}`.toLowerCase(),
-          }))
-        : []),
-    ]
+      }))
       .filter((contact) => !query || contact.text.includes(query))
       .slice(0, params.limit ?? 100)
       .map((contact) => contact.response);
@@ -362,9 +334,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     let currentBinding = msg.portal.mxid ? this.#registry.getBindingByRoom(msg.portal.mxid) ?? binding : binding;
     const approval = parseApprovalResponseContent(msg.content);
     if (approval) {
-      if (approvalNativeEnabled(this.#runtime.config)) {
-        await this.#agent.handleApprovalContent(msg.content, approval.approvalId ?? approvalIdFromMatrixReply(msg));
-      }
+      await this.#agent.handleApprovalContent(msg.content, approval.approvalId ?? approvalIdFromMatrixReply(msg));
       return { pending: false };
     }
     const parsed = parseMatrixTextMessage(msg.text, msg.content, msg);
@@ -565,74 +535,27 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     await this.#registry.save();
   }
 
-  async fetchMessages(_ctx: BridgeRequestContext, params: FetchMessagesParams): Promise<FetchMessagesResponse> {
-    const binding = bindingFromPortal(params.portal, this.#runtime.config);
-    if (!this.isAllowedRoom(binding?.roomId ?? params.portal.mxid)) return { hasMore: false, messages: [] };
-    if (!binding) return { hasMore: false, messages: [] };
-    const importOptions: { limit?: number; roomId: string } = { roomId: binding.roomId };
-    const limit = params.limit ?? params.count;
-    if (limit !== undefined) importOptions.limit = limit;
-    const sessionOptions: Parameters<typeof buildBackfillImport>[2] = {
-      agentId: binding.agentId,
-      label: binding.label ?? binding.sessionKey,
-      session: { key: binding.sessionKey },
-      sessionKey: binding.sessionKey,
-      source: binding.owner === "imported" ? "unknown" : "channel",
-    };
-    if (binding.humanGhostUserId) {
-      sessionOptions.human = {
-        displayName: binding.humanGhostUserId,
-        ghostUserId: binding.humanGhostUserId,
-        userId: binding.humanGhostUserId,
-      };
-    }
-    const backfill = await buildBackfillImport(this.#runtime, this.#runtime.config, sessionOptions, importOptions);
-    if (backfill.human) this.#registry.upsertUser(backfill.human);
-    return {
-      hasMore: false,
-      messages: backfill.messages.map((message) => ({
-        event: createRemoteMessage({
-          convert: () => ({
-            parts: [{ content: message.content, id: message.id, type: "m.text" }],
-          }),
-          data: message,
-          id: message.id,
-          portalKey: params.portal.portalKey,
-          sender: {
-            isFromMe: message.sender === "agent",
-            sender: backfillSenderUserId(this.#runtime.config, this.#login, binding, message.sender),
-          },
-          timestamp: message.timestamp ?? new Date(0),
-        }),
-      })),
-    };
-  }
-
   isAllowedMatrixIngress(roomId: string | undefined, sender: string | undefined): boolean {
-    if (!this.isAllowedRoom(roomId)) return false;
-    if (!this.isAllowedUser(sender)) return false;
+    if (!roomId) return false;
     if (sender && this.isBridgeOwnedSender(sender)) return false;
     return true;
   }
 
   isAllowedRoom(roomId: string | undefined): boolean {
-    return !this.#config.allowedRoomIds?.length || Boolean(roomId && this.#config.allowedRoomIds.includes(roomId));
+    return Boolean(roomId);
   }
 
   isAllowedUser(sender: string | undefined): boolean {
-    return !this.#config.allowedUserIds?.length || Boolean(sender && this.#config.allowedUserIds.includes(sender));
+    return Boolean(sender);
   }
 
   isBridgeOwnedSender(sender: string): boolean {
     return sender === serviceBotUserId(this.#config)
-      || this.#registry.data.agents.some((contact) => contact.ghostUserId === sender)
-      || this.#registry.data.users.some((contact) => contact.ghostUserId === sender);
+      || this.#registry.data.agents.some((contact) => contact.ghostUserId === sender);
   }
 
   logRejectedMatrixIngress(ctx: BridgeRequestContext, kind: string, roomId: string | undefined, sender: string | undefined): void {
     ctx.log?.("warn", "openclaw_matrix_ingress_rejected", {
-      allowedRoomCount: this.#config.allowedRoomIds?.length ?? 0,
-      allowedUserCount: this.#config.allowedUserIds?.length ?? 0,
       bridgeOwned: sender ? this.isBridgeOwnedSender(sender) : false,
       kind,
       roomId,
@@ -690,6 +613,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
       agentId,
       key: newBeeperSessionKey(agentId),
       label,
+      reasoningLevel: BEEPER_SESSION_REASONING_LEVEL,
     });
     const now = Date.now();
     const binding: OpenClawSessionBinding = {
@@ -714,26 +638,49 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     contact: OpenClawAgentContact,
     label = contact.displayName,
   ): Promise<Portal> {
-    const session = await this.#runtime.createSession({
-      agentId: contact.agentId,
-      key: newBeeperSessionKey(contact.agentId),
-      label,
-    });
-    return portalForAgentSession(contact, this.#login.id, session.key, label);
+    return portalForAgentConversation(contact, this.#login.id, label);
   }
 
-  private bootstrapAgentContact(): OpenClawAgentContact {
+  private ensureDefaultAgentContact(): void {
     const contact =
       this.#registry.getAgent("main") ??
       this.#registry.data.agents[0] ??
       agentContactFromOpenClawAgent(this.#runtime.config, { id: "main", name: "Main" });
     if (!this.#registry.getAgent(contact.agentId)) this.#registry.upsertAgent(contact);
-    return contact;
   }
 
-  private async ensureBootstrapRoom(ctx: ConnectContext, contact: OpenClawAgentContact): Promise<void> {
-    if (this.#registry.data.bindings.length > 0) return;
-    let portal = await this.createSessionPortalForAgent(ctx, contact, "OpenClaw");
+  private syncAgentBindings(): void {
+    for (const contact of this.#registry.data.agents) {
+      for (const binding of this.#registry.getBindingsByAgent(contact.agentId)) {
+        this.#registry.updateBinding(binding.id, (current) => stripUndefined({
+          ...current,
+          ghostUserId: contact.ghostUserId,
+          ...(current.kind === "agent" ? { label: contact.displayName } : {}),
+          updatedAt: Date.now(),
+        }));
+      }
+    }
+  }
+
+  private async ensureAgentWelcomeRooms(ctx: ConnectContext): Promise<void> {
+    if (this.#welcomeRooms) return this.#welcomeRooms;
+    this.#welcomeRooms = this.createMissingAgentWelcomeRooms(ctx);
+    try {
+      await this.#welcomeRooms;
+    } finally {
+      this.#welcomeRooms = undefined;
+    }
+  }
+
+  private async createMissingAgentWelcomeRooms(ctx: ConnectContext): Promise<void> {
+    for (const contact of this.#registry.data.agents) {
+      if (this.#registry.getBindingById(agentPortalBindingId(contact.agentId))) continue;
+      await this.createAgentWelcomeRoom(ctx, contact);
+    }
+  }
+
+  private async createAgentWelcomeRoom(ctx: ConnectContext, contact: OpenClawAgentContact): Promise<void> {
+    let portal = portalForAgentWelcome(contact, this.#login.id);
     const portalOptions: Parameters<typeof ctx.bridge.createPortal>[1] = {
       id: portal.id,
       metadata: portal.metadata,
@@ -754,25 +701,8 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     if (receiver !== undefined) portal.receiver = receiver;
     this.upsertPortalBinding(portal);
     const binding = portal.mxid ? this.#registry.getBindingByRoom(portal.mxid) : undefined;
-    if (!portal.mxid || !binding) throw new Error("OpenClaw Beeper bootstrap room was created without a bound Matrix room");
+    if (!portal.mxid || !binding) throw new Error("OpenClaw Beeper agent welcome room was created without a bound Matrix room");
     this.registerCanonicalPortalForBinding(ctx, portal, binding);
-    const sender = this.#login.userId ?? userLoginFromOpenClawConfig(this.#runtime.config).userId ?? serviceBotUserId(this.#runtime.config);
-    const sent = await ctx.client.appservice.sendMessage({
-      content: {
-        body: DEFAULT_BOOTSTRAP_MESSAGE,
-        msgtype: "m.text",
-      },
-      roomId: portal.mxid,
-      userId: sender,
-    });
-    this.#onActivity?.(outboundActivityPatch());
-    await this.#agent.handleMatrixText({
-      eventId: sent.eventId,
-      matrix: { sender },
-      roomId: portal.mxid,
-      sender,
-      text: DEFAULT_BOOTSTRAP_MESSAGE,
-    });
     await this.#registry.save();
   }
 }
@@ -823,10 +753,6 @@ function approvalReactionsEnabled(_config: OpenClawBridgeConfig): boolean {
   return false;
 }
 
-function approvalNativeEnabled(config: OpenClawBridgeConfig): boolean {
-  return config.approvalBehavior === undefined || config.approvalBehavior === "native";
-}
-
 function openClawPortalCreationContent(_config: OpenClawBridgeConfig): Record<string, unknown> | undefined {
   return { "m.federate": false };
 }
@@ -867,13 +793,31 @@ function matrixMetadataFromParsed(
   return metadata;
 }
 
-function portalForAgentSession(
-  contact: OpenClawAgentContact,
-  receiver: string,
-  sessionKey: string,
-  label?: string,
-): Portal {
-  const id = portalIdForSession(sessionKey);
+function portalForAgentWelcome(contact: OpenClawAgentContact, receiver: string): Portal {
+  const sessionKey = agentPortalSessionKey(contact.agentId);
+  const id = agentPortalBindingId(contact.agentId);
+  return {
+    id,
+    metadata: {
+      openclaw: stripUndefined({
+        agentId: contact.agentId,
+        ghostUserId: contact.ghostUserId,
+        label: contact.displayName,
+        sessionKey,
+      }),
+    },
+    portalKey: { id, receiver },
+    receiver,
+    roomType: "dm",
+  };
+}
+
+function agentPortalBindingId(agentId: string): string {
+  return `agent:${agentId}`;
+}
+
+function portalForAgentConversation(contact: OpenClawAgentContact, receiver: string, label?: string): Portal {
+  const id = `conversation:${Buffer.from(randomUUID()).toString("base64url")}`;
   return {
     id,
     metadata: {
@@ -881,7 +825,7 @@ function portalForAgentSession(
         agentId: contact.agentId,
         ghostUserId: contact.ghostUserId,
         ...(label ? { label } : {}),
-        sessionKey,
+        sessionKey: agentPortalSessionKey(contact.agentId),
       }),
     },
     portalKey: { id, receiver },
@@ -906,26 +850,31 @@ function portalIdForSession(sessionKey: string): string {
 
 function contactResponse(contact: OpenClawAgentContact, portal?: Portal): ResolveIdentifierResponse {
   return {
-    ghost: {
-      displayName: contact.displayName,
-      id: contact.agentId,
-      metadata: { openclaw: contact },
-      mxid: contact.ghostUserId,
-    },
+    ghost: agentGhost(contact),
     ...(portal ? { portal } : {}),
     userId: contact.ghostUserId,
   };
 }
 
-function userContactResponse(contact: OpenClawUserContact): ResolveIdentifierResponse {
+function agentGhost(contact: OpenClawAgentContact) {
+  const avatar = agentAvatar(contact);
   return {
-    ghost: {
-      displayName: contact.displayName,
-      id: contact.userId,
-      metadata: { openclaw: contact },
-      mxid: contact.ghostUserId,
-    },
-    userId: contact.ghostUserId,
+    ...(avatar ? { avatar } : {}),
+    displayName: contact.displayName,
+    id: contact.agentId,
+    metadata: { openclaw: contact },
+    mxid: contact.ghostUserId,
+  };
+}
+
+function agentAvatar(contact: OpenClawAgentContact): Avatar | undefined {
+  const url = contact.avatarUrl ?? contact.avatarMxc;
+  const id = contact.avatarMxc ?? url;
+  if (!id) return undefined;
+  return {
+    id,
+    ...(contact.avatarMxc ? { mxc: contact.avatarMxc } : {}),
+    ...(url ? { url } : {}),
   };
 }
 
@@ -944,8 +893,8 @@ function bindingFromPortal(portal: Portal, config: OpenClawBridgeConfig): OpenCl
     agentId,
     createdAt: now,
     ghostUserId,
-    id: Buffer.from(roomId).toString("base64url"),
-    kind: "session",
+    id: portalId.startsWith("agent:") ? portalId : Buffer.from(roomId).toString("base64url"),
+    kind: portalId.startsWith("agent:") ? "agent" : "session",
     ...(label ? { label } : {}),
     owner: openclaw ? "bridge" : "imported",
     roomId,
@@ -963,7 +912,7 @@ function openClawPortalId(portal: Portal): string {
 
 function openClawPortalIdFromString(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  return value.startsWith("session:") || value.startsWith("agent:") ? value : undefined;
+  return value.startsWith("session:") || value.startsWith("agent:") || value.startsWith("conversation:") ? value : undefined;
 }
 
 function openClawPortalIdFromRoomId(roomId: string | undefined): string | undefined {
@@ -996,17 +945,6 @@ function agentIdFromSessionKey(sessionKey: string | undefined): string | undefin
   if (!sessionKey?.startsWith("agent:")) return undefined;
   const [, agentId] = sessionKey.split(":");
   return agentId || undefined;
-}
-
-function backfillSenderUserId(
-  config: OpenClawBridgeConfig,
-  login: UserLogin,
-  binding: OpenClawSessionBinding,
-  sender: "agent" | "human" | "system"
-): string {
-  if (sender === "agent") return binding.ghostUserId;
-  if (sender === "human") return login.userId ?? binding.humanGhostUserId ?? serviceBotUserId(config);
-  return serviceBotUserId(config);
 }
 
 export function userLoginFromOpenClawConfig(config: OpenClawBridgeConfig): UserLogin {

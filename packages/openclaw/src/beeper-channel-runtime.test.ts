@@ -115,12 +115,13 @@ describe("BeeperChannelRuntime", () => {
     expect(client.messages.send).not.toHaveBeenCalled();
   });
 
-  it("rejects non-OpenClaw message ids for bridge mutation actions", async () => {
+  it("queues Matrix event ids as bundled bridge update targets", async () => {
     const client = createClient();
+    const queued: unknown[] = [];
     const bridge = {
       flushRemoteEvents: vi.fn(async () => undefined),
       getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
-      queueRemoteEvent: vi.fn(),
+      queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
     };
     const runtime = new BeeperChannelRuntime({
       bridge: bridge as never,
@@ -128,8 +129,16 @@ describe("BeeperChannelRuntime", () => {
       login: { id: "openclaw:plugin" },
     });
 
-    await expect(runtime.edit({ eventId: "$matrix", roomId: "!room", text: "edit" }))
-      .rejects.toThrow("can only target OpenClaw bridge message ids");
+    await runtime.edit({ eventId: "$matrix", roomId: "!room", text: "edit" });
+
+    const event = queued[0] as {
+      getTargetDBMessage: () => Array<{ id: string; mxid: string; partId: string }>;
+      getTargetMessage: () => string;
+      getType: () => string;
+    };
+    expect(event.getType()).toBe("edit");
+    expect(event.getTargetMessage()).toBe("$matrix");
+    expect(event.getTargetDBMessage()).toEqual([{ id: "$matrix", mxid: "$matrix", partId: "0" }]);
     expect(client.messages.edit).not.toHaveBeenCalled();
   });
 

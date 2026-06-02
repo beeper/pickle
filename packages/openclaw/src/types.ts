@@ -1,20 +1,13 @@
 export type OpenClawBindingOwner = "bridge" | "terminal" | "mac-app" | "imported";
 export type OpenClawBindingKind = "session" | "agent";
-export type OpenClawImportSource = "dashboard" | "tui" | "channels" | "archived";
 
 export interface OpenClawAgentContact {
   agentId: string;
   displayName: string;
   ghostUserId: string;
   avatarMxc?: string;
+  avatarUrl?: string;
   description?: string;
-}
-
-export interface OpenClawUserContact {
-  displayName: string;
-  ghostUserId: string;
-  source?: string;
-  userId: string;
 }
 
 export interface OpenClawSessionBinding {
@@ -38,21 +31,14 @@ export interface OpenClawSessionBinding {
 }
 
 export interface OpenClawBridgeConfig {
-  allowedRoomIds?: string[];
-  allowedUserIds?: string[];
   asToken?: string;
   appserviceId: string;
-  approvalBehavior?: "native" | "disabled";
-  backfillLimit?: number;
   beeperEnv?: "production" | "staging" | "dev" | "local";
   bridgeId?: string;
-  bridgeManagerToken?: string;
-  contactVisibility?: "agents" | "agents-and-users" | "none";
   dataDir: string;
   homeserver?: string;
   hsToken?: string;
   homeserverDomain?: string;
-  importSources?: OpenClawImportSource[];
   matrixDeviceId?: string;
   matrixUserId?: string;
 }
@@ -62,7 +48,6 @@ export interface OpenClawBridgeRegistryData {
   bindings: OpenClawSessionBinding[];
   dedupe: Record<string, number>;
   schemaVersion: 1;
-  users: OpenClawUserContact[];
 }
 
 export interface AppserviceRegistration {

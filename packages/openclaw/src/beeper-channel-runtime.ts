@@ -4,9 +4,11 @@ import type { MatrixClient, SentEvent } from "@beeper/pickle";
 import {
   createRemoteMessage,
   type PickleBridge,
+  type Message,
   type PortalKey,
   type RemoteDeliveryReceipt,
   type RemoteEdit,
+  type RemoteEventWithBundledParts,
   type RemoteMarkUnread,
   type RemoteMessageRemove,
   type RemoteReadReceipt,
@@ -245,34 +247,37 @@ export class BeeperChannelRuntime {
   }
 
   async #queueRemoteEdit(roomId: string, targetMessageId: string, content: Record<string, unknown>): Promise<SentEvent> {
-    const targetId = openClawTargetId(targetMessageId);
+    const target = openClawTarget(targetMessageId);
     const route = this.#bridgeRoute(roomId);
     const messageId = openClawRemoteId();
-    const event: RemoteEdit = {
-      convertEdit: async () => ({
+    const event: RemoteEdit & Partial<RemoteEventWithBundledParts> = {
+      convertEdit: async (_ctx, _portal, _intent, existing) => ({
         modifiedParts: [{
           content,
+          ...(existing[0] ? { part: existing[0] } : {}),
           type: "m.room.message",
         }],
       }),
       getPortalKey: () => route.portalKey,
       getSender: () => this.#eventSender(roomId),
-      getTargetMessage: () => targetId,
+      ...bundledTargetMethods(target),
+      getTargetMessage: () => target.messageId,
       getType: () => "edit",
     };
     route.bridge.queueRemoteEvent(route.login, event);
     await route.bridge.flushRemoteEvents();
     this.recordOutboundActivity();
-    return { eventId: messageId, raw: { bridgeQueued: true, targetMessageId: targetId }, roomId };
+    return { eventId: messageId, raw: { bridgeQueued: true, targetMessageId: target.messageId }, roomId };
   }
 
   async #queueRemoteMessageRemove(roomId: string, targetMessageId: string): Promise<void> {
-    const targetId = openClawTargetId(targetMessageId);
+    const target = openClawTarget(targetMessageId);
     const route = this.#bridgeRoute(roomId);
-    const event: RemoteMessageRemove = {
+    const event: RemoteMessageRemove & Partial<RemoteEventWithBundledParts> = {
       getPortalKey: () => route.portalKey,
       getSender: () => this.#eventSender(roomId),
-      getTargetMessage: () => targetId,
+      ...bundledTargetMethods(target),
+      getTargetMessage: () => target.messageId,
       getType: () => "message_remove",
     };
     route.bridge.queueRemoteEvent(route.login, event);
@@ -281,21 +286,22 @@ export class BeeperChannelRuntime {
   }
 
   async #queueRemoteReaction(roomId: string, targetMessageId: string, emoji: string, remove: boolean): Promise<SentEvent> {
-    const targetId = openClawTargetId(targetMessageId);
+    const target = openClawTarget(targetMessageId);
     const route = this.#bridgeRoute(roomId);
     const reactionId = openClawRemoteId("reaction");
-    const event: RemoteReaction | RemoteReactionRemove = {
+    const event: (RemoteReaction | RemoteReactionRemove) & Partial<RemoteEventWithBundledParts> = {
       getEmoji: () => emoji,
       getID: () => reactionId,
       getPortalKey: () => route.portalKey,
       getSender: () => this.#eventSender(roomId),
-      getTargetMessage: () => targetId,
+      ...bundledTargetMethods(target),
+      getTargetMessage: () => target.messageId,
       getType: () => remove ? "reaction_remove" : "reaction",
     };
     route.bridge.queueRemoteEvent(route.login, event);
     await route.bridge.flushRemoteEvents();
     this.recordOutboundActivity();
-    return { eventId: reactionId, raw: { bridgeQueued: true, targetMessageId: targetId }, roomId };
+    return { eventId: reactionId, raw: { bridgeQueued: true, targetMessageId: target.messageId }, roomId };
   }
 
   async #queueRemoteTyping(roomId: string, typing: boolean, timeoutMs: number | undefined): Promise<void> {
@@ -313,12 +319,13 @@ export class BeeperChannelRuntime {
   }
 
   async #queueRemoteReceipt(roomId: string, targetMessageId: string, type: "read_receipt" | "delivery_receipt"): Promise<void> {
-    const targetId = openClawTargetId(targetMessageId);
+    const target = openClawTarget(targetMessageId);
     const route = this.#bridgeRoute(roomId);
-    const event: RemoteReadReceipt | RemoteDeliveryReceipt = {
+    const event: (RemoteReadReceipt | RemoteDeliveryReceipt) & Partial<RemoteEventWithBundledParts> = {
       getPortalKey: () => route.portalKey,
       getSender: () => this.#eventSender(roomId),
-      getTargetMessage: () => targetId,
+      ...bundledTargetMethods(target),
+      getTargetMessage: () => target.messageId,
       getType: () => type,
     };
     route.bridge.queueRemoteEvent(route.login, event);
@@ -327,12 +334,13 @@ export class BeeperChannelRuntime {
   }
 
   async #queueRemoteMarkUnread(roomId: string, targetMessageId: string, unread: boolean): Promise<void> {
-    const targetId = openClawTargetId(targetMessageId);
+    const target = openClawTarget(targetMessageId);
     const route = this.#bridgeRoute(roomId);
-    const event: RemoteMarkUnread = {
+    const event: RemoteMarkUnread & Partial<RemoteEventWithBundledParts> = {
       getPortalKey: () => route.portalKey,
       getSender: () => this.#eventSender(roomId),
-      getTargetMessage: () => targetId,
+      ...bundledTargetMethods(target),
+      getTargetMessage: () => target.messageId,
       getType: () => "mark_unread",
       getUnread: () => unread,
     };
@@ -404,11 +412,26 @@ function openClawRemoteId(prefix = "message"): string {
   return `openclaw:${prefix}:${randomUUID()}`;
 }
 
-function openClawTargetId(eventId: string): string {
+function openClawTarget(eventId: string): { dbMessages?: Message[]; messageId: string } {
   if (!eventId.startsWith("openclaw:")) {
-    throw new Error(`Beeper bridge actions can only target OpenClaw bridge message ids, got ${eventId}.`);
+    if (eventId.startsWith("$")) {
+      return {
+        dbMessages: [{
+          id: eventId,
+          mxid: eventId,
+          partId: "0",
+        }],
+        messageId: eventId,
+      };
+    }
+    throw new Error(`Beeper bridge actions can only target OpenClaw bridge or Matrix event ids, got ${eventId}.`);
   }
-  return eventId;
+  return { messageId: eventId };
+}
+
+function bundledTargetMethods(target: { dbMessages?: Message[] }): Partial<Pick<RemoteEventWithBundledParts, "getTargetDBMessage">> {
+  const dbMessages = target.dbMessages;
+  return dbMessages ? { getTargetDBMessage: () => dbMessages } : {};
 }
 
 function beeperSessionKeyCandidates(target: string): string[] {

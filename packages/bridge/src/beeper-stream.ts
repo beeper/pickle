@@ -1,25 +1,13 @@
-import type { MatrixBeeper, MatrixBeeperAIRunStreamResult, SentEvent } from "@beeper/pickle";
+import type { MatrixBeeper, MatrixBeeperAIRunPartOptions, MatrixBeeperAIRunStreamResult, SentEvent } from "@beeper/pickle";
 
 type AGUIEvent = Record<string, unknown> & { type?: string };
+type BeeperTurnStreamPart = MatrixBeeperAIRunPartOptions;
 type FinishReason = "stop" | "length" | "content_filter" | "tool_calls";
 
 const BEEPER_AI_STREAM_TYPE = "com.beeper.llm";
 
 const EVENT_RUN_ERROR = "RUN_ERROR";
 const EVENT_RUN_FINISHED = "RUN_FINISHED";
-const EVENT_RUN_STARTED = "RUN_STARTED";
-const EVENT_TEXT_MESSAGE_START = "TEXT_MESSAGE_START";
-const EVENT_TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT";
-const EVENT_TEXT_MESSAGE_END = "TEXT_MESSAGE_END";
-const EVENT_REASONING_START = "REASONING_START";
-const EVENT_REASONING_MESSAGE_START = "REASONING_MESSAGE_START";
-const EVENT_REASONING_MESSAGE_CONTENT = "REASONING_MESSAGE_CONTENT";
-const EVENT_REASONING_MESSAGE_END = "REASONING_MESSAGE_END";
-const EVENT_REASONING_END = "REASONING_END";
-const EVENT_TOOL_CALL_START = "TOOL_CALL_START";
-const EVENT_TOOL_CALL_RESULT = "TOOL_CALL_RESULT";
-const EVENT_ACTIVITY_SNAPSHOT = "ACTIVITY_SNAPSHOT";
-const EVENT_ACTIVITY_DELTA = "ACTIVITY_DELTA";
 
 export interface BeeperTurnStreamClient {
   beeper: MatrixBeeper;
@@ -72,7 +60,6 @@ export class BeeperTurnStream {
   #eventId: string | undefined;
   #finalized = false;
   #initialMessageMetadata: Record<string, unknown>;
-  #messageId: string | undefined;
   #model: string;
   #queue = new SerialQueue();
   #started = false;
@@ -108,13 +95,42 @@ export class BeeperTurnStream {
     await this.publishMany([event]);
   }
 
+  async publishPart(part: BeeperTurnStreamPart): Promise<void> {
+    await this.publishParts([part]);
+  }
+
+  async publishParts(parts: Iterable<BeeperTurnStreamPart>): Promise<void> {
+    return this.#queue.run(async () => {
+      if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
+      const batch = [...parts].map((part) => stripUndefined({ ...part }));
+      if (batch.length === 0) return;
+      if (!this.#started) {
+        await this.#ensureStarted({ parts: batch });
+        return;
+      }
+      await this.#ensureStarted();
+      for (const part of batch) {
+        await this.#client.beeper.aiRunStreams.appendPart({
+          ...part,
+          runId: this.turnId,
+        });
+      }
+    });
+  }
+
   async publishMany(events: Iterable<AGUIEvent>): Promise<void> {
     return this.#queue.run(async () => {
-      for (const event of events) {
-        if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
-        await this.#ensureStarted();
+      if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
+      const batch = [...events].map((event) => stripUndefined({ ...event }));
+      if (batch.length === 0) return;
+      if (!this.#started) {
+        await this.#ensureStarted({ events: batch });
+        return;
+      }
+      await this.#ensureStarted();
+      for (const event of batch) {
         await this.#client.beeper.aiRunStreams.appendEvent({
-          event: this.#canonicalizeEvent(event),
+          event,
           runId: this.turnId,
         });
       }
@@ -159,7 +175,7 @@ export class BeeperTurnStream {
     });
   }
 
-  async #ensureStarted(): Promise<BeeperStreamStartResult> {
+  async #ensureStarted(initial?: { events?: AGUIEvent[]; parts?: BeeperTurnStreamPart[] }): Promise<BeeperStreamStartResult> {
     if (this.#started && this.#eventId) {
       return {
         descriptor: this.#descriptor ?? {},
@@ -172,6 +188,8 @@ export class BeeperTurnStream {
       ...(this.#agentId ? { agentId: this.#agentId } : {}),
       ...(this.#agentName ? { agentName: this.#agentName } : {}),
       data: this.#initialMessageMetadata,
+      ...(initial?.events?.length ? { initialEvents: initial.events } : {}),
+      ...(initial?.parts?.length ? { initialParts: initial.parts } : {}),
       model: this.#model,
       roomId: this.roomId,
       runId: this.turnId,
@@ -193,26 +211,6 @@ export class BeeperTurnStream {
   #rememberStreamResult(result: MatrixBeeperAIRunStreamResult): void {
     this.#descriptor = recordValue(result.descriptor) ?? this.#descriptor;
     this.#eventId = result.eventId || this.#eventId;
-    this.#messageId = result.messageId || this.#messageId || `msg-${this.turnId}`;
-  }
-
-  #canonicalizeEvent(event: AGUIEvent): AGUIEvent {
-    const canonical = { ...event };
-    const messageId = this.#messageId ?? `msg-${this.turnId}`;
-    if (canonical.type === EVENT_RUN_STARTED || canonical.type === EVENT_RUN_FINISHED) {
-      canonical.runId = this.turnId;
-      canonical.threadId = this.turnId;
-    }
-    if (canonical.type === EVENT_RUN_ERROR && !stringValue(canonical.message)) {
-      canonical.message = terminalFallbackText(event);
-    }
-    if (usesCanonicalMessageId(canonical.type)) {
-      canonical.messageId = messageId;
-    }
-    if (canonical.type === EVENT_TOOL_CALL_START) {
-      canonical.parentMessageId = messageId;
-    }
-    return stripUndefined(canonical);
   }
 }
 
@@ -246,19 +244,6 @@ class SerialQueue {
     this.#tail = next.then(() => undefined, () => undefined);
     return next;
   }
-}
-
-function usesCanonicalMessageId(type: unknown): boolean {
-  return type === EVENT_TEXT_MESSAGE_START ||
-    type === EVENT_TEXT_MESSAGE_CONTENT ||
-    type === EVENT_TEXT_MESSAGE_END ||
-    type === EVENT_REASONING_START ||
-    type === EVENT_REASONING_MESSAGE_START ||
-    type === EVENT_REASONING_MESSAGE_CONTENT ||
-    type === EVENT_REASONING_MESSAGE_END ||
-    type === EVENT_REASONING_END ||
-    type === EVENT_ACTIVITY_SNAPSHOT ||
-    type === EVENT_ACTIVITY_DELTA;
 }
 
 function terminalFallbackText(event: AGUIEvent | undefined): string {

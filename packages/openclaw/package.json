@@ -31,10 +31,6 @@
       "types": "./dist/appservice.d.mts",
       "import": "./dist/appservice.mjs"
     },
-    "./backfill": {
-      "types": "./dist/backfill.d.mts",
-      "import": "./dist/backfill.mjs"
-    },
     "./bridge-agent": {
       "types": "./dist/bridge-agent.d.mts",
       "import": "./dist/bridge-agent.mjs"

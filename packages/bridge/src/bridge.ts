@@ -52,7 +52,10 @@ import type {
   MatrixIntent,
   MatrixCommand,
   MatrixCommandResponse,
+  ConvertedEdit,
+  ConvertedEditPart,
   ConvertedMessage,
+  ConvertedMessagePart,
   ManagementRoom,
   MessageRequest,
   MessageRequestHandlingNetworkAPI,
@@ -1502,7 +1505,7 @@ export class RuntimeBridge implements PickleBridge {
     const converted = await event.convertMessage(this.#requestContext(), portal, this.#matrixIntent());
     for (const [index, part] of converted.parts.entries()) {
       const sender = event.getSender();
-      const sent = await this.#sendRemoteMessagePart(portal.mxid, sender.sender, part.content, eventTimestamp(event));
+      const sent = await this.#sendRemoteMessagePart(portal.mxid, sender.sender, convertedPartContent(part), eventTimestamp(event));
       const messageKey = messagePartKey(event.getID(), part.id ?? String(index));
       const message = {
         eventId: sent.eventId,
@@ -1534,23 +1537,58 @@ export class RuntimeBridge implements PickleBridge {
       throw new Error(`No Matrix message stored for remote edit target ${event.getTargetMessage()}`);
     }
     const converted = await event.convertEdit(this.#requestContext(), portal, this.#matrixIntent(), existing.db);
+    const matrixPortal = portal as Portal & { mxid: string };
+    await this.#sendConvertedEdit(event, matrixPortal, converted, existing);
+  }
+
+  async #sendConvertedEdit(
+    event: RemoteEdit,
+    portal: Portal & { mxid: string },
+    converted: ConvertedEdit,
+    existing: { db: Message[]; sent: SentEvent[] }
+  ): Promise<void> {
     for (const [index, part] of converted.modifiedParts.entries()) {
-      const target = this.#matchingRemoteTarget(existing.sent, part.id, index);
+      const target = this.#convertedEditPartTarget(part, existing, index);
       if (!target?.eventId) continue;
-      const sent = await this.#matrixClient.messages.edit({
-        content: part.content,
-        eventId: target.eventId,
-        roomId: portal.mxid,
-        text: stringValue(part.content.body) ?? "",
-      });
-      const messageKey = messagePartKey(event.getTargetMessage(), part.id ?? String(index));
+      let sent = target;
+      if (!part.dontBridge) {
+        sent = await this.#matrixClient.messages.edit({
+          content: convertedPartContent(part),
+          eventId: target.eventId,
+          roomId: portal.mxid ?? target.roomId,
+          text: stringValue(part.content.body) ?? "",
+          ...(part.topLevelExtra ? { topLevelContent: part.topLevelExtra } : {}),
+        });
+      }
+      const messageKey = messagePartKey(event.getTargetMessage(), part.id ?? part.part?.partId ?? String(index));
       const message = {
         eventId: sent.eventId,
         raw: sent.raw,
-        roomId: sent.roomId,
+        roomId: sent.roomId || portal.mxid,
       };
       this.#messages.set(messageKey, message);
       await this.#dataStore?.setMessage(messageKey, message);
+    }
+    for (const part of converted.deletedParts ?? []) {
+      if (!part.mxid) continue;
+      await this.#matrixClient.messages.redact({
+        eventId: part.mxid,
+        roomId: portal.mxid,
+      });
+    }
+    if (converted.addedParts) {
+      for (const [index, part] of converted.addedParts.parts.entries()) {
+        const sender = event.getSender();
+        const sent = await this.#sendRemoteMessagePart(portal.mxid, sender.sender, convertedPartContent(part), eventTimestamp(event));
+        const messageKey = messagePartKey(event.getTargetMessage(), part.id ?? `added-${index}`);
+        const message = {
+          eventId: sent.eventId,
+          raw: sent.raw,
+          roomId: sent.roomId,
+        };
+        this.#messages.set(messageKey, message);
+        await this.#dataStore?.setMessage(messageKey, message);
+      }
     }
   }
 
@@ -1695,7 +1733,7 @@ export class RuntimeBridge implements PickleBridge {
       const converted = await message.convertMessage(this.#requestContext(), portal, this.#matrixIntent());
       for (const part of converted.parts) {
         const event: MatrixAppserviceBatchSendOptions["events"][number] = {
-          content: part.content,
+          content: convertedPartContent(part),
           sender: message.getSender().sender,
         };
         const timestamp = eventTimestamp(message);
@@ -1724,6 +1762,18 @@ export class RuntimeBridge implements PickleBridge {
   }
 
   async #remoteTargetMessage(event: RemoteEdit | RemoteReaction | RemoteReactionRemove | RemoteMessageRemove): Promise<SentEvent | null> {
+    if (hasMethod(event, "getTargetDBMessage")) {
+      const bundled = (event as RemoteEventWithBundledParts).getTargetDBMessage();
+      for (const message of bundled) {
+        if (message.mxid) {
+          return {
+            eventId: message.mxid,
+            raw: message.metadata,
+            roomId: this.#portalForRemoteEvent(event)?.mxid ?? "",
+          };
+        }
+      }
+    }
     const partId = hasMethod(event, "getTargetMessagePart")
       ? (event as RemoteEventWithTargetPart).getTargetMessagePart()
       : "0";
@@ -1767,6 +1817,18 @@ export class RuntimeBridge implements PickleBridge {
       return existing[index] ?? existing[0];
     }
     return existing[index] ?? existing[0];
+  }
+
+  #convertedEditPartTarget(part: ConvertedEditPart, existing: { db: Message[]; sent: SentEvent[] }, index: number): SentEvent | undefined {
+    if (part.part?.mxid) {
+      return {
+        eventId: part.part.mxid,
+        raw: part.part.metadata,
+        roomId: existing.sent[index]?.roomId ?? existing.sent[0]?.roomId ?? "",
+      };
+    }
+    const partId = part.id ?? part.part?.partId;
+    return this.#matchingRemoteTarget(existing.sent, partId, index);
   }
 
   async #sendRemoteMessagePart(roomId: string, sender: string, content: Record<string, unknown>, timestamp?: number): Promise<SentEvent> {
@@ -2263,4 +2325,8 @@ function convertedMessageFromOptions(options: BridgeRemoteMessageOptions<unknown
     };
   }
   throw new Error("queueMessage requires text, content, parts, or convert");
+}
+
+function convertedPartContent(part: ConvertedMessagePart): Record<string, unknown> {
+  return part.extra ? { ...part.content, ...part.extra } : part.content;
 }

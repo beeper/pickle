@@ -17,15 +17,14 @@ OpenClaw loads the runtime entry from `dist/plugin-entry.mjs` and the lightweigh
 - Beeper email-code login for existing accounts, with username/password login available when needed.
 - Beeper appservice registration for the OpenClaw bridge.
 - OpenClaw channel metadata, setup entrypoint, runtime entrypoint, and ClawHub install metadata.
-- Pickle bridgev2-style transport for Matrix portals, media, reactions, receipts, and backfill.
+- Pickle bridgev2-style transport for Matrix portals, media, reactions, and receipts.
 - Direct in-process OpenClaw plugin runtime access.
-- Agent ghosts for OpenClaw agents and user ghosts for imported one-to-one sessions.
+- Agent ghosts for OpenClaw agents.
 - Beeper contact-list/search and create-DM provisioning for OpenClaw agents.
 - Matrix parsing for text, formatted bodies, replies, edits, reactions, redactions, attachments, and thread/relation metadata.
 - Native Beeper stream publishing for reasoning, text, tool input/output, approvals, errors, aborts, and final replacement messages.
 - OpenClaw-native command discovery and approval surfaces.
 - Non-federated Matrix room creation defaults through the generated appservice registration.
-- Opt-in backfill/import helpers for dashboard, TUI, channel-origin, and archived one-to-one OpenClaw sessions.
 
 ## CLI
 
@@ -50,9 +49,6 @@ The bridge runtime itself is started by OpenClaw when the installed channel plug
 ## Programmatic Runtime
 
 ```ts
-import {
-  backfillAllOpenClawSessions,
-} from "@beeper/openclaw/backfill";
 import {
   readConfig,
 } from "@beeper/openclaw/config";

@@ -52,6 +52,32 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       .rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel inbound helpers");
   });
 
+  it("patches session reasoning after create when Beeper needs rich reasoning events", async () => {
+    const transport = fakeTransport({
+      "sessions.create": { key: "agent:codex:main", sessionId: "session_1" },
+      "sessions.patch": { ok: true },
+    });
+    const runtime = new OpenClawPluginRuntimeAdapter({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      transport,
+    });
+
+    await expect(runtime.createSession({ agentId: "codex", label: "Main", reasoningLevel: "on" })).resolves.toMatchObject({
+      agentId: "codex",
+      key: "agent:codex:main",
+      label: "Main",
+    });
+    expect(transport.request).toHaveBeenCalledWith("sessions.create", {
+      agentId: "codex",
+      label: "Main",
+    });
+    expect(transport.request).toHaveBeenCalledWith("sessions.patch", {
+      agentId: "codex",
+      key: "agent:codex:main",
+      reasoningLevel: "on",
+    });
+  });
+
   it("filters gateway events by run id and resolves approvals", async () => {
     const events: OpenClawGatewayEvent[] = [
       { event: "assistant.delta", payload: { delta: "skip", runId: "run_other" } },
@@ -284,7 +310,12 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       });
       await replyOptions.onPartialReply?.({ text: "hello" });
       const delivery = params.delivery as { deliver?: (payload: unknown) => Promise<unknown> };
-      await delivery.deliver?.({ text: "hello world" });
+      await delivery.deliver?.({
+        parts: [
+          { content: "{\"status\":\"completed\",\"query\":\"docs\"}", type: "tool-call" },
+          { content: "hello world", type: "text" },
+        ],
+      });
       return { dispatchResult: { queuedFinal: true } };
     });
     const hostRuntime = {
@@ -368,23 +399,22 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       expect.objectContaining({ event: "run.completed" }),
     ]));
     expect(aiRunStreams.start).toHaveBeenCalledTimes(1);
-    expect(aiRunStreams.appendEvent.mock.calls.map(([options]) => options.event.type)).toEqual(expect.arrayContaining([
-      "REASONING_MESSAGE_CONTENT",
-      "TOOL_CALL_START",
-      "TOOL_CALL_ARGS",
-      "TOOL_CALL_RESULT",
-      "TOOL_CALL_END",
-      "CUSTOM",
-      "TEXT_MESSAGE_CONTENT",
+    const streamParts = startedAndAppendedParts(aiRunStreams);
+    expect(streamParts.map((part) => part.kind)).toEqual(expect.arrayContaining([
+      "reasoning",
+      "tool_start",
+      "tool_result",
+      "text",
     ]));
-    const toolOutput = aiRunStreams.appendEvent.mock.calls
-      .map(([options]) => options.event)
-      .find((part) => part.type === "TOOL_CALL_RESULT" && part.content === "ok");
+    expect(aiRunStreams.appendEvent.mock.calls.map(([options]) => options.event.type)).toContain("CUSTOM");
+    const toolOutput = streamParts.find((part) => part.kind === "tool_result" && part.output === "ok");
     expect(toolOutput).toMatchObject({
-      state: "complete",
       toolCallId: "real-tool-id",
       toolName: "read_file",
     });
+    expect(streamParts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "text", text: expect.stringContaining("\"status\":\"completed\"") }),
+    ]));
     expect(aiRunStreams.finish).toHaveBeenCalledWith(expect.objectContaining({
       runId: observedRunId,
     }));
@@ -416,9 +446,13 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       await replyOptions.onToolStart?.({ args: { path: "b.txt" }, name: "read_file", phase: "start", toolCallId: "tool-b" });
       await replyOptions.onCommandOutput?.({ name: "read_file", output: "chunk-a", phase: "delta", status: "running", toolCallId: "tool-a" });
       await replyOptions.onCommandOutput?.({ name: "read_file", output: "done-a", phase: "end", status: "completed", toolCallId: "tool-a" });
+      await replyOptions.onToolStart?.({ args: { query: "docs" }, name: "web_search", phase: "start", toolCallId: "web-1" });
+      await replyOptions.onCommandOutput?.({ name: "web_search", phase: "end", queries: ["docs"], query: "docs", status: "completed", toolCallId: "web-1" });
+      await replyOptions.onToolStart?.({ args: { query: "blog" }, name: "web_search", phase: "start", toolCallId: "web-2" });
+      await replyOptions.onToolResult?.({ output: { queries: ["blog"], query: "blog", state: "complete", status: "completed" }, toolCallId: "web-2", toolName: "web_search" });
       await replyOptions.onToolResult?.({ result: { ok: true }, toolCallId: "tool-b", toolName: "read_file" });
       const delivery = params.delivery as { deliver?: (payload: unknown, info?: unknown) => Promise<unknown> };
-      await delivery.deliver?.({ text: "hello world" }, { kind: "final" });
+      await delivery.deliver?.({ text: "hello world https://example.com/final." }, { kind: "final" });
       return { dispatchResult: { queuedFinal: true } };
     });
     const hostRuntime = {
@@ -460,25 +494,30 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     });
     await done;
 
-    const parts = aiRunStreams.appendEvent.mock.calls.map(([options]) => options.event);
-    expect(parts.filter((part) => part.type === "TEXT_MESSAGE_CONTENT").map((part) => part.delta)).toEqual([
+    const parts = startedAndAppendedParts(aiRunStreams);
+    expect(parts.filter((part) => part.kind === "text").map((part) => part.text)).toEqual([
       "hel",
       "lo",
-      " world",
+      " world https://example.com/final.",
     ]);
-    expect(parts.filter((part) => part.type === "TOOL_CALL_START").map((part) => [part.toolCallId, part.toolName])).toEqual([
+    expect(parts.filter((part) => part.kind === "tool_start").map((part) => [part.toolCallId, part.toolName])).toEqual([
       ["tool-a", "read_file"],
       ["tool-b", "read_file"],
+      ["web-1", "web_search"],
+      ["web-2", "web_search"],
     ]);
-    expect(parts.filter((part) => part.type === "TOOL_CALL_RESULT").map((part) => [part.toolCallId, part.content, part.state])).toEqual([
-      ["tool-a", "chunk-a", "streaming"],
-      ["tool-a", "done-a", "complete"],
-      ["tool-b", "{\"ok\":true}", "complete"],
+    expect(parts.filter((part) => part.kind === "tool_result").map((part) => [part.toolCallId, part.output, part.preliminary])).toEqual([
+      ["tool-a", "chunk-a", true],
+      ["tool-a", "done-a", false],
+      ["tool-b", { ok: true }, undefined],
     ]);
-    expect(parts.filter((part) => part.type === "TOOL_CALL_END").map((part) => [part.toolCallId, part.toolName])).toEqual([
-      ["tool-a", "read_file"],
-      ["tool-b", "read_file"],
-    ]);
+    expect(parts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "custom", name: "com.beeper.source", value: expect.objectContaining({ sourceId: "https://example.com/final", title: "example.com", url: "https://example.com/final" }) }),
+    ]));
+    expect(parts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ output: expect.objectContaining({ query: "docs" }), toolCallId: "web-1", kind: "tool_result" }),
+      expect.objectContaining({ output: expect.objectContaining({ query: "blog" }), toolCallId: "web-2", kind: "tool_result" }),
+    ]));
     setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
 
@@ -516,9 +555,11 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       agentEventListener?.({
         data: {
           metadata: { source: "codex" },
+          description: "Searches OpenClaw docs",
           phase: "start",
           providerExecuted: true,
           startedAtMs: 123,
+          title: "Search docs",
           toolCall: { arguments: "{\"query\":\"openclaw\"}", id: "nested-tool", name: "search" },
         },
         runId: replyOptions.runId,
@@ -538,8 +579,48 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       agentEventListener?.({ data: { name: "bash", phase: "start", toolCallId: "delta-tool" }, runId: replyOptions.runId, stream: "tool" });
       agentEventListener?.({ data: { delta: "{\"cmd\":\"pwd\"}", name: "bash", phase: "input_delta", toolCallId: "delta-tool" }, runId: replyOptions.runId, stream: "tool" });
       agentEventListener?.({ data: { name: "bash", output: "/tmp/project", phase: "finished", toolCallId: "delta-tool" }, runId: replyOptions.runId, stream: "tool" });
+      agentEventListener?.({
+        data: {
+          name: "bash",
+          phase: "finished",
+          response: "tool wrapper response",
+          result: {
+            content: "wrapper content",
+            details: {
+              aggregated: "stdout\nstderr",
+              command: "npm test",
+              cwd: "/tmp/project",
+              durationMs: 25,
+              exitCode: 0,
+              status: "completed",
+              stderr: "stderr",
+              stdout: "stdout",
+            },
+          },
+          title: "Run tests",
+          toolCallId: "bash-rich",
+        },
+        runId: replyOptions.runId,
+        stream: "tool",
+      });
       agentEventListener?.({ data: { phase: "update", title: "Plan", explanation: "checking docs", steps: ["Search", "Answer"] }, runId: replyOptions.runId, stream: "plan" });
       agentEventListener?.({ data: { itemId: "cmd-1", phase: "delta", title: "Shell", toolCallId: "cmd-1", name: "shell", output: "stdout" }, runId: replyOptions.runId, stream: "command_output" });
+      agentEventListener?.({
+        data: {
+          input: {
+            command: "/bin/zsh -lc \"date '+%Y-%m-%d %H:%M:%S %Z'\"",
+            cwd: "/Users/batuhan/.openclaw/workspace",
+          },
+          name: "bash",
+          output: { status: "completed" },
+          phase: "finished",
+          response: "2026-06-02 03:15:00 CEST",
+          status: "completed",
+          toolCallId: "cmd-date",
+        },
+        runId: replyOptions.runId,
+        stream: "command_output",
+      });
       agentEventListener?.({ data: { itemId: "patch-1", phase: "end", title: "Patch", toolCallId: "patch-1", name: "patch", added: [], modified: ["a.ts"], deleted: [], summary: "changed a.ts" }, runId: replyOptions.runId, stream: "patch" });
       agentEventListener?.({ data: { items: [{ title: "Docs", url: "https://example.com" }] }, runId: replyOptions.runId, stream: "source" });
       agentEventListener?.({ data: { filename: "report.txt", id: "file_1" }, runId: replyOptions.runId, stream: "file" });
@@ -596,39 +677,101 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     });
     await done;
 
-    const parts = aiRunStreams.appendEvent.mock.calls.map(([options]) => options.event);
-    expect(parts.filter((part) => part.type === "TEXT_MESSAGE_CONTENT").map((part) => part.delta)).toEqual([
+    const parts = startedAndAppendedParts(aiRunStreams);
+    expect(parts.filter((part) => part.kind === "text").map((part) => part.text)).toEqual([
       "hel",
       "lo",
       " world",
     ]);
     expect(parts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ toolCallId: "codex-tool", toolName: "tool", type: "TOOL_CALL_START" }),
-      expect.objectContaining({ toolCallId: "codex-tool", toolName: "tool", type: "TOOL_CALL_END" }),
-      expect.objectContaining({ content: { state: "running", text: "Working..." }, type: "ACTIVITY_SNAPSHOT" }),
-      expect.objectContaining({ activityType: "tool.progress", content: expect.objectContaining({ label: "search", phase: "running", text: "Searching docs" }), type: "ACTIVITY_SNAPSHOT" }),
-      expect.objectContaining({ toolCallId: "tool-stream", toolName: "search", type: "TOOL_CALL_START" }),
-      expect.objectContaining({ toolCallId: "tool-stream", toolName: "search", type: "TOOL_CALL_END" }),
-      expect.objectContaining({ metadata: { source: "codex" }, providerExecuted: true, startedAtMs: 123, toolCallId: "nested-tool", toolName: "search", type: "TOOL_CALL_START" }),
-      expect.objectContaining({ delta: "{\"query\":\"openclaw\"}", toolCallId: "nested-tool", type: "TOOL_CALL_ARGS" }),
-      expect.objectContaining({ input: { query: "openclaw" }, toolCallId: "nested-tool", toolName: "search", type: "TOOL_CALL_END" }),
-      expect.objectContaining({ completedAtMs: 456, content: "{\"items\":[{\"title\":\"OpenClaw\",\"url\":\"https://example.com/openclaw\"}]}", providerExecuted: true, state: "complete", toolCallId: "nested-tool", toolName: "search", type: "TOOL_CALL_RESULT" }),
-      expect.objectContaining({ name: "com.beeper.source", type: "CUSTOM", value: expect.objectContaining({ sourceId: "https://example.com/openclaw", title: "OpenClaw", url: "https://example.com/openclaw" }) }),
-      expect.objectContaining({ delta: "{\"cmd\":\"pwd\"}", toolCallId: "delta-tool", type: "TOOL_CALL_ARGS" }),
-      expect.objectContaining({ content: "/tmp/project", state: "complete", toolCallId: "delta-tool", toolName: "bash", type: "TOOL_CALL_RESULT" }),
-      expect.objectContaining({ content: "loading", state: "streaming", toolCallId: "tool-c", toolName: "search", type: "TOOL_CALL_RESULT" }),
-      expect.objectContaining({ content: "checking docs", state: "streaming", toolCallId: "plan", toolName: "plan", type: "TOOL_CALL_RESULT" }),
-      expect.objectContaining({ content: "stdout", state: "streaming", toolCallId: "cmd-1", toolName: "shell", type: "TOOL_CALL_RESULT" }),
-      expect.objectContaining({ content: "changed a.ts", toolCallId: "patch-1", toolName: "patch", type: "TOOL_CALL_RESULT" }),
-      expect.objectContaining({ name: "com.beeper.source", type: "CUSTOM", value: expect.objectContaining({ sourceId: "https://example.com", title: "Docs", url: "https://example.com" }) }),
-      expect.objectContaining({ name: "com.beeper.file", type: "CUSTOM", value: { id: "file_1", title: "report.txt" } }),
-      expect.objectContaining({ name: "com.beeper.data", type: "CUSTOM", value: { name: "openclaw.data", value: { status: "indexed" } } }),
-      expect.objectContaining({ snapshot: { phase: "retrieval" }, type: "STATE_SNAPSHOT" }),
+      expect.objectContaining({ kind: "tool_result", toolCallId: "codex-tool", toolName: "tool" }),
+      expect.objectContaining({ activityType: "tool.progress", content: expect.objectContaining({ label: "search", phase: "running", text: "Searching docs" }), kind: "activity" }),
+      expect.objectContaining({ kind: "tool_start", toolCallId: "tool-stream", toolName: "search" }),
+      expect.objectContaining({ input: { query: "openclaw" }, kind: "tool_start", metadata: { description: "Searches OpenClaw docs", displayName: "Search docs", source: "codex" }, providerExecuted: true, startedAtMs: 123, title: "Search docs", toolCallId: "nested-tool", toolName: "search" }),
+      expect.objectContaining({ completedAtMs: 456, kind: "tool_result", output: { items: [{ title: "OpenClaw", url: "https://example.com/openclaw" }] }, providerExecuted: true, toolCallId: "nested-tool", toolName: "search" }),
+      expect.objectContaining({ kind: "custom", name: "com.beeper.source", value: expect.objectContaining({ sourceId: "https://example.com/openclaw", title: "OpenClaw", url: "https://example.com/openclaw" }) }),
+      expect.objectContaining({ delta: "{\"cmd\":\"pwd\"}", kind: "tool_input", toolCallId: "delta-tool" }),
+      expect.objectContaining({ kind: "tool_result", output: "/tmp/project", toolCallId: "delta-tool", toolName: "bash" }),
+      expect.objectContaining({
+        command: "npm test",
+        details: {
+          aggregated: "stdout\nstderr",
+          command: "npm test",
+          cwd: "/tmp/project",
+          durationMs: 25,
+          exitCode: 0,
+          status: "completed",
+          stderr: "stderr",
+          stdout: "stdout",
+        },
+        exitCode: 0,
+        kind: "tool_result",
+        metadata: { displayName: "Run tests" },
+        output: {
+          content: "wrapper content",
+          details: {
+            aggregated: "stdout\nstderr",
+            command: "npm test",
+            cwd: "/tmp/project",
+            durationMs: 25,
+            exitCode: 0,
+            status: "completed",
+            stderr: "stderr",
+            stdout: "stdout",
+          },
+        },
+        response: "tool wrapper response",
+        result: {
+          content: "wrapper content",
+          details: {
+            aggregated: "stdout\nstderr",
+            command: "npm test",
+            cwd: "/tmp/project",
+            durationMs: 25,
+            exitCode: 0,
+            status: "completed",
+            stderr: "stderr",
+            stdout: "stdout",
+          },
+        },
+        status: "completed",
+        title: "Run tests",
+        toolCallId: "bash-rich",
+        toolName: "bash",
+      }),
+      expect.objectContaining({ kind: "tool_result", output: "loading", preliminary: true, toolCallId: "tool-c", toolName: "search" }),
+      expect.objectContaining({ kind: "tool_result", output: "checking docs", preliminary: true, toolCallId: "plan", toolName: "plan" }),
+      expect.objectContaining({ kind: "tool_result", output: "stdout", preliminary: true, toolCallId: "cmd-1", toolName: "shell" }),
+      expect.objectContaining({
+        input: {
+          command: "/bin/zsh -lc \"date '+%Y-%m-%d %H:%M:%S %Z'\"",
+          cwd: "/Users/batuhan/.openclaw/workspace",
+        },
+        kind: "tool_result",
+        command: "/bin/zsh -lc \"date '+%Y-%m-%d %H:%M:%S %Z'\"",
+        cwd: "/Users/batuhan/.openclaw/workspace",
+        output: { status: "completed" },
+        response: "2026-06-02 03:15:00 CEST",
+        status: "completed",
+        toolCallId: "cmd-date",
+        toolName: "bash",
+      }),
+      expect.objectContaining({ kind: "tool_result", output: "changed a.ts", toolCallId: "patch-1", toolName: "patch" }),
+      expect.objectContaining({ kind: "custom", name: "com.beeper.source", value: expect.objectContaining({ sourceId: "https://example.com", title: "Docs", url: "https://example.com" }) }),
+      expect.objectContaining({ kind: "custom", name: "com.beeper.file", value: { id: "file_1", title: "report.txt" } }),
+      expect.objectContaining({ kind: "custom", name: "com.beeper.data", value: { name: "openclaw.data", value: { status: "indexed" } } }),
+      expect.objectContaining({ kind: "state_snapshot", value: { phase: "retrieval" } }),
     ]));
     expect(parts).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ toolCallId: "user-message", type: "TOOL_CALL_START" }),
-      expect.objectContaining({ toolCallId: "agent-message", type: "TOOL_CALL_START" }),
+      expect.objectContaining({ content: { state: "running", text: "Working..." }, kind: "activity" }),
+      expect.objectContaining({ toolCallId: "user-message", kind: "tool_start" }),
+      expect.objectContaining({ toolCallId: "agent-message", kind: "tool_start" }),
     ]));
+    const indexOf = (match: (part: Record<string, unknown>) => boolean) => parts.findIndex((part) => match(part as Record<string, unknown>));
+    expect(aiRunStreams.start.mock.invocationCallOrder[0]).toBeLessThan(aiRunStreams.appendPart.mock.invocationCallOrder[0]);
+    expect(indexOf((part) => part.kind === "tool_start" && part.toolCallId === "delta-tool")).toBeLessThan(indexOf((part) => part.kind === "tool_input" && part.toolCallId === "delta-tool"));
+    expect(indexOf((part) => part.kind === "tool_input" && part.toolCallId === "delta-tool")).toBeLessThan(indexOf((part) => part.kind === "tool_result" && part.toolCallId === "delta-tool"));
+    expect(indexOf((part) => part.kind === "tool_result" && part.toolCallId === "nested-tool")).toBeLessThan(indexOf((part) => part.kind === "custom" && part.name === "com.beeper.source" && (part.value as { sourceId?: string })?.sourceId === "https://example.com/openclaw"));
     setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
 
@@ -751,6 +894,8 @@ function createTestBeeperAIRunStreams() {
   return {
     appendEvent: vi.fn(async ({ event, runId }: { event: Record<string, unknown>; runId: string }) =>
       result(runId, [event])),
+    appendPart: vi.fn(async ({ runId }: { runId: string }) =>
+      result(runId)),
     error: vi.fn(async ({ message, runId }: { message?: string; runId: string }) =>
       result(runId, [{ message, runId, type: "RUN_ERROR" }])),
     finish: vi.fn(async ({ finishReason, runId }: { finishReason?: string; runId: string }) =>
@@ -761,4 +906,12 @@ function createTestBeeperAIRunStreams() {
         { messageId: `msg-${runId}`, role: "assistant", type: "TEXT_MESSAGE_START" },
       ])),
   };
+}
+
+function startedAndAppendedParts(aiRunStreams: ReturnType<typeof createTestBeeperAIRunStreams>) {
+  const startOptions = aiRunStreams.start.mock.calls[0]?.[0] as { initialParts?: Array<Record<string, unknown>> } | undefined;
+  return [
+    ...(startOptions?.initialParts ?? []),
+    ...aiRunStreams.appendPart.mock.calls.map(([options]) => options),
+  ];
 }

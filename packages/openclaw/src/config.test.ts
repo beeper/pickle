@@ -7,12 +7,9 @@ import { createDefaultConfig, createConfigFromOpenClawSetup, readConfig, writeCo
 
 describe("OpenClaw bridge config", () => {
   afterEach(() => {
-    delete process.env.PICKLE_OPENCLAW_ALLOW_ROOMS;
-    delete process.env.PICKLE_OPENCLAW_ALLOW_USERS;
-    delete process.env.PICKLE_OPENCLAW_APPSERVICE_ID;
-    delete process.env.PICKLE_OPENCLAW_APP_SERVICE_ID;
-    delete process.env.PICKLE_OPENCLAW_BRIDGE_ID;
+    delete process.env.PICKLE_OPENCLAW_BEEPER_ENV;
     delete process.env.PICKLE_OPENCLAW_DEVICE_ID;
+    delete process.env.PICKLE_OPENCLAW_HS_TOKEN;
     delete process.env.OPENCLAW_DEVICE_ID;
   });
 
@@ -32,26 +29,16 @@ describe("OpenClaw bridge config", () => {
     });
   });
 
-  it("accepts dashboard-derived bridge behavior settings", () => {
+  it("accepts saved login and registration state from OpenClaw config", () => {
     expect(createDefaultConfig({
-      backfillLimit: 25,
       beeperEnv: "staging",
-      bridgeManagerToken: "hungry-token",
       asToken: "as-token",
-      contactVisibility: "agents-and-users",
       dataDir: "/tmp/openclaw-bridge",
       homeserverDomain: "beeper.local",
-      importSources: ["dashboard", "tui"],
-      approvalBehavior: "native",
     })).toMatchObject({
-      approvalBehavior: "native",
-      backfillLimit: 25,
       beeperEnv: "staging",
-      bridgeManagerToken: "hungry-token",
       asToken: "as-token",
-      contactVisibility: "agents-and-users",
       homeserverDomain: "beeper.local",
-      importSources: ["dashboard", "tui"],
     });
   });
 
@@ -71,19 +58,17 @@ describe("OpenClaw bridge config", () => {
     });
   });
 
-  it("accepts manifest-advertised environment variables", () => {
-    process.env.PICKLE_OPENCLAW_APP_SERVICE_ID = "manifest-openclaw";
-    process.env.PICKLE_OPENCLAW_ALLOW_ROOMS = "!a:example.com, !b:example.com";
-    process.env.PICKLE_OPENCLAW_ALLOW_USERS = "@alice:example.com,@bob:example.com";
+  it("accepts only Beeper environment and OpenClaw device id from environment variables", () => {
+    process.env.PICKLE_OPENCLAW_BEEPER_ENV = "staging";
+    process.env.PICKLE_OPENCLAW_DEVICE_ID = "openclaw.device";
+    process.env.PICKLE_OPENCLAW_HS_TOKEN = "ignored";
 
     expect(createDefaultConfig({ dataDir: "/tmp/openclaw-bridge" })).toMatchObject({
-      allowedRoomIds: ["!a:example.com", "!b:example.com"],
-      allowedUserIds: ["@alice:example.com", "@bob:example.com"],
-      appserviceId: "manifest-openclaw",
+      appserviceId: "sh-openclaw-openclaw-device",
+      beeperEnv: "staging",
+      bridgeId: "sh-openclaw-openclaw-device",
     });
-
-    process.env.PICKLE_OPENCLAW_APPSERVICE_ID = "legacy-openclaw";
-    expect(createDefaultConfig({ dataDir: "/tmp/openclaw-bridge" }).appserviceId).toBe("legacy-openclaw");
+    expect(createDefaultConfig({ dataDir: "/tmp/openclaw-bridge" }).hsToken).toBeUndefined();
   });
 
 

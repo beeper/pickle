@@ -12,7 +12,6 @@ export function createAppserviceRegistration(
 ): AppserviceRegistration {
   const domain = escapeRegex(config.homeserverDomain ?? matrixDomainFromHomeserver(config.homeserver));
   const ghostPrefix = escapeRegex(openClawAgentGhostPrefix(config));
-  const userPrefix = escapeRegex(openClawUserGhostPrefix(config));
   const senderLocalpart = openClawSenderLocalpart(config);
   const sender = escapeRegex(senderLocalpart);
   return {
@@ -24,7 +23,6 @@ export function createAppserviceRegistration(
       rooms: [],
       users: [
         { exclusive: true, regex: `^@${ghostPrefix}.+:${domain}$` },
-        { exclusive: true, regex: `^@${userPrefix}.+:${domain}$` },
         { exclusive: true, regex: `^@${sender}:${domain}$` },
       ],
     },
@@ -48,10 +46,6 @@ export function openClawAgentGhostLocalpart(config: OpenClawBridgeConfig, agentI
   return `${openClawAgentGhostPrefix(config)}${encodeLocalpartSegment(agentId)}`;
 }
 
-export function openClawUserGhostLocalpart(config: OpenClawBridgeConfig, userId: string): string {
-  return `${openClawUserGhostPrefix(config)}${encodeLocalpartSegment(userId)}`;
-}
-
 export function openClawAliasLocalpart(config: OpenClawBridgeConfig, roomKey: string): string {
   return `${config.appserviceId}_${encodeLocalpartSegment(roomKey)}`;
 }
@@ -71,10 +65,6 @@ export function openClawBridgeId(config: OpenClawBridgeConfig): string {
 
 export function openClawAgentGhostPrefix(config: OpenClawBridgeConfig): string {
   return `${openClawBridgeId(config)}_agent_`;
-}
-
-export function openClawUserGhostPrefix(config: OpenClawBridgeConfig): string {
-  return `${openClawBridgeId(config)}_user_`;
 }
 
 export function openClawSenderLocalpart(config: OpenClawBridgeConfig): string {

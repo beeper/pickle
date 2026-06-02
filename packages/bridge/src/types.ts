@@ -10,6 +10,7 @@ import type {
   MatrixEventSender,
   MatrixMessageEvent,
   MatrixReactionEvent,
+  RoomStateEvent,
   MatrixStore,
   SendMediaMessageOptions,
   SentEvent,
@@ -208,7 +209,7 @@ export interface PollHandlingNetworkAPI extends NetworkAPI {
 }
 
 export interface DisappearTimerChangingNetworkAPI extends NetworkAPI {
-  handleMatrixDisappearTimer(ctx: BridgeRequestContext, msg: MatrixDisappearTimer): Promise<void>;
+  handleMatrixDisappearTimer(ctx: BridgeRequestContext, msg: MatrixDisappearTimer): Promise<boolean> | boolean;
 }
 
 export interface MembershipHandlingNetworkAPI extends NetworkAPI {
@@ -216,15 +217,15 @@ export interface MembershipHandlingNetworkAPI extends NetworkAPI {
 }
 
 export interface RoomNameHandlingNetworkAPI extends NetworkAPI {
-  handleMatrixRoomName(ctx: BridgeRequestContext, msg: MatrixRoomName): Promise<void>;
+  handleMatrixRoomName(ctx: BridgeRequestContext, msg: MatrixRoomName): Promise<boolean> | boolean;
 }
 
 export interface RoomTopicHandlingNetworkAPI extends NetworkAPI {
-  handleMatrixRoomTopic(ctx: BridgeRequestContext, msg: MatrixRoomTopic): Promise<void>;
+  handleMatrixRoomTopic(ctx: BridgeRequestContext, msg: MatrixRoomTopic): Promise<boolean> | boolean;
 }
 
 export interface RoomAvatarHandlingNetworkAPI extends NetworkAPI {
-  handleMatrixRoomAvatar(ctx: BridgeRequestContext, msg: MatrixRoomAvatar): Promise<void>;
+  handleMatrixRoomAvatar(ctx: BridgeRequestContext, msg: MatrixRoomAvatar): Promise<boolean> | boolean;
 }
 
 export interface MuteHandlingNetworkAPI extends NetworkAPI {
@@ -410,7 +411,7 @@ export interface RemotePostHandler extends RemoteEvent {
 }
 
 export interface RemoteChatInfoChange extends RemoteEvent {
-  getChatInfoChange(ctx: BridgeRequestContext): Promise<ChatInfoChange>;
+  getChatInfoChange(ctx: BridgeRequestContext): Promise<ChatInfoChange> | ChatInfoChange;
 }
 
 export interface RemoteChatResync extends RemoteEvent {}
@@ -511,6 +512,7 @@ export interface PickleBridge {
   readonly client: MatrixClient | null;
   readonly connector: BridgeConnector;
   readonly context: BridgeContext | null;
+  readonly roomState: BridgeRoomStateAPI;
   acceptMessageRequest(portalKey: PortalKey): Promise<MessageRequest>;
   createLogin(user: BridgeUser, flowId: string): Promise<LoginProcess>;
   createManagementRoom(options: BridgeCreateManagementRoomOptions): Promise<ManagementRoom>;
@@ -549,6 +551,25 @@ export interface PickleBridge {
   start(): Promise<void>;
   stop(): Promise<void>;
   uploadMedia(options: UploadMediaOptions): Promise<UploadMediaResult>;
+}
+
+export interface BridgeRoomStateAPI {
+  get(options: BridgeRoomStateGetOptions): Promise<RoomStateEvent>;
+  set(options: BridgeRoomStateSetOptions): Promise<SentEvent>;
+}
+
+export interface BridgeRoomStateGetOptions {
+  eventType: string;
+  roomId: RoomID;
+  stateKey?: string;
+}
+
+export interface BridgeRoomStateSetOptions {
+  content: Record<string, unknown>;
+  eventType: string;
+  portal?: Portal;
+  roomId?: RoomID;
+  stateKey?: string;
 }
 
 export interface CreateBridgeOptions {
@@ -809,12 +830,15 @@ export interface UserLogin {
 }
 
 export interface Portal {
+  avatar?: Avatar;
   id: PortalID;
   metadata?: unknown;
   mxid?: string;
+  name?: string;
   portalKey: PortalKey;
   receiver?: UserLoginID;
   roomType?: "dm" | "group" | "space" | string;
+  topic?: string;
 }
 
 export interface Ghost {
@@ -948,7 +972,19 @@ export interface ConvertedMessagePart {
 }
 
 export interface ConvertedEdit {
-  modifiedParts: ConvertedMessagePart[];
+  addedParts?: ConvertedMessage;
+  deletedParts?: Message[];
+  modifiedParts: ConvertedEditPart[];
+}
+
+export interface ConvertedEditPart {
+  content: Record<string, unknown>;
+  dontBridge?: boolean;
+  extra?: Record<string, unknown>;
+  id?: PartID;
+  part?: Message;
+  topLevelExtra?: Record<string, unknown>;
+  type: string;
 }
 
 export interface UpsertResult {
@@ -972,6 +1008,14 @@ export interface CreateRemoteMessageOptions<T = unknown> {
   timestamp?: Date;
   transactionId?: TransactionID;
   type?: "message" | "message_upsert";
+}
+
+export interface CreateRemoteChatInfoChangeOptions {
+  chatInfoChange: ChatInfoChange;
+  portalKey: PortalKey;
+  sender: EventSender;
+  streamOrder?: number;
+  timestamp?: Date;
 }
 
 export interface BridgeRemoteEventOptions {
@@ -1148,17 +1192,28 @@ export interface MessageCheckpoints {
 
 export interface ChatInfo {
   avatar?: Avatar;
+  canBackfill?: boolean;
+  extraUpdates?: Record<string, unknown>;
+  members?: ChatMemberList;
   name?: string;
   participants?: UserID[];
+  roomType?: "dm" | "group" | "space" | string;
   topic?: string;
 }
 
 export interface ChatInfoChange {
-  avatar?: Avatar;
-  name?: string;
-  participantsAdded?: UserID[];
-  participantsRemoved?: UserID[];
-  topic?: string;
+  chatInfo?: ChatInfo;
+  memberChanges?: ChatMemberList;
+}
+
+export interface ChatMember {
+  membership?: "join" | "invite" | "leave" | "ban" | "knock" | string;
+  userId: UserID;
+}
+
+export interface ChatMemberList {
+  isFull?: boolean;
+  members: ChatMember[];
 }
 
 export interface Avatar {

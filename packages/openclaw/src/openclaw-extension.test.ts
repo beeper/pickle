@@ -114,10 +114,11 @@ describe("OpenClaw plugin package metadata", () => {
     expect(packageJson.scripts?.prepublishOnly).toBe("node ../../scripts/guard-pnpm-publish.mjs");
     expect(packageJson.files).toContain("dist");
     expect(manifest).toEqual(expect.objectContaining({ id: "beeper", channels: ["beeper"] }));
-    expect(manifest.channelEnvVars?.beeper).toContain("PICKLE_OPENCLAW_DEVICE_ID");
+    expect(manifest.channelEnvVars?.beeper).toEqual(["PICKLE_OPENCLAW_BEEPER_ENV"]);
     expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_ACCESS_TOKEN");
     expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_GATEWAY_ACCESS_TOKEN");
     expect(manifest.channelEnvVars?.beeper).not.toContain("OPENCLAW_GATEWAY_TOKEN");
+    expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_DEVICE_ID");
     expect(manifest.uiHints).toBeUndefined();
     expect(manifest.configSchema).toEqual({
       type: "object",
@@ -132,12 +133,23 @@ describe("OpenClaw plugin package metadata", () => {
         nativeSkillsAutoEnabled: true,
       },
       schema: {
-        properties: expect.objectContaining({
-          importSources: expect.any(Object),
+        properties: expect.not.objectContaining({
+          appserviceId: expect.anything(),
+          asToken: expect.anything(),
+          backfillLimit: expect.anything(),
+          bridgeId: expect.anything(),
+          homeserver: expect.anything(),
+          homeserverDomain: expect.anything(),
+          hsToken: expect.anything(),
+          importSources: expect.anything(),
+          matrixDeviceId: expect.anything(),
+          matrixUserId: expect.anything(),
         }),
       },
       uiHints: expect.not.objectContaining({
         accessToken: expect.anything(),
+        asToken: expect.anything(),
+        hsToken: expect.anything(),
       }),
     });
   });

@@ -1,6 +1,6 @@
 import type { MatrixClient } from "@beeper/pickle";
-import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
-import { openClawAgentGhostLocalpart, openClawRoomCreationPreset, openClawSenderLocalpart, openClawUserGhostLocalpart } from "./registration";
+import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding } from "./types";
+import { openClawAgentGhostLocalpart, openClawRoomCreationPreset, openClawSenderLocalpart } from "./registration";
 
 export function bindingIdForRoom(roomId: string): string {
   return Buffer.from(roomId).toString("base64url");
@@ -23,10 +23,6 @@ export function agentGhostUserId(config: OpenClawBridgeConfig, agentId: string, 
   return `@${openClawAgentGhostLocalpart(config, agentId)}:${domain}`;
 }
 
-export function userGhostUserId(config: OpenClawBridgeConfig, userId: string, domain = matrixDomainFromConfig(config)): string {
-  return `@${openClawUserGhostLocalpart(config, userId)}:${domain}`;
-}
-
 export function serviceBotUserId(config: OpenClawBridgeConfig, domain = matrixDomainFromConfig(config)): string {
   return `@${openClawSenderLocalpart(config)}:${domain}`;
 }
@@ -43,34 +39,13 @@ export function agentContactFromOpenClawAgent(
     displayName,
     ghostUserId: agentGhostUserId(config, agentId, domain),
   };
-  const avatarMxc = stringValue(agent.avatarMxc) ?? stringValue(agent.avatar_url) ?? stringValue(agent.avatarUrl);
+  const rawAvatarUrl = stringValue(agent.avatarUrl) ?? stringValue(agent.avatar_url) ?? stringValue(agent.avatar);
+  const avatarMxc = stringValue(agent.avatarMxc) ?? mxcAvatarURL(rawAvatarUrl);
   const description = stringValue(agent.description);
   if (avatarMxc) contact.avatarMxc = avatarMxc;
+  const avatarUrl = rawAvatarUrl ?? avatarMxc;
+  if (avatarUrl) contact.avatarUrl = avatarUrl;
   if (description) contact.description = description;
-  return contact;
-}
-
-export function userContactFromOpenClawSession(
-  config: OpenClawBridgeConfig,
-  session: {
-    displayName?: string;
-    lastAccountId?: string;
-    lastProvider?: string;
-    lastTo?: string;
-    origin?: Record<string, unknown>;
-    provider?: string;
-  },
-  domain = matrixDomainFromConfig(config)
-): OpenClawUserContact | undefined {
-  const userId = session.lastTo ?? session.lastAccountId ?? stringValue(session.origin?.userId) ?? stringValue(session.origin?.accountId);
-  if (!userId) return undefined;
-  const contact: OpenClawUserContact = {
-    displayName: session.displayName ?? userId,
-    ghostUserId: userGhostUserId(config, userId, domain),
-    userId,
-  };
-  const source = session.lastProvider ?? session.provider ?? stringValue(session.origin?.surface) ?? stringValue(session.origin?.type);
-  if (source) contact.source = source;
   return contact;
 }
 
@@ -96,7 +71,7 @@ export async function createSessionRoom(
   ].filter(Boolean).join("\n");
   const result = await client.appservice.createRoom({
     ...openClawRoomCreationPreset(config),
-    invite: config.allowedUserIds ?? [],
+    invite: [],
     isDirect: true,
     name: roomName,
     topic,
@@ -122,4 +97,8 @@ export async function createSessionRoom(
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function mxcAvatarURL(value: string | undefined): string | undefined {
+  return value?.startsWith("mxc://") ? value : undefined;
 }
