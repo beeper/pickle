@@ -77,6 +77,7 @@ import type {
   MatrixAppserviceInitOptions,
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceSetProfileOptions,
   MatrixAppserviceUserOptions,
   MatrixAppendBeeperAIRunEventOptions,
   MatrixAppendBeeperAIRunPartOptions,
@@ -131,6 +132,7 @@ export interface MatrixAppservice {
   init(options: MatrixAppserviceInitOptions): Promise<MatrixAppserviceInfo>;
   applyTransaction(options: { transaction: Record<string, unknown> }): Promise<void>;
   sendMessage(options: MatrixAppserviceSendMessageOptions): Promise<SentEvent>;
+  setProfile(options: MatrixAppserviceSetProfileOptions): Promise<void>;
 }
 
 export interface MatrixRaw {

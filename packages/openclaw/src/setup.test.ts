@@ -46,15 +46,14 @@ describe("OpenClaw Beeper official channel contracts", () => {
       name: "default Beeper message actions",
       cfg: {},
       expectedActions: [
+        "channel-edit",
+        "channel-info",
         "delete",
         "edit",
         "mark_unread",
         "react",
         "read",
         "send",
-        "set-room-avatar",
-        "set-room-name",
-        "set-room-topic",
       ],
     }],
   });
@@ -88,12 +87,14 @@ describe("OpenClaw Beeper official channel contracts", () => {
       {
         name: "configured account",
         cfg: applyBeeperChannelSettings({}, {
-          asToken: "as",
           enabled: true,
-          homeserver: "https://matrix.example",
-          hsToken: "hs",
-          matrixDeviceId: "DEV",
-          matrixUserId: "@alice:example",
+          bridge: {
+            asToken: "as",
+            homeserver: "https://matrix.example",
+            hsToken: "hs",
+            matrixDeviceId: "DEV",
+            matrixUserId: "@alice:example",
+          },
         }),
         expectedState: "configured",
         runtime: { accountId: "default", configured: true, enabled: true, running: true },
@@ -296,9 +297,8 @@ describe("OpenClaw Beeper setup surface", () => {
         "react",
         "read",
         "mark_unread",
-        "set-room-name",
-        "set-room-topic",
-        "set-room-avatar",
+        "channel-info",
+        "channel-edit",
       ],
       capabilities: [],
     });
@@ -358,13 +358,15 @@ describe("OpenClaw Beeper setup surface", () => {
       inbound: { buildContext: vi.fn(), dispatchReply: vi.fn() },
     };
     const cfg = applyBeeperChannelSettings({}, {
-      asToken: "as",
       dataDir: "/tmp/openclaw-beeper",
       enabled: true,
-      homeserver: "https://matrix.example",
-      hsToken: "hs",
-      matrixDeviceId: "DEV",
-      matrixUserId: "@alice:example",
+      bridge: {
+        asToken: "as",
+        homeserver: "https://matrix.example",
+        hsToken: "hs",
+        matrixDeviceId: "DEV",
+        matrixUserId: "@alice:example",
+      },
     });
 
     const task = startBeeperGatewayAccount({
@@ -399,13 +401,15 @@ describe("OpenClaw Beeper setup surface", () => {
     appserviceMocks.startOpenClawBeeperBridge.mockResolvedValueOnce({ stop });
     const abort = new AbortController();
     const cfg = applyBeeperChannelSettings({}, {
-      asToken: "as",
       dataDir: "/tmp/openclaw-beeper",
       enabled: true,
-      homeserver: "https://matrix.example",
-      hsToken: "hs",
-      matrixDeviceId: "DEV",
-      matrixUserId: "@alice:example",
+      bridge: {
+        asToken: "as",
+        homeserver: "https://matrix.example",
+        hsToken: "hs",
+        matrixDeviceId: "DEV",
+        matrixUserId: "@alice:example",
+      },
     });
     const ctx = {
       abortSignal: abort.signal,
@@ -543,12 +547,14 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(result.accountId).toBe("default");
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       enabled: true,
-      asToken: "as",
-      bridgeId: "sh-openclaw-dev",
-      homeserver: "https://matrix.example",
-      hsToken: "hs",
-      matrixDeviceId: "DEV",
-      matrixUserId: "@alice:example",
+      bridge: {
+        asToken: "as",
+        bridgeId: "sh-openclaw-dev",
+        homeserver: "https://matrix.example",
+        hsToken: "hs",
+        matrixDeviceId: "DEV",
+        matrixUserId: "@alice:example",
+      },
     });
   });
 
@@ -597,14 +603,16 @@ describe("OpenClaw Beeper setup surface", () => {
       },
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
-      appserviceId: "sh-openclaw-dev",
-      asToken: "as",
       beeperEnv: "dev",
-      bridgeId: "sh-openclaw-dev",
-      homeserver: "https://matrix.example",
-      hsToken: "hs",
-      matrixDeviceId: "DEV",
-      matrixUserId: "@alice:example",
+      bridge: {
+        appserviceId: "sh-openclaw-dev",
+        asToken: "as",
+        bridgeId: "sh-openclaw-dev",
+        homeserver: "https://matrix.example",
+        hsToken: "hs",
+        matrixDeviceId: "DEV",
+        matrixUserId: "@alice:example",
+      },
     });
   });
 
@@ -613,12 +621,14 @@ describe("OpenClaw Beeper setup surface", () => {
       enabled: true,
     }))).toBe(false);
     const cfg = applyBeeperChannelSettings({}, {
-      asToken: "as",
       enabled: true,
-      homeserver: "https://matrix.example",
-      hsToken: "hs",
-      matrixDeviceId: "DEV",
-      matrixUserId: "@alice:example",
+      bridge: {
+        asToken: "as",
+        homeserver: "https://matrix.example",
+        hsToken: "hs",
+        matrixDeviceId: "DEV",
+        matrixUserId: "@alice:example",
+      },
     });
     expect(isBeeperChannelConfigured(cfg)).toBe(true);
   });
@@ -670,13 +680,15 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       enabled: true,
-      appserviceId: "sh-openclaw-dev",
-      asToken: "as",
-      bridgeId: "sh-openclaw-dev",
-      homeserver: "https://matrix.example",
-      hsToken: "hs",
-      matrixDeviceId: "DEV",
-      matrixUserId: "@alice:example",
+      bridge: {
+        appserviceId: "sh-openclaw-dev",
+        asToken: "as",
+        bridgeId: "sh-openclaw-dev",
+        homeserver: "https://matrix.example",
+        hsToken: "hs",
+        matrixDeviceId: "DEV",
+        matrixUserId: "@alice:example",
+      },
     });
   });
 
@@ -735,10 +747,12 @@ describe("OpenClaw Beeper setup surface", () => {
       channels: {
         beeper: {
           dataDir: "/tmp/beeper",
-          homeserver: "https://matrix.example",
-          hsToken: "hs",
-          matrixDeviceId: "DEV",
-          matrixUserId: "@alice:example",
+          bridge: {
+            homeserver: "https://matrix.example",
+            hsToken: "hs",
+            matrixDeviceId: "DEV",
+            matrixUserId: "@alice:example",
+          },
         },
       },
     });
@@ -783,7 +797,7 @@ describe("OpenClaw Beeper setup surface", () => {
         client: client as never,
       })),
       flushRemoteEvents: vi.fn(async () => undefined),
-      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+      getPortalByMXID: vi.fn(() => ({ portalKey: { id: "conversation:one", receiver: "openclaw:plugin" } })),
       queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
     };
     const runtime = new BeeperChannelRuntime({
@@ -800,8 +814,6 @@ describe("OpenClaw Beeper setup surface", () => {
 	        createdAt: 1,
 	        ghostUserId: "@codex:example",
 	        id: "binding",
-	        kind: "session",
-	        owner: "bridge",
 	        roomId: "!room",
 	        sessionKey: "session_1",
 	        updatedAt: 1,
@@ -858,17 +870,18 @@ describe("OpenClaw Beeper setup surface", () => {
 	      action: "mark_unread",
 	      params: { eventId: sentMessageId, roomId: "!room" },
 	    });
-	    await beeperChannelPlugin.actions.handleAction({
-	      action: "set-room-name",
-	      params: { name: "Agent room", roomId: "!room" },
+	    await expect(beeperChannelPlugin.actions.handleAction({
+	      action: "channel-info",
+	      params: { channelId: "!room" },
+	    })).resolves.toMatchObject({
+	      details: {
+	        action: "channel-info",
+	        ok: true,
+	      },
 	    });
 	    await beeperChannelPlugin.actions.handleAction({
-	      action: "set-room-topic",
-	      params: { roomId: "!room", topic: "Planning" },
-	    });
-	    await beeperChannelPlugin.actions.handleAction({
-	      action: "set-room-avatar",
-	      params: { avatarMxc: "mxc://example/avatar2", roomId: "!room" },
+	      action: "channel-edit",
+	      params: { avatarMxc: "mxc://example/avatar2", channelId: "!room", name: "Agent room", topic: "Planning" },
 	    });
 	    expect(queued.map((event) => (event as { getType: () => string }).getType())).toEqual([
 	      "reaction",

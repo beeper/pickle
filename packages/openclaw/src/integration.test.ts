@@ -1,5 +1,5 @@
-import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle";
-import { RuntimeBridge } from "@beeper/pickle-bridge";
+import { RuntimeBridge } from "@beeper/pickle-bridge/bridge";
+import type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle-bridge/types";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -44,7 +44,6 @@ describe("OpenClaw bridge integration", () => {
         openclaw: {
           agentId: "codex",
           ghostUserId: "@sh-openclaw_agent_codex:matrix.example",
-          sessionKey: "agent:codex",
         },
       },
       mxid: "!codex:example",
@@ -111,7 +110,6 @@ describe("OpenClaw bridge integration", () => {
         openclaw: {
           agentId: "codex",
           ghostUserId: "@sh-openclaw_agent_codex:matrix.example",
-          sessionKey: "agent:codex",
         },
       },
       mxid: "!codex:example",
@@ -566,6 +564,7 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
       ensureRegistered: vi.fn(async () => {}),
       init: vi.fn(async () => ({ botUserId: "@sh-openclawbot:example", id: "openclaw" })),
       sendMessage: vi.fn(async () => ({ eventId: "$sent", raw: {}, roomId: "!room:example" })),
+      setProfile: vi.fn(async () => {}),
     },
     beeper: { aiRunStreams: beeperAIRunStreams, streams: beeperStreams } as unknown as MatrixClient["beeper"],
     boot: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@sh-openclawbot:example" })),

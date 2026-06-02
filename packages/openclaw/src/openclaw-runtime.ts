@@ -98,6 +98,8 @@ export interface OpenClawSessionCreateOptions {
   parentSessionKey?: string;
   reasoningLevel?: string;
   task?: string;
+  thinkingLevel?: string;
+  verboseLevel?: string;
 }
 
 export interface OpenClawSessionPatchOptions {
@@ -105,9 +107,9 @@ export interface OpenClawSessionPatchOptions {
   key: string;
   label?: string;
   reasoningLevel?: string;
+  thinkingLevel?: string;
+  verboseLevel?: string;
 }
-
-export const BEEPER_SESSION_REASONING_LEVEL = "on";
 
 export interface OpenClawSessionSendOptions {
   attachments?: unknown[];
@@ -256,12 +258,15 @@ export class OpenClawPluginRuntimeAdapter {
     const record = recordValue(raw) ?? {};
     const key = stringValue(record.key) ?? stringValue(record.sessionKey) ?? options.key;
     if (!key) throw new Error("OpenClaw sessions.create did not return a session key");
-    if (options.reasoningLevel) {
-      await this.patchSession({
+    if (options.reasoningLevel || options.thinkingLevel || options.verboseLevel) {
+      const patch: OpenClawSessionPatchOptions = {
         agentId: options.agentId,
         key,
-        reasoningLevel: options.reasoningLevel,
-      });
+      };
+      if (options.reasoningLevel) patch.reasoningLevel = options.reasoningLevel;
+      if (options.thinkingLevel) patch.thinkingLevel = options.thinkingLevel;
+      if (options.verboseLevel) patch.verboseLevel = options.verboseLevel;
+      await this.patchSession(patch);
     }
     return stripUndefined({
       agentId: stringValue(record.agentId) ?? options.agentId,
@@ -278,6 +283,8 @@ export class OpenClawPluginRuntimeAdapter {
       key: options.key,
       label: options.label,
       reasoningLevel: options.reasoningLevel,
+      thinkingLevel: options.thinkingLevel,
+      verboseLevel: options.verboseLevel,
     }));
   }
 
@@ -627,7 +634,7 @@ function agentsFromPluginConfig(config: unknown): Array<Record<string, unknown>>
       description: stringValue(record.description),
     })];
   });
-  return normalized.length > 0 ? normalized : [{ id: "main", displayName: "OpenClaw" }];
+  return normalized.length > 0 ? normalized : [{ id: "main", displayName: "main" }];
 }
 
 function sessionsFromPluginRuntime(runtime: OpenClawHostRuntime, params: unknown): Array<Record<string, unknown>> {
@@ -690,9 +697,11 @@ async function createSessionInPluginRuntime(runtime: OpenClawHostRuntime, params
     origin: recordValue(entry.origin) ?? { provider: "beeper", surface: "beeper", chatType: "direct" },
     provider: stringValue(entry.provider) ?? "beeper",
     reasoningLevel: stringValue(record.reasoningLevel) ?? stringValue(entry.reasoningLevel),
+    thinkingLevel: stringValue(record.thinkingLevel) ?? stringValue(entry.thinkingLevel),
     sessionFile: stringValue(entry.sessionFile) ?? resolvePluginSessionFile(runtime, agentId, sessionId, entry),
     sessionId,
     updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : now,
+    verboseLevel: stringValue(record.verboseLevel) ?? stringValue(entry.verboseLevel),
   });
   await runtime.agent?.session?.upsertSessionEntry?.({ agentId, entry: next, sessionKey });
   return { agentId, key: sessionKey, label, sessionFile: next.sessionFile, sessionId };
@@ -709,6 +718,8 @@ async function patchSessionInPluginRuntime(runtime: OpenClawHostRuntime, params:
     ...entry,
     ...(record.label !== undefined ? { label: stringValue(record.label) } : {}),
     ...(record.reasoningLevel !== undefined ? { reasoningLevel: stringValue(record.reasoningLevel) } : {}),
+    ...(record.thinkingLevel !== undefined ? { thinkingLevel: stringValue(record.thinkingLevel) } : {}),
+    ...(record.verboseLevel !== undefined ? { verboseLevel: stringValue(record.verboseLevel) } : {}),
     updatedAt: Date.now(),
   });
   await runtime.agent?.session?.upsertSessionEntry?.({ agentId, entry: next, sessionKey });
@@ -1776,6 +1787,25 @@ function createBeeperReplyStreamEmitter(base: {
       });
     }
   };
+  const completePendingToolsForFinal = async () => {
+    if (pendingToolCalls.size === 0) return;
+    const toolCallIds = [...pendingToolCalls];
+    channelRuntime.debug("openclaw_beeper_stream_completing_pending_tools", {
+      pendingToolCalls: toolCallIds,
+      roomId: base.roomId,
+      runId: base.runId,
+    });
+    for (const toolCallId of toolCallIds) {
+      const toolName = rememberedToolName(toolCallId, "tool") ?? "tool";
+      await publishPart({
+        kind: "tool_result",
+        state: "complete",
+        toolCallId,
+        toolName,
+      });
+      markToolComplete(toolCallId);
+    }
+  };
   return {
     start: ensureStarted,
     trackExternal,
@@ -1959,7 +1989,8 @@ function createBeeperReplyStreamEmitter(base: {
       const preliminary = !isCompletePhase(phase) && !isCompletePhase(status);
       const error = data.error;
       rememberTool(toolCallId, toolName, input);
-      if (!preliminary) markToolComplete(toolCallId);
+      if (preliminary) markToolPending(toolCallId);
+      else markToolComplete(toolCallId);
       emit("tool.call.updated", {
         output,
         phase,
@@ -2008,6 +2039,9 @@ function createBeeperReplyStreamEmitter(base: {
       if (!output) return;
       const phase = stringValue(data.phase);
       const preliminary = phase !== "complete" && phase !== "end";
+      rememberTool("plan", "plan");
+      if (preliminary) markToolPending("plan");
+      else markToolComplete("plan");
       emit("tool.call.completed", {
         output,
         preliminary,
@@ -2183,6 +2217,7 @@ function createBeeperReplyStreamEmitter(base: {
       await drainExternal();
       await waitForPendingTools();
       await drainExternal();
+      await completePendingToolsForFinal();
       if (!hasPublished || finalized) return;
       finalized = true;
       channelRuntime.debug("openclaw_beeper_stream_finalizing", {

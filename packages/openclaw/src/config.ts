@@ -48,13 +48,22 @@ export function createDefaultConfig(overrides: Partial<OpenClawBridgeConfig> = {
 }
 
 export async function readConfig(path = defaultConfigPath()): Promise<OpenClawBridgeConfig> {
-  return createDefaultConfig(channelSettingsFromConfigInput(JSON.parse(await readFile(path, "utf8"))));
+  return createDefaultConfig(configInput(JSON.parse(await readFile(path, "utf8"))));
 }
 
-function channelSettingsFromConfigInput(input: unknown): Partial<OpenClawBridgeConfig> {
+function configInput(input: unknown): Partial<OpenClawBridgeConfig> {
   const record = recordValue(input);
   const beeper = recordValue(recordValue(record?.channels)?.beeper);
-  return (beeper ?? record ?? {}) as Partial<OpenClawBridgeConfig>;
+  if (beeper) {
+    const beeperEnv = envBeeperEnv(stringValue(beeper.beeperEnv));
+    const bridge = recordValue(beeper.bridge) as Partial<OpenClawBridgeConfig> | undefined;
+    const config: Partial<OpenClawBridgeConfig> = { ...(bridge ?? {}) };
+    if (beeperEnv) config.beeperEnv = beeperEnv;
+    const dataDir = stringValue(beeper.dataDir);
+    if (dataDir) config.dataDir = dataDir;
+    return config;
+  }
+  return (record ?? {}) as Partial<OpenClawBridgeConfig>;
 }
 
 export function createConfigFromOpenClawSetup(
@@ -63,7 +72,9 @@ export function createConfigFromOpenClawSetup(
 ): OpenClawBridgeConfig {
   const settings = getBeeperChannelSettings(cfg);
   return createDefaultConfig({
-    ...settings,
+    ...settings.bridge,
+    ...(settings.beeperEnv ? { beeperEnv: settings.beeperEnv } : {}),
+    ...(settings.dataDir ? { dataDir: settings.dataDir } : {}),
     ...overrides,
   });
 }
@@ -86,4 +97,8 @@ function envBeeperEnv(value: string | undefined): OpenClawBridgeConfig["beeperEn
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }

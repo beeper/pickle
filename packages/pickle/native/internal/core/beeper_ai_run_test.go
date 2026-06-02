@@ -197,6 +197,35 @@ func TestBeeperAIRunSemanticPartsUseAIBridgeWriter(t *testing.T) {
 	}
 }
 
+func TestBeeperAIRunEmptyToolResultCompletesToolCall(t *testing.T) {
+	core := New(nil)
+	state := core.beginBeeperAIRun(MatrixBeginBeeperAIRunOptions{RunID: "run-empty-tool-result", ThreadID: "thread-empty-tool-result"})
+	parts := []MatrixBeeperAIRunPartOptions{
+		{Input: map[string]any{"command": "gog auth list --json --no-input"}, Kind: "tool_start", ToolCallID: "cmd-1", ToolName: "bash"},
+		{Kind: "tool_result", State: "complete", ToolCallID: "cmd-1", ToolName: "bash"},
+	}
+	for _, part := range parts {
+		if err := state.appendPart(part); err != nil {
+			t.Fatalf("appendPart(%s): %v", part.Kind, err)
+		}
+	}
+	events := outboundEventsFromAGUI(state.run.Events)
+	result := firstEventOfType(events, "TOOL_CALL_RESULT")
+	if result == nil {
+		t.Fatalf("empty tool result was dropped: %#v", events)
+	}
+	if fmt.Sprint(result["content"]) != "" {
+		t.Fatalf("empty tool result should not invent output: %#v", result)
+	}
+	finalPart := firstToolPart(state.run.FinalBeeperAIMessage(0, true).Parts, "cmd-1")
+	if finalPart == nil {
+		t.Fatalf("final message is missing completed tool part: %#v", state.run.FinalBeeperAIMessage(0, true).Parts)
+	}
+	if strings.Contains(fmt.Sprint(finalPart), "run finalized before tool completed") || strings.Contains(fmt.Sprint(finalPart), "failed") {
+		t.Fatalf("completed tool part leaked synthetic failure: %#v", finalPart)
+	}
+}
+
 func TestBeeperAIRunCommandPartUsesCommandAsTitleAndActualOutput(t *testing.T) {
 	core := New(nil)
 	state := core.beginBeeperAIRun(MatrixBeginBeeperAIRunOptions{RunID: "run-command", ThreadID: "thread-command"})

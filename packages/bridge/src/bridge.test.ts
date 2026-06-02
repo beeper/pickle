@@ -303,14 +303,15 @@ describe("RuntimeBridge", () => {
     }));
     await bridge.flushRemoteEvents();
 
-    expect(client.raw.request).toHaveBeenCalledWith({
-      body: {
+    expect(client.messages.send).toHaveBeenCalledWith({
+      content: {
         body: "hello from remote",
         "com.beeper.ai": { kind: "anchor", schema: "com.beeper.ai.v1" },
         msgtype: "m.text",
       },
-      method: "PUT",
-      path: expect.stringContaining("/rooms/!room%3Aexample/send/m.room.message/pickle-bridge-"),
+      messageType: "m.text",
+      roomId: "!room:example",
+      text: "hello from remote",
     });
   });
 
@@ -775,6 +776,47 @@ describe("RuntimeBridge", () => {
     }));
   });
 
+  it("syncs appservice ghost profile when registering ghosts", async () => {
+    const client = createFakeMatrixClient();
+    const bridge = new RuntimeBridge({
+      appservice: {
+        homeserver: "https://matrix.example",
+        homeserverDomain: "example",
+        registration: {
+          asToken: "as",
+          hsToken: "hs",
+          id: "test",
+          namespaces: { users: [{ exclusive: true, regex: "@test_.*:example" }] },
+          senderLocalpart: "testbot",
+          url: "http://localhost:29300",
+        },
+      },
+      connector: createFakeConnector(createFakeNetworkAPI()),
+      matrix: matrixConfig(),
+    }, client);
+
+    await bridge.start();
+    await bridge.registerGhost({
+      avatar: { mxc: "mxc://example/agent" },
+      displayName: "Agent Main",
+      id: "agent_main",
+    });
+
+    expect(bridge.getGhost("agent_main")).toEqual(expect.objectContaining({
+      displayName: "Agent Main",
+      mxid: "@test_agent_main:example",
+    }));
+    expect(client.appservice.setProfile).toHaveBeenCalledWith(expect.objectContaining({
+      avatarUrl: "mxc://example/agent",
+      displayName: "Agent Main",
+      isBridgeBot: false,
+      network: "test",
+      remoteId: "agent_main",
+      service: "test",
+      userId: "@test_agent_main:example",
+    }));
+  });
+
   it("adds Beeper room metadata and autojoin members for Beeper bridges", async () => {
     const client = createFakeMatrixClient();
     const connector = createFakeConnector(createFakeNetworkAPI());
@@ -977,7 +1019,7 @@ describe("RuntimeBridge", () => {
     const bridge = new RuntimeBridge({ connector, matrix: matrixConfig() }, client);
 
     await bridge.start();
-    bridge.registerGhost({ displayName: "Alice", id: "alice", mxid: "@dummy_alice:example" });
+    await bridge.registerGhost({ displayName: "Alice", id: "alice", mxid: "@dummy_alice:example" });
     bridge.registerPortal({ id: "remote-room", mxid: "!room:example", portalKey: { id: "remote-room", receiver: "login:a" } });
     const portal = await bridge.setPortalMetadata({ id: "remote-room", receiver: "login:a" }, { unread: true });
     await bridge.setMessageRequest({
@@ -1086,10 +1128,11 @@ describe("RuntimeBridge", () => {
       })
     );
     expect(network.handleMatrixMessage).not.toHaveBeenCalled();
-    expect(client.raw.request).toHaveBeenCalledWith({
-      body: { body: "pong", msgtype: "m.notice" },
-      method: "PUT",
-      path: expect.stringContaining("/rooms/!created%3Aexample/send/m.room.message/pickle-bridge-"),
+    expect(client.messages.send).toHaveBeenCalledWith({
+      content: { body: "pong", msgtype: "m.notice" },
+      messageType: "m.notice",
+      roomId: "!created:example",
+      text: "pong",
     });
   });
 
@@ -1138,9 +1181,7 @@ describe("RuntimeBridge", () => {
       roomId: "!management:example",
       userId: "@testbot:example",
     });
-    expect(client.raw.request).not.toHaveBeenCalledWith(expect.objectContaining({
-      path: expect.stringContaining("/rooms/!management%3Aexample/send/m.room.message/"),
-    }));
+    expect(client.messages.send).not.toHaveBeenCalled();
   });
 
   it("handles built-in commands before connector command fallback", async () => {
@@ -1162,8 +1203,8 @@ describe("RuntimeBridge", () => {
 
     expect(result).toEqual({ dispatched: true, eventId: "$help", handlers: 1, kind: "message", roomId: "!management:example" });
     expect(connector.handleCommand).not.toHaveBeenCalled();
-    expect(client.raw.request).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.objectContaining({ body: expect.stringContaining("Available commands:") }),
+    expect(client.messages.send).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.objectContaining({ body: expect.stringContaining("Available commands:") }),
     }));
   });
 
@@ -1261,7 +1302,7 @@ describe("RuntimeBridge", () => {
       expect.anything(),
       expect.objectContaining({ portal })
     );
-    expect(client.raw.request).not.toHaveBeenCalled();
+    expect(client.messages.send).not.toHaveBeenCalled();
   });
 
   it("promotes and persists management rooms through the built-in command", async () => {
@@ -1288,9 +1329,9 @@ describe("RuntimeBridge", () => {
     }));
 
     expect(dataStore.setManagementRoom).toHaveBeenCalledWith({ mxid: "!ordinary:example" });
-    expect(client.raw.request).toHaveBeenCalledTimes(2);
-    expect(client.raw.request).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      body: expect.objectContaining({ body: expect.stringContaining("Available commands:") }),
+    expect(client.messages.send).toHaveBeenCalledTimes(2);
+    expect(client.messages.send).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      content: expect.objectContaining({ body: expect.stringContaining("Available commands:") }),
     }));
   });
 
@@ -1512,7 +1553,7 @@ function genericEvent(options: {
 }
 
 function commandReplyBody(client: ReturnType<typeof createFakeMatrixClient>, index: number): string {
-  return (client.raw.request as ReturnType<typeof vi.fn>).mock.calls[index]?.[0]?.body?.body;
+  return (client.messages.send as ReturnType<typeof vi.fn>).mock.calls[index]?.[0]?.content?.body;
 }
 
 function createFakeDataStore() {
@@ -1559,6 +1600,7 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
       ensureRegistered: vi.fn(async () => {}),
       init: vi.fn(async () => ({ botUserId: "@testbot:example", id: "test" })),
       sendMessage: vi.fn(async () => ({ eventId: "$sent", raw: {}, roomId: "!room:example" })),
+      setProfile: vi.fn(async () => {}),
     },
     beeper: {} as MatrixClient["beeper"],
     boot: vi.fn(async () => ({ deviceId: "DEVICE", userId: "@bridge:example" })),
@@ -1578,7 +1620,7 @@ function createFakeMatrixClient(): MatrixClient & { subscription: MatrixSubscrip
       list: vi.fn(),
       markRead: vi.fn(),
       redact: vi.fn(async () => undefined),
-      send: vi.fn(),
+      send: vi.fn(async (options) => ({ eventId: "$sent", raw: {}, roomId: options.roomId })),
       sendMedia: vi.fn(async (options) => ({ eventId: "$media", raw: {}, roomId: options.roomId })),
     },
     raw: {

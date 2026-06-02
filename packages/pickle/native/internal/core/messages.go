@@ -353,7 +353,7 @@ func (c *Core) finalizeBeeperStreamMessage(ctx context.Context, req MatrixFinali
 
 func (c *Core) sendBeeperStreamReplacementEvent(ctx context.Context, roomID, eventID, userID string, newContent, topLevel OutboundEvent) (*mautrix.RespSendEvent, error) {
 	content := copyOutboundEvent(topLevel)
-	content["body"] = ""
+	content["body"] = firstString(newContent["body"], "")
 	content["msgtype"] = firstString(newContent["msgtype"], "m.text")
 	content["m.new_content"] = newContent
 	content["m.relates_to"] = map[string]any{

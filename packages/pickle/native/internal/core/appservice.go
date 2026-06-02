@@ -66,6 +66,19 @@ type MatrixAppserviceRoomUserOptions struct {
 	UserID string `json:"userId"`
 }
 
+type MatrixAppserviceSetProfileOptions struct {
+	AvatarURL    *string       `json:"avatarUrl,omitempty"`
+	DisplayName  *string       `json:"displayName,omitempty"`
+	Extra        OutboundEvent `json:"extra,omitempty" tstype:"{ [key: string]: unknown }"`
+	Identifiers  []string      `json:"identifiers,omitempty"`
+	IsBridgeBot  *bool         `json:"isBridgeBot,omitempty"`
+	IsNetworkBot *bool         `json:"isNetworkBot,omitempty"`
+	Network      string        `json:"network,omitempty"`
+	RemoteID     string        `json:"remoteId,omitempty"`
+	Service      string        `json:"service,omitempty"`
+	UserID       string        `json:"userId"`
+}
+
 type MatrixAppserviceCreateRoomOptions struct {
 	MatrixCreateRoomOptions
 	UserID string `json:"userId,omitempty"`
@@ -340,6 +353,78 @@ func (c *Core) handleAppserviceEnsureJoined(ctx context.Context, payload []byte)
 	return c.emptyIfNil(c.appservice.ensureJoined(ctx, intent, id.RoomID(req.RoomID)))
 }
 
+func (c *Core) handleAppserviceSetProfile(ctx context.Context, payload []byte) ([]byte, error) {
+	var req MatrixAppserviceSetProfileOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	intent, err := c.requireAppserviceIntent(req.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.appservice.ensureRegistered(ctx, intent); err != nil {
+		return nil, err
+	}
+	if req.DisplayName != nil {
+		if err := retryMatrixVoid(ctx, func() error {
+			return intent.SetDisplayName(ctx, *req.DisplayName)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if req.AvatarURL != nil {
+		var avatarURL id.ContentURI
+		if *req.AvatarURL != "" {
+			parsedAvatarURL, err := id.ParseContentURI(*req.AvatarURL)
+			if err != nil {
+				return nil, err
+			}
+			avatarURL = parsedAvatarURL
+		}
+		if err := retryMatrixVoid(ctx, func() error {
+			return intent.SetAvatarURL(ctx, avatarURL)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if extra := appserviceProfileExtra(req); extra != nil {
+		if err := retryMatrixVoid(ctx, func() error {
+			return intent.BeeperUpdateProfile(ctx, extra)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return c.empty()
+}
+
+func appserviceProfileExtra(req MatrixAppserviceSetProfileOptions) OutboundEvent {
+	extra := OutboundEvent{}
+	for key, value := range req.Extra {
+		extra[key] = value
+	}
+	baseExtra := event.BeeperProfileExtra{
+		RemoteID:    req.RemoteID,
+		Identifiers: req.Identifiers,
+		Service:     req.Service,
+		Network:     req.Network,
+	}
+	if req.IsNetworkBot != nil {
+		baseExtra.IsNetworkBot = *req.IsNetworkBot
+	}
+	if req.IsBridgeBot != nil {
+		baseExtra.IsBridgeBot = *req.IsBridgeBot
+	}
+	if baseExtra.RemoteID != "" || len(baseExtra.Identifiers) > 0 || baseExtra.Service != "" || baseExtra.Network != "" || baseExtra.IsNetworkBot || baseExtra.IsBridgeBot {
+		if payload, err := json.Marshal(baseExtra); err == nil {
+			_ = json.Unmarshal(payload, &extra)
+		}
+	}
+	if len(extra) == 0 {
+		return nil
+	}
+	return extra
+}
+
 func (c *Core) handleAppserviceCreateRoom(ctx context.Context, payload []byte) ([]byte, error) {
 	var req MatrixAppserviceCreateRoomOptions
 	if err := json.Unmarshal(payload, &req); err != nil {
@@ -440,7 +525,7 @@ func (as *matrixAppservice) makePortalCreateRoomRequest(req MatrixAppserviceCrea
 	}
 	bridgeInfo := bridgeInfoContent(req, bridgeBot, roomType)
 	for _, state := range req.InitialState {
-		stateKey := state.StateKey
+		stateKey := stringValue(state.StateKey)
 		createReq.InitialState = append(createReq.InitialState, &event.Event{
 			Type:     event.NewEventType(state.Type),
 			StateKey: &stateKey,
@@ -661,7 +746,7 @@ func makeCreateRoomRequest(req MatrixCreateRoomOptions) *mautrix.ReqCreateRoom {
 	invitees := toUserIDs(req.Invite)
 	initialState := make([]*event.Event, 0, len(req.InitialState))
 	for _, state := range req.InitialState {
-		stateKey := state.StateKey
+		stateKey := stringValue(state.StateKey)
 		initialState = append(initialState, &event.Event{
 			Type:     event.NewEventType(state.Type),
 			StateKey: &stateKey,

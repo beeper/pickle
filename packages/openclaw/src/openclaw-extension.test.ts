@@ -182,11 +182,11 @@ describe("OpenClaw plugin package metadata", () => {
     expect(packageJson.openclaw?.runtimeSetupEntry).toBe("./dist/setup-entry.mjs");
     expect(dependencies).toEqual([]);
     expect(devDependencies).toEqual(expect.arrayContaining([
-      ["@beeper/pickle", "workspace:^"],
       ["@beeper/pickle-ag-ui", "workspace:^"],
       ["@beeper/pickle-bridge", "workspace:^"],
       ["@beeper/pickle-state-file", "workspace:^"],
     ]));
+    expect(devDependencies.some(([name]) => name === "@beeper/pickle")).toBe(false);
     expect(devDependencies.find(([, version]) => version === "workspace:*")).toBeUndefined();
   });
 });

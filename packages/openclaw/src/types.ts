@@ -1,6 +1,3 @@
-export type OpenClawBindingOwner = "bridge" | "terminal" | "mac-app" | "imported";
-export type OpenClawBindingKind = "session" | "agent";
-
 export interface OpenClawAgentContact {
   agentId: string;
   displayName: string;
@@ -10,13 +7,18 @@ export interface OpenClawAgentContact {
   description?: string;
 }
 
+export interface OpenClawBeeperChannelInfo {
+  agent?: OpenClawAgentContact;
+  binding?: OpenClawSessionBinding;
+  portalKey?: { id: string; receiver?: string };
+  roomId: string;
+}
+
 export interface OpenClawSessionBinding {
   id: string;
-  kind: OpenClawBindingKind;
-  owner: OpenClawBindingOwner;
   roomId: string;
   spaceId?: string;
-  sessionKey: string;
+  sessionKey?: string;
   agentId: string;
   ghostUserId: string;
   humanGhostUserId?: string;

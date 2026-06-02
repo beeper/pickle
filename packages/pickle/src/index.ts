@@ -35,6 +35,7 @@ export type {
   MatrixAppserviceRegistration,
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceSetProfileOptions,
   MatrixAppserviceUserOptions,
   MatrixAppendBeeperAIRunEventOptions,
   MatrixAppendBeeperAIRunPartOptions,

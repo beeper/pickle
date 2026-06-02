@@ -1,4 +1,4 @@
-import type { MatrixEdit, MatrixMessage, MatrixReaction, MatrixReactionRemove, MatrixRedaction, UserLogin } from "@beeper/pickle-bridge";
+import type { MatrixEdit, MatrixMessage, MatrixReaction, MatrixReactionRemove, MatrixRedaction, UserLogin } from "@beeper/pickle-bridge/types";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
 import { createOpenClawConnector, OpenClawNetworkAPI, parseMatrixTextMessage, userLoginFromOpenClawConfig } from "./connector";
@@ -6,7 +6,7 @@ import { OpenClawPluginRuntimeAdapter, type OpenClawGatewayEvent, type OpenClawR
 import { OpenClawBridgeRegistry } from "./registry";
 
 describe("OpenClawBridgeConnector", () => {
-  it("exposes bridgev2-shaped metadata and direct plugin capabilities", async () => {
+  it("exposes bridgev2-shaped metadata and Beeper channel capabilities", async () => {
     const connector = createOpenClawConnector({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
     });
@@ -22,7 +22,7 @@ describe("OpenClawBridgeConnector", () => {
       lookupUsername: true,
     });
     expect(connector.getLoginFlows()).toEqual([]);
-    expect(() => connector.createLogin({} as never, { id: "@alice:example.com" }, "openclaw.gateway")).toThrow("direct plugin mode");
+    expect(() => connector.createLogin({} as never, { id: "@alice:example.com" }, "openclaw.gateway")).toThrow("Beeper channel runtime");
   });
 
   it("keeps Beeper Matrix tokens out of OpenClaw plugin login metadata", () => {
@@ -106,6 +106,8 @@ describe("OpenClawBridgeConnector", () => {
       },
       displayName: "Codex",
       id: "codex",
+      identifiers: ["openclaw:agent:codex", "@sh-openclaw_agent_codex:localhost"],
+      isBot: true,
       metadata: {
         openclaw: {
           agentId: "codex",
@@ -116,6 +118,15 @@ describe("OpenClawBridgeConnector", () => {
         },
       },
       mxid: "@sh-openclaw_agent_codex:localhost",
+      profile: {
+        "com.beeper.openclaw.agent": {
+          agentId: "codex",
+          avatarMxc: "mxc://example/codex",
+          avatarUrl: "mxc://example/codex",
+          displayName: "Codex",
+          ghostUserId: "@sh-openclaw_agent_codex:localhost",
+        },
+      },
     });
   });
 
@@ -154,7 +165,6 @@ describe("OpenClawBridgeConnector", () => {
           agentId: "main",
           ghostUserId: "@sh-openclaw_agent_main:localhost",
           label: "Main",
-          sessionKey: "agent:main",
         },
       },
       name: "Main",
@@ -168,7 +178,6 @@ describe("OpenClawBridgeConnector", () => {
           agentId: "codex",
           ghostUserId: "@sh-openclaw_agent_codex:localhost",
           label: "Codex",
-          sessionKey: "agent:codex",
         },
       },
       name: "Codex",
@@ -184,14 +193,10 @@ describe("OpenClawBridgeConnector", () => {
     expect(registry.getBindingByRoom("!main:example.com")).toMatchObject({
       agentId: "main",
       id: "agent:main",
-      kind: "agent",
-      sessionKey: "agent:main",
     });
     expect(registry.getBindingByRoom("!codex:example.com")).toMatchObject({
       agentId: "codex",
       id: "agent:codex",
-      kind: "agent",
-      sessionKey: "agent:codex",
     });
   });
 
@@ -223,7 +228,6 @@ describe("OpenClawBridgeConnector", () => {
     expect(sendMessage).not.toHaveBeenCalled();
     expect(registry.getBindingById("agent:main")).toMatchObject({
       agentId: "main",
-      kind: "agent",
       roomId: "!main:example.com",
     });
   });
@@ -271,8 +275,6 @@ describe("OpenClawBridgeConnector", () => {
       createdAt: 1,
       ghostUserId: "@main:example.com",
       id: "existing",
-      kind: "session",
-      owner: "bridge",
       roomId: "!existing:example.com",
       sessionKey: "agent:main:existing",
       updatedAt: 1,
@@ -296,8 +298,7 @@ describe("OpenClawBridgeConnector", () => {
         openclaw: {
           agentId: "main",
           ghostUserId: "@sh-openclaw_agent_main:localhost",
-          label: "Main",
-          sessionKey: "agent:main",
+          label: "main",
         },
       },
     }));
@@ -333,11 +334,8 @@ describe("OpenClawBridgeConnector", () => {
       createdAt: 1,
       ghostUserId: "@old-codex:example.com",
       id: "agent:codex",
-      kind: "agent",
       label: "Old Codex",
-      owner: "bridge",
       roomId: "!codex:example.com",
-      sessionKey: "agent:codex",
       updatedAt: 1,
     });
     const runtime = runtimeWith({
@@ -375,18 +373,7 @@ describe("OpenClawBridgeConnector", () => {
       identifier: "codex",
       type: "username",
     })).resolves.toEqual({
-      ghost: {
-        displayName: "Codex",
-        id: "codex",
-        metadata: {
-          openclaw: {
-            agentId: "codex",
-            displayName: "Codex",
-            ghostUserId: "@sh-openclaw_agent_codex:localhost",
-          },
-        },
-        mxid: "@sh-openclaw_agent_codex:localhost",
-      },
+      ghost: codexGhost(),
       userId: "@sh-openclaw_agent_codex:localhost",
     });
 
@@ -421,7 +408,6 @@ describe("OpenClawBridgeConnector", () => {
             agentId: "codex",
             ghostUserId: "@sh-openclaw_agent_codex:localhost",
             label: "Codex",
-            sessionKey: "agent:codex",
           },
         },
         portalKey: { id: expect.stringMatching(/^conversation:/), receiver: "openclaw:plugin" },
@@ -439,7 +425,6 @@ describe("OpenClawBridgeConnector", () => {
           agentId: "codex",
           ghostUserId: "@sh-openclaw_agent_codex:localhost",
           label: "Codex",
-          sessionKey: "agent:codex",
         },
       },
       name: "Codex",
@@ -449,7 +434,6 @@ describe("OpenClawBridgeConnector", () => {
     expect(registry.getBindingByRoom("!codex-dm:example.com")).toMatchObject({
       agentId: "codex",
       roomId: "!codex-dm:example.com",
-      sessionKey: "agent:codex",
     });
   });
 
@@ -484,10 +468,7 @@ describe("OpenClawBridgeConnector", () => {
       createdAt: 1,
       ghostUserId: "@codex:example.com",
       id: "existing",
-      kind: "session",
-      owner: "bridge",
       roomId: "!existing-codex-dm:example.com",
-      sessionKey: "agent:codex",
       updatedAt: 1,
     });
     const api = new OpenClawNetworkAPI({
@@ -541,18 +522,7 @@ describe("OpenClawBridgeConnector", () => {
 
     await expect(api.listContacts({} as BridgeRequestContext, { query: "code" })).resolves.toEqual({
       contacts: [{
-        ghost: {
-          displayName: "Codex",
-          id: "codex",
-          metadata: {
-            openclaw: {
-              agentId: "codex",
-              displayName: "Codex",
-              ghostUserId: "@sh-openclaw_agent_codex:localhost",
-            },
-          },
-          mxid: "@sh-openclaw_agent_codex:localhost",
-        },
+        ghost: codexGhost(),
         userId: "@sh-openclaw_agent_codex:localhost",
       }],
     });
@@ -576,18 +546,7 @@ describe("OpenClawBridgeConnector", () => {
 
     await expect(api.listContacts({} as BridgeRequestContext, { query: "codex" })).resolves.toEqual({
       contacts: [{
-        ghost: {
-          displayName: "Codex",
-          id: "codex",
-          metadata: {
-            openclaw: {
-              agentId: "codex",
-              displayName: "Codex",
-              ghostUserId: "@sh-openclaw_agent_codex:localhost",
-            },
-          },
-          mxid: "@sh-openclaw_agent_codex:localhost",
-        },
+        ghost: codexGhost(),
         userId: "@sh-openclaw_agent_codex:localhost",
       }],
     });
@@ -611,7 +570,7 @@ describe("OpenClawBridgeConnector", () => {
     });
     const portal = {
       id: "agent:codex",
-      metadata: { openclaw: { agentId: "codex", ghostUserId: "@codex:example.com", sessionKey: "agent:codex" } },
+      metadata: { openclaw: { agentId: "codex", ghostUserId: "@codex:example.com" } },
       mxid: "!room:example.com",
       portalKey: { id: "agent:codex", receiver: "login" },
       receiver: "login",
@@ -649,12 +608,13 @@ describe("OpenClawBridgeConnector", () => {
     }));
   });
 
-  it("accepts the Beeper owner MXID as a sender in self-hosted cloud rooms", async () => {
+  it("accepts the Beeper owner MXID as a sender in self-hosted rooms", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-owner-sender-test.json");
     const runtime = runtimeWith({
       events: [{ event: "run.completed", payload: { runId: "run_owner", type: "run.completed" } }],
       responses: {
-        "beeper.turn": { runId: "run_owner", sessionKey: "agent:main:main" },
+        "sessions.create": { key: "agent:main:owner" },
+        "beeper.turn": { runId: "run_owner", sessionKey: "agent:main:owner" },
       },
     });
     runtime.config.matrixUserId = "@owner:beeper-staging.com";
@@ -665,8 +625,7 @@ describe("OpenClawBridgeConnector", () => {
       registry,
       runtime,
     });
-    const sessionKey = "agent:main:main";
-    const roomId = `!session:${Buffer.from(sessionKey).toString("base64url")}.openclaw:plugin:beeper.local`;
+    const roomId = "!owner-room:beeper.local";
 
     await api.handleMatrixMessage({} as BridgeRequestContext, {
       event: { eventId: "$owner" },
@@ -679,9 +638,12 @@ describe("OpenClawBridgeConnector", () => {
       text: "hello from owner",
     } as MatrixMessage);
 
+    expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
+      agentId: "main",
+    }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      sessionKey,
       message: "hello from owner",
+      sessionKey: "agent:main:owner",
     }));
   });
 
@@ -707,7 +669,6 @@ describe("OpenClawBridgeConnector", () => {
         openclaw: {
           agentId: "codex",
           ghostUserId: "@codex:example.com",
-          sessionKey: "agent:codex",
         },
       },
       mxid: "!room:example.com",
@@ -733,7 +694,6 @@ describe("OpenClawBridgeConnector", () => {
     });
     expect(registry.getBindingByRoom("!room:example.com")).toMatchObject({
       agentId: "codex",
-      kind: "session",
       sessionKey: "agent:codex:session_1",
     });
 
@@ -807,7 +767,6 @@ describe("OpenClawBridgeConnector", () => {
         openclaw: {
           agentId: "codex",
           ghostUserId: "@codex:example.com",
-          sessionKey: "agent:codex",
         },
       },
       mxid: "!room:example.com",
@@ -835,7 +794,6 @@ describe("OpenClawBridgeConnector", () => {
     }));
     expect(sendMessage).not.toHaveBeenCalled();
     expect(registry.getBindingByRoom("!room:example.com")).toMatchObject({
-      kind: "session",
       sessionKey: "agent:codex:session_1",
     });
   });
@@ -926,11 +884,9 @@ describe("OpenClawBridgeConnector", () => {
       createdAt: 1,
       ghostUserId: "@codex:example.com",
       id: "binding-reply",
-      kind: "session",
       lastRunId: "run_previous",
       lastStreamRunId: "run_previous",
       lastStreamTargetEventId: "$old",
-      owner: "bridge",
       roomId: "!room:example.com",
       sessionKey: "agent:codex:session_2",
       updatedAt: 1,
@@ -954,7 +910,6 @@ describe("OpenClawBridgeConnector", () => {
         openclaw: {
           agentId: "codex",
           ghostUserId: "@codex:example.com",
-          sessionKey: "agent:codex",
         },
       },
       mxid: "!room:example.com",
@@ -1048,7 +1003,6 @@ describe("OpenClawBridgeConnector", () => {
           openclaw: {
             agentId: "codex",
             ghostUserId: "@codex:example.com",
-            sessionKey: "agent:codex",
           },
         },
         mxid: "!room:example.com",
@@ -1086,11 +1040,9 @@ describe("OpenClawBridgeConnector", () => {
       createdAt: 1,
       ghostUserId: "@codex:example.com",
       id: "binding-relations",
-      kind: "session",
       lastRunId: "run_streamed",
       lastStreamRunId: "run_streamed",
       lastStreamTargetEventId: "$old",
-      owner: "bridge",
       roomId: "!room:example.com",
       sessionKey: "agent:codex:session_1",
       updatedAt: 1,
@@ -1114,7 +1066,7 @@ describe("OpenClawBridgeConnector", () => {
     });
     const portal = {
       id: "agent:codex",
-      metadata: { openclaw: { agentId: "codex", ghostUserId: "@codex:example.com", sessionKey: "agent:codex" } },
+      metadata: { openclaw: { agentId: "codex", ghostUserId: "@codex:example.com" } },
       mxid: "!room:example.com",
       portalKey: { id: "agent:codex", receiver: "login" },
       receiver: "login",
@@ -1265,7 +1217,6 @@ describe("OpenClawBridgeConnector", () => {
     }));
     expect(runtime.transport.request).toHaveBeenCalledWith("sessions.create", expect.objectContaining({
       agentId: "main",
-      key: expect.stringMatching(/^agent:main:beeper:/u),
       label: "New OpenClaw Session",
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -1279,7 +1230,7 @@ describe("OpenClawBridgeConnector", () => {
       sessionKey: "agent:main:auto",
     });
     expect(registerPortal).toHaveBeenCalledWith(expect.objectContaining({
-      id: "session:YWdlbnQ6bWFpbjphdXRv",
+      id: "!cloud-room:example.com",
       metadata: {
         openclaw: {
           agentId: "main",
@@ -1290,7 +1241,7 @@ describe("OpenClawBridgeConnector", () => {
       },
       mxid: "!cloud-room:example.com",
       portalKey: {
-        id: "session:YWdlbnQ6bWFpbjphdXRv",
+        id: "!cloud-room:example.com",
         receiver: "openclaw:plugin",
       },
       receiver: "openclaw:plugin",
@@ -1387,99 +1338,31 @@ describe("OpenClawBridgeConnector", () => {
 
   });
 
-  it("rebuilds an OpenClaw room binding from a persisted Pickle session portal without metadata", async () => {
-    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-rebuild-binding-test.json");
-    const runtime = runtimeWith({
-      events: [{ event: "run.completed", payload: { runId: "run_rebuilt", type: "run.completed" } }],
-      responses: {
-        "beeper.turn": { runId: "run_rebuilt", sessionKey: "agent:codex:dashboard:one" },
-      },
-    });
-    runtime.config.homeserverDomain = "example.com";
-    const api = new OpenClawNetworkAPI({
-      config: runtime.config,
-      login: login(),
-      registry,
-      runtime,
-    });
-    const sessionKey = "agent:codex:dashboard:one";
-    const portal = {
-      id: `session:${Buffer.from(sessionKey).toString("base64url")}`,
-      mxid: "!session-room:example.com",
-      portalKey: { id: `session:${Buffer.from(sessionKey).toString("base64url")}`, receiver: "openclaw:plugin" },
-      receiver: "openclaw:plugin",
-    };
-
-    await api.handleMatrixMessage({} as BridgeRequestContext, {
-      event: { eventId: "$rebuilt" },
-      portal,
-      sender: { userId: "@alice:example.com" },
-      text: "hello from persisted portal",
-    } as MatrixMessage);
-
-    expect(registry.getBindingByRoom("!session-room:example.com")).toMatchObject({
-      agentId: "codex",
-      ghostUserId: "@sh-openclaw_agent_codex:example.com",
-      owner: "imported",
-      sessionKey,
-    });
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      message: "hello from persisted portal",
-      sessionKey,
-    }));
-  });
-
-  it("rebuilds an OpenClaw room binding from a cloud appservice session room id", async () => {
-    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-cloud-room-binding-test.json");
-    const runtime = runtimeWith({
-      events: [{ event: "run.completed", payload: { runId: "run_cloud", type: "run.completed" } }],
-      responses: {
-        "beeper.turn": { runId: "run_cloud", sessionKey: "agent:main:dashboard:abc" },
-      },
-    });
-    runtime.config.homeserverDomain = "beeper.local";
-    const api = new OpenClawNetworkAPI({
-      config: runtime.config,
-      login: login(),
-      registry,
-      runtime,
-    });
-    const sessionKey = "agent:main:dashboard:abc";
-    const roomId = `!session:${Buffer.from(sessionKey).toString("base64url")}.openclaw:plugin:beeper.local`;
-
-    await api.handleMatrixMessage({
-      log: vi.fn(),
-    } as unknown as BridgeRequestContext, {
-      event: { eventId: "$cloud-room" },
-      portal: {
-        id: roomId,
-        mxid: roomId,
-        portalKey: { id: roomId },
-      },
-      sender: { userId: "@alice:example.com" },
-      text: "hello from cloud room",
-    } as MatrixMessage);
-
-    expect(registry.getBindingByRoom(roomId)).toMatchObject({
-      agentId: "main",
-      ghostUserId: "@sh-openclaw_agent_main:beeper.local",
-      owner: "imported",
-      sessionKey,
-    });
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      message: "hello from cloud room",
-      sessionKey,
-    }));
-  });
-
 });
 
 function login(): UserLogin {
   return { id: "openclaw:plugin", metadata: {}, userId: "@alice:example.com" };
 }
 
+function codexGhost() {
+  const contact = {
+    agentId: "codex",
+    displayName: "Codex",
+    ghostUserId: "@sh-openclaw_agent_codex:localhost",
+  };
+  return {
+    displayName: "Codex",
+    id: "codex",
+    identifiers: ["openclaw:agent:codex", "@sh-openclaw_agent_codex:localhost"],
+    isBot: true,
+    metadata: { openclaw: contact },
+    mxid: "@sh-openclaw_agent_codex:localhost",
+    profile: { "com.beeper.openclaw.agent": contact },
+  };
+}
+
 function connectContext() {
-  const registerGhost = vi.fn();
+  const registerGhost = vi.fn(async () => {});
   const registerPortal = vi.fn();
   const createPortal = vi.fn(async (_login: UserLogin, portal: { id: string; metadata?: unknown; portalKey?: { id: string; receiver?: string } }) => ({
     ...portal,

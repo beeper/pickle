@@ -6,12 +6,7 @@ import { RuntimeBridge } from "./bridge";
 import { createBridgeDataStore, getOrCreateAppserviceDeviceId } from "./store";
 import type { CreateNodeBeeperBridgeOptions, CreateNodeBridgeOptions, PickleBridge } from "./types";
 
-export { createBridgeDataStore, MatrixBridgeDataStore } from "./store";
-export { BeeperBridgeManagerClient, createBeeperAppService, createBeeperAppServiceInit, createBeeperBridgeManagerClient, fetchBeeperBridges } from "./beeper";
-export type * from "./beeper";
-export type * from "./store";
-export type * from "./types";
-export { RuntimeBridge } from "./bridge";
+export type { CreateNodeBeeperBridgeOptions, CreateNodeBridgeOptions, PickleBridge };
 
 export function createBridge(options: CreateNodeBridgeOptions): PickleBridge {
   return new RuntimeBridge(options, createMatrixClient(options.matrix));
@@ -50,9 +45,7 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
     dataStore: options.dataStore ?? createBridgeDataStore(store),
     ...(options.log ? { log: options.log } : {}),
     matrix,
-  }, createMatrixClient({
-    ...matrix,
-  }));
+  }, createMatrixClient(matrix));
 }
 
 function requiredAccount(options: CreateNodeBeeperBridgeOptions) {

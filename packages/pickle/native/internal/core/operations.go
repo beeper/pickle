@@ -23,6 +23,8 @@ const (
 	opAppserviceEnsureRegistered = "appservice_ensure_registered"
 	// ts:operation appserviceEnsureJoined appservice_ensure_joined MatrixAppserviceRoomUserOptions void
 	opAppserviceEnsureJoined = "appservice_ensure_joined"
+	// ts:operation appserviceSetProfile appservice_set_profile MatrixAppserviceSetProfileOptions void
+	opAppserviceSetProfile = "appservice_set_profile"
 	// ts:operation appserviceCreateRoom appservice_create_room MatrixAppserviceCreateRoomOptions MatrixCreateRoomResult
 	opAppserviceCreateRoom = "appservice_create_room"
 	// ts:operation appserviceCreatePortalRoom appservice_create_portal_room MatrixAppserviceCreatePortalRoomOptions MatrixCreateRoomResult
@@ -111,6 +113,8 @@ const (
 	opCreateRoom = "create_room"
 	// ts:operation fetchRoom fetch_room MatrixFetchRoomOptions MatrixRoomInfo
 	opFetchRoom = "fetch_room"
+	// ts:operation fetchRoomPowerLevels fetch_room_power_levels MatrixFetchRoomPowerLevelsOptions MatrixRoomPowerLevels
+	opFetchRoomPowerLevels = "fetch_room_power_levels"
 	// ts:operation fetchRoomState fetch_room_state MatrixFetchRoomStateOptions MatrixFetchRoomStateResult
 	opFetchRoomState = "fetch_room_state"
 	// ts:operation fetchRoomStateEvent fetch_room_state_event MatrixFetchRoomStateEventOptions MatrixRoomStateEvent

@@ -14,6 +14,7 @@ import type {
   MatrixAppserviceInitOptions,
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceSetProfileOptions,
   MatrixAppserviceTransactionOptions,
   MatrixAppserviceUserOptions,
   MatrixBanUserOptions,
@@ -38,6 +39,7 @@ import type {
   MatrixFetchMessagesResult,
   MatrixFetchRoomMembersOptions,
   MatrixFetchRoomOptions,
+  MatrixFetchRoomPowerLevelsOptions,
   MatrixFetchRoomStateEventOptions,
   MatrixFetchRoomStateOptions,
   MatrixFetchRoomStateResult,
@@ -71,6 +73,7 @@ import type {
   MatrixResolveRoomAliasResult,
   MatrixRoomInfo,
   MatrixRoomMembersResult,
+  MatrixRoomPowerLevels,
   MatrixRoomStateEvent,
   MatrixSendEphemeralEventOptions,
   MatrixSendMediaMessageOptions,
@@ -109,6 +112,7 @@ export interface MatrixCoreOperations {
   initAppservice(options: MatrixAppserviceInitOptions): Promise<MatrixAppserviceInfo>;
   appserviceEnsureRegistered(options: MatrixAppserviceUserOptions): Promise<void>;
   appserviceEnsureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void>;
+  appserviceSetProfile(options: MatrixAppserviceSetProfileOptions): Promise<void>;
   appserviceCreateRoom(options: MatrixAppserviceCreateRoomOptions): Promise<MatrixCreateRoomResult>;
   appserviceCreatePortalRoom(options: MatrixAppserviceCreatePortalRoomOptions): Promise<MatrixCreateRoomResult>;
   appserviceCreateManagementRoom(options: MatrixAppserviceCreateManagementRoomOptions): Promise<MatrixCreateRoomResult>;
@@ -153,6 +157,7 @@ export interface MatrixCoreOperations {
   downloadEncryptedMedia(options: MatrixDownloadEncryptedMediaOptions): Promise<MatrixDownloadMediaResult>;
   createRoom(options: MatrixCreateRoomOptions): Promise<MatrixCreateRoomResult>;
   fetchRoom(options: MatrixFetchRoomOptions): Promise<MatrixRoomInfo>;
+  fetchRoomPowerLevels(options: MatrixFetchRoomPowerLevelsOptions): Promise<MatrixRoomPowerLevels>;
   fetchRoomState(options: MatrixFetchRoomStateOptions): Promise<MatrixFetchRoomStateResult>;
   fetchRoomStateEvent(options: MatrixFetchRoomStateEventOptions): Promise<MatrixRoomStateEvent>;
   sendRoomStateEvent(options: MatrixSendRoomStateEventOptions): Promise<MatrixRawMessage>;
@@ -221,6 +226,10 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   appserviceEnsureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void> {
     return this.call<void>("appservice_ensure_joined", options);
+  }
+
+  appserviceSetProfile(options: MatrixAppserviceSetProfileOptions): Promise<void> {
+    return this.call<void>("appservice_set_profile", options);
   }
 
   appserviceCreateRoom(options: MatrixAppserviceCreateRoomOptions): Promise<MatrixCreateRoomResult> {
@@ -397,6 +406,10 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   fetchRoom(options: MatrixFetchRoomOptions): Promise<MatrixRoomInfo> {
     return this.call<MatrixRoomInfo>("fetch_room", options);
+  }
+
+  fetchRoomPowerLevels(options: MatrixFetchRoomPowerLevelsOptions): Promise<MatrixRoomPowerLevels> {
+    return this.call<MatrixRoomPowerLevels>("fetch_room_power_levels", options);
   }
 
   fetchRoomState(options: MatrixFetchRoomStateOptions): Promise<MatrixFetchRoomStateResult> {

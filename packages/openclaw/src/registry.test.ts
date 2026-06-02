@@ -20,8 +20,6 @@ describe("OpenClawBridgeRegistry", () => {
       createdAt: 1,
       ghostUserId: "@sh-openclaw_agent_codex:example.com",
       id: "binding",
-      kind: "session",
-      owner: "bridge",
       roomId: "!room:example.com",
       sessionKey: "agent:codex:main",
       updatedAt: 1,

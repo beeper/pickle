@@ -5,7 +5,6 @@ import {
   type ParsedApprovalResponse,
 } from "./approval";
 import {
-  BEEPER_SESSION_REASONING_LEVEL,
   type OpenClawMatrixMessageMetadata,
   type OpenClawRunRef,
   type OpenClawSessionCreateOptions,
@@ -105,23 +104,24 @@ export class OpenClawMatrixBridgeAgent {
   }
 
   async ensureSession(binding: OpenClawSessionBinding): Promise<string> {
-    if (binding.sessionKey !== agentPortalSessionKey(binding.agentId)) {
+    if (binding.sessionKey) {
       await this.ensureSessionConfiguration({
         agentId: binding.agentId,
         key: binding.sessionKey,
-        reasoningLevel: BEEPER_SESSION_REASONING_LEVEL,
+        reasoningLevel: "stream",
+        verboseLevel: "full",
       });
       return binding.sessionKey;
     }
     const createOptions: OpenClawSessionCreateOptions = {
       agentId: binding.agentId,
-      reasoningLevel: BEEPER_SESSION_REASONING_LEVEL,
+      reasoningLevel: "stream",
+      verboseLevel: "full",
     };
     if (binding.label !== undefined) createOptions.label = binding.label;
     const session = await this.runtime.createSession(createOptions);
     this.registry.updateBinding(binding.id, (current) => ({
       ...current,
-      kind: "session",
       sessionKey: session.key,
       updatedAt: Date.now(),
     }));
@@ -134,8 +134,4 @@ export class OpenClawMatrixBridgeAgent {
     await this.runtime.patchSession(options);
     this.#configuredSessions.add(options.key);
   }
-}
-
-export function agentPortalSessionKey(agentId: string): string {
-  return `agent:${agentId}`;
 }

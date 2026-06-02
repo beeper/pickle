@@ -16,12 +16,12 @@ import {
   type RemoteTyping,
   type SentEvent,
   type UserLogin,
-} from "@beeper/pickle-bridge";
+} from "@beeper/pickle-bridge/types";
 import { createRemoteChatInfoChange, createRemoteMessage } from "@beeper/pickle-bridge/events";
 import { BeeperTurnStream } from "@beeper/pickle-bridge/beeper-stream";
 import { bridgeMediaMessageContent, type BridgeMediaKind } from "@beeper/pickle-bridge/media-message";
 import { AGUIEventType } from "./beeper-turn-events";
-import type { OpenClawAgentContact, OpenClawSessionBinding } from "./types";
+import type { OpenClawAgentContact, OpenClawBeeperChannelInfo, OpenClawSessionBinding } from "./types";
 
 export const BEEPER_CHANNEL_RUNTIME_CONTEXT_CAPABILITY = "beeper.runtime";
 
@@ -69,6 +69,18 @@ export class BeeperChannelRuntime {
 
   listAgents(): readonly OpenClawAgentContact[] {
     return this.#getAgents();
+  }
+
+  getRoomInfo(options: { roomId: string }): OpenClawBeeperChannelInfo {
+    const route = this.#bridgeRoute(options.roomId);
+    const binding = this.#resolveBinding(options.roomId);
+    const agent = binding?.agentId ? this.#getAgents().find((candidate) => candidate.agentId === binding.agentId) : undefined;
+    return {
+      ...(agent ? { agent } : {}),
+      ...(binding ? { binding } : {}),
+      portalKey: route.portalKey,
+      roomId: route.targetRoomId,
+    };
   }
 
   async sendText(options: {

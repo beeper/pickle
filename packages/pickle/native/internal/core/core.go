@@ -94,6 +94,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleAppserviceEnsureRegistered(ctx, payload)
 	case opAppserviceEnsureJoined:
 		return c.handleAppserviceEnsureJoined(ctx, payload)
+	case opAppserviceSetProfile:
+		return c.handleAppserviceSetProfile(ctx, payload)
 	case opAppserviceCreateRoom:
 		return c.handleAppserviceCreateRoom(ctx, payload)
 	case opAppserviceCreatePortalRoom:
@@ -182,6 +184,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleCreateRoom(ctx, payload)
 	case opFetchRoom:
 		return c.handleFetchRoom(ctx, payload)
+	case opFetchRoomPowerLevels:
+		return c.handleFetchRoomPowerLevels(ctx, payload)
 	case opFetchRoomState:
 		return c.handleFetchRoomState(ctx, payload)
 	case opFetchRoomStateEvent:

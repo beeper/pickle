@@ -21,6 +21,8 @@ import type {
 import type { BridgeDataStore } from "./store";
 import type { BeeperTurnStream, CreateBeeperTurnStreamOptions } from "./beeper-stream";
 
+export type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle";
+
 export type BridgeID = string;
 export type UserID = string;
 export type UserLoginID = string;
@@ -539,7 +541,7 @@ export interface PickleBridge {
   loadUserLogin(login: UserLogin): Promise<NetworkAPI>;
   queue(login: UserLogin): RemoteEventQueue;
   queueRemoteEvent(login: UserLogin, event: RemoteEvent): QueueRemoteEventResult;
-  registerGhost(ghost: Ghost): void;
+  registerGhost(ghost: Ghost): Promise<void>;
   registerManagementRoom(room: ManagementRoom): void;
   registerPortal(portal: Portal): void;
   resolveIdentifier(login: UserLogin, identifier: ResolveIdentifierParams): Promise<ResolveIdentifierResponse>;
@@ -848,8 +850,11 @@ export interface Ghost {
   avatar?: Avatar;
   displayName?: string;
   id: GhostID;
+  identifiers?: string[];
+  isBot?: boolean;
   metadata?: unknown;
   mxid?: string;
+  profile?: Record<string, unknown>;
 }
 
 export type BridgeState = "starting" | "running" | "stopping" | "stopped" | "degraded" | "error";

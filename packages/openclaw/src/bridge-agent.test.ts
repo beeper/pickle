@@ -54,7 +54,8 @@ describe("OpenClawMatrixBridgeAgent", () => {
     expect(runtime.transport.request).toHaveBeenCalledWith("sessions.patch", {
       agentId: "codex",
       key: "agent:codex:main",
-      reasoningLevel: "on",
+      reasoningLevel: "stream",
+      verboseLevel: "full",
     });
     expect(registry.getBindingByRoom("!room:example.com")?.lastRunId).toBe("run_1");
   });
@@ -186,9 +187,10 @@ describe("OpenClawMatrixBridgeAgent", () => {
 
   it("creates an OpenClaw session before sending the first message in an agent contact DM", async () => {
     const registry = await tempRegistry();
+    const pendingBinding = testBinding();
+    delete pendingBinding.sessionKey;
     registry.upsertBinding({
-      ...testBinding(),
-      sessionKey: "agent:codex",
+      ...pendingBinding,
     });
     const runtime = runtimeWith({
       events: [
@@ -214,7 +216,8 @@ describe("OpenClawMatrixBridgeAgent", () => {
     expect(runtime.transport.request).toHaveBeenCalledWith("sessions.patch", {
       agentId: "codex",
       key: "agent:codex:session_1",
-      reasoningLevel: "on",
+      reasoningLevel: "stream",
+      verboseLevel: "full",
     });
     expect(sendTurn).toHaveBeenCalledWith({
       idempotencyKey: "$event",
@@ -284,8 +287,6 @@ function testBinding(): OpenClawSessionBinding {
     createdAt: 1,
     ghostUserId: "@sh-openclaw_agent_codex:example.com",
     id: "binding",
-    kind: "session",
-    owner: "bridge",
     roomId: "!room:example.com",
     sessionKey: "agent:codex:main",
     updatedAt: 1,

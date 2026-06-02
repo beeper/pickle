@@ -53,6 +53,18 @@ export interface MatrixAppserviceRoomUserOptions {
   roomId: string;
   userId: string;
 }
+export interface MatrixAppserviceSetProfileOptions {
+  avatarUrl?: string;
+  displayName?: string;
+  extra?: { [key: string]: unknown };
+  identifiers?: string[];
+  isBridgeBot?: boolean;
+  isNetworkBot?: boolean;
+  network?: string;
+  remoteId?: string;
+  service?: string;
+  userId: string;
+}
 export interface MatrixAppserviceCreateRoomOptions extends MatrixCreateRoomOptions {
   userId?: string;
 }
@@ -385,9 +397,25 @@ export interface MatrixReactionOptions {
 export interface MatrixFetchRoomOptions {
   roomId: string;
 }
+export interface MatrixFetchRoomPowerLevelsOptions {
+  roomId: string;
+}
+export interface MatrixRoomPowerLevels {
+  ban?: number /* float64 */;
+  events?: { [key: string]: number /* float64 */};
+  eventsDefault?: number /* float64 */;
+  invite?: number /* float64 */;
+  kick?: number /* float64 */;
+  notifications?: { [key: string]: number /* float64 */};
+  raw: { [key: string]: unknown};
+  redact?: number /* float64 */;
+  stateDefault?: number /* float64 */;
+  users?: { [key: string]: number /* float64 */};
+  usersDefault?: number /* float64 */;
+}
 export interface MatrixRoomStateInput {
   content: { [key: string]: unknown };
-  stateKey: string;
+  stateKey?: string;
   type: string;
 }
 export interface MatrixCreateRoomOptions {

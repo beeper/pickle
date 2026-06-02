@@ -2,7 +2,7 @@ import { createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugi
 import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk/channel-core";
 import type { ChatType } from "openclaw/plugin-sdk/core";
 import type { ChannelAccountSnapshot, ChannelCapabilities, ChannelGatewayContext, ChannelMessageActionName } from "openclaw/plugin-sdk/channel-contract";
-import type { BridgeLogger } from "@beeper/pickle-bridge";
+import type { BridgeLogger } from "@beeper/pickle-bridge/types";
 import { createConfigFromOpenClawSetup, defaultDataDir } from "./config";
 import beeperChannelConfigSchema from "./beeper-channel-config.schema.json";
 import type { setupOpenClawBeeperBridge, SetupOpenClawBeeperBridgeOptions } from "./beeper-setup";
@@ -14,17 +14,21 @@ import { OpenClawBridgeRegistry, defaultRegistryPath } from "./registry";
 export type OpenClawSetupConfig = OpenClawConfig;
 
 export interface BeeperChannelSettings {
-  appserviceId?: string;
-  asToken?: string;
   beeperEnv?: "production" | "staging" | "dev" | "local";
-  bridgeId?: string;
+  bridge?: BeeperGeneratedBridgeSettings;
   dataDir?: string;
   enabled?: boolean;
+}
+
+export interface BeeperGeneratedBridgeSettings {
+  appserviceId?: string;
+  asToken?: string;
+  bridgeId?: string;
   homeserver?: string;
+  homeserverDomain?: string;
   hsToken?: string;
   matrixDeviceId?: string;
   matrixUserId?: string;
-  homeserverDomain?: string;
 }
 
 export interface BeeperSetupInput {
@@ -450,9 +454,8 @@ const beeperMessageToolActions = [
   "react",
   "read",
   "mark_unread",
-  "set-room-name",
-  "set-room-topic",
-  "set-room-avatar",
+  "channel-info",
+  "channel-edit",
 ] as const;
 
 type BeeperMessageToolAction = typeof beeperMessageToolActions[number];
@@ -463,8 +466,8 @@ type BeeperActionContext = {
   sessionKey?: string | null;
 };
 
-function beeperToolTextResult(text: string) {
-  return { content: [{ type: "text" as const, text }], details: {} };
+function beeperToolTextResult(text: string, details: Record<string, unknown> = {}) {
+  return { content: [{ type: "text" as const, text }], details };
 }
 
 const beeperActionHandlers: Record<BeeperMessageToolAction, (ctx: BeeperActionContext) => Promise<ReturnType<typeof beeperToolTextResult>>> = {
@@ -519,27 +522,35 @@ const beeperActionHandlers: Record<BeeperMessageToolAction, (ctx: BeeperActionCo
     await runtime.markUnread({ eventId, roomId, unread });
     return beeperToolTextResult(`${unread ? "Marked" : "Unmarked"} Beeper room unread`);
   },
-  "set-room-name": async (ctx) => {
+  "channel-info": async (ctx) => {
     const runtime = requireBeeperChannelRuntime();
-    const roomId = readRequiredBeeperRoomId(ctx.params);
-    const name = readRequiredString(ctx.params, "name");
-    await runtime.setRoomName({ name, roomId });
-    return beeperToolTextResult("Updated Beeper room name");
+    const roomId = readRequiredBeeperRoomId(ctx.params, "channelId", "roomId");
+    const info = runtime.getRoomInfo({ roomId });
+    return beeperToolTextResult(`Beeper channel ${roomId}`, {
+      action: "channel-info",
+      channel: info,
+      ok: true,
+    });
   },
-  "set-room-topic": async (ctx) => {
+  "channel-edit": async (ctx) => {
     const runtime = requireBeeperChannelRuntime();
-    const roomId = readRequiredBeeperRoomId(ctx.params);
-    const topic = readRequiredString(ctx.params, "topic");
-    await runtime.setRoomTopic({ roomId, topic });
-    return beeperToolTextResult("Updated Beeper room topic");
-  },
-  "set-room-avatar": async (ctx) => {
-    const runtime = requireBeeperChannelRuntime();
-    const roomId = readRequiredBeeperRoomId(ctx.params);
-    const avatarMxc = readRequiredString(ctx.params, "avatarMxc");
-    if (!avatarMxc.startsWith("mxc://")) throw new Error("Beeper room avatar must be an mxc:// URI.");
-    await runtime.setRoomAvatar({ avatarMxc, roomId });
-    return beeperToolTextResult("Updated Beeper room avatar");
+    const roomId = readRequiredBeeperRoomId(ctx.params, "channelId", "roomId");
+    const name = readOptionalString(ctx.params, "name", "displayName", "title");
+    const topic = readOptionalString(ctx.params, "topic", "description");
+    const avatarMxc = readOptionalString(ctx.params, "avatarMxc", "avatarUrl", "icon");
+    if (!name && !topic && !avatarMxc) throw new Error("Beeper channel-edit requires name, topic, or avatarMxc.");
+    if (name) await runtime.setRoomName({ name, roomId });
+    if (topic) await runtime.setRoomTopic({ roomId, topic });
+    if (avatarMxc) {
+      if (!avatarMxc.startsWith("mxc://")) throw new Error("Beeper channel avatar must be an mxc:// URI.");
+      await runtime.setRoomAvatar({ avatarMxc, roomId });
+    }
+    return beeperToolTextResult("Updated Beeper channel", {
+      action: "channel-edit",
+      channelId: roomId,
+      ok: true,
+      updates: stripUndefined({ avatarMxc, name, topic }),
+    });
   },
 };
 
@@ -732,7 +743,7 @@ export const beeperStatusAdapter = {
       enabled: settings.enabled !== false,
       extra: {
         beeperEnv: settings.beeperEnv ?? "production",
-        homeserver: settings.homeserver,
+        homeserver: settings.bridge?.homeserver,
       },
       name: "Beeper",
       running: runtime?.running === true,
@@ -770,14 +781,16 @@ export async function applyBeeperSetupConfig(params: {
     ...baseSettings,
     enabled: true,
   };
-  if (result.config.homeserver) setupSettings.homeserver = result.config.homeserver;
-  if (result.config.appserviceId) setupSettings.appserviceId = result.config.appserviceId;
-  if (result.config.asToken) setupSettings.asToken = result.config.asToken;
-  if (result.config.bridgeId) setupSettings.bridgeId = result.config.bridgeId;
-  if (result.config.homeserverDomain) setupSettings.homeserverDomain = result.config.homeserverDomain;
-  if (result.config.hsToken) setupSettings.hsToken = result.config.hsToken;
-  if (result.config.matrixDeviceId) setupSettings.matrixDeviceId = result.config.matrixDeviceId;
-  if (result.config.matrixUserId) setupSettings.matrixUserId = result.config.matrixUserId;
+  const bridgeSettings: BeeperGeneratedBridgeSettings = {};
+  if (result.config.appserviceId) bridgeSettings.appserviceId = result.config.appserviceId;
+  if (result.config.asToken) bridgeSettings.asToken = result.config.asToken;
+  if (result.config.bridgeId) bridgeSettings.bridgeId = result.config.bridgeId;
+  if (result.config.homeserver) bridgeSettings.homeserver = result.config.homeserver;
+  if (result.config.homeserverDomain) bridgeSettings.homeserverDomain = result.config.homeserverDomain;
+  if (result.config.hsToken) bridgeSettings.hsToken = result.config.hsToken;
+  if (result.config.matrixDeviceId) bridgeSettings.matrixDeviceId = result.config.matrixDeviceId;
+  if (result.config.matrixUserId) bridgeSettings.matrixUserId = result.config.matrixUserId;
+  setupSettings.bridge = bridgeSettings;
   return applyBeeperChannelSettings(params.cfg, setupSettings);
 }
 
@@ -913,8 +926,8 @@ function resolveBeeperRoomTarget(target: string): string {
   return normalized;
 }
 
-function readRequiredBeeperRoomId(params: Record<string, unknown>): string {
-  return resolveBeeperRoomTarget(readRequiredString(params, "roomId"));
+function readRequiredBeeperRoomId(params: Record<string, unknown>, ...keys: string[]): string {
+  return resolveBeeperRoomTarget(readRequiredString(params, ...(keys.length > 0 ? keys : ["roomId"])));
 }
 
 function isBeeperMessageToolAction(action: string): action is BeeperMessageToolAction {
@@ -975,6 +988,14 @@ function readRequiredString(params: Record<string, unknown>, ...keys: string[]):
     if (value) return value;
   }
   throw new Error(`Missing required Beeper action parameter: ${keys.join(" or ")}`);
+}
+
+function readOptionalString(params: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = stringValue(params[key]);
+    if (value) return value;
+  }
+  return undefined;
 }
 
 function stringifyOptional(value: string | number | null | undefined): string | undefined {
@@ -1249,13 +1270,14 @@ export function getBeeperChannelSettings(cfg: OpenClawSetupConfig): BeeperChanne
 
 export function isBeeperChannelConfigured(cfg: OpenClawSetupConfig): boolean {
   const settings = getBeeperChannelSettings(cfg);
+  const bridge = settings.bridge;
   return Boolean(
     settings.enabled &&
-    settings.asToken &&
-    settings.homeserver &&
-    settings.hsToken &&
-    settings.matrixDeviceId &&
-    settings.matrixUserId
+    bridge?.asToken &&
+    bridge.homeserver &&
+    bridge.hsToken &&
+    bridge.matrixDeviceId &&
+    bridge.matrixUserId
   );
 }
 

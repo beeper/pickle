@@ -481,7 +481,7 @@ func (s *beeperAIRunState) appendPart(req MatrixBeeperAIRunPartOptions) error {
 			result = commandToolOutput(req)
 		}
 		content := firstNonEmpty(req.Text, beeperAIJSONString(result))
-		if content != "" {
+		if content != "" || !req.Preliminary {
 			before := len(s.run.Events)
 			s.writer.ToolResult(toolCallID, content, state)
 			s.annotateToolResult(before, req)

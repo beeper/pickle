@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loginWithPassword } from "@beeper/pickle/auth";
-import { createBeeperBridge } from "@beeper/pickle-bridge";
+import { createBeeperBridge } from "@beeper/pickle-bridge/node";
 import type { CreateNodeBeeperBridgeOptions, Portal } from "@beeper/pickle-bridge/types";
 import { DUMMY_CHAT_IDS, DummyConnector, LOGIN_ID, PORTAL_ID } from "./connector";
 import { loadEnv, optionalEnv, requiredEnv } from "./env";

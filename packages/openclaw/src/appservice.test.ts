@@ -1,4 +1,4 @@
-import type { CreateNodeBeeperBridgeOptions, PickleBridge } from "@beeper/pickle-bridge";
+import type { CreateNodeBeeperBridgeOptions, PickleBridge } from "@beeper/pickle-bridge/node";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
 import { createOpenClawBeeperBridge, startOpenClawBeeperBridge } from "./appservice";

@@ -2,7 +2,7 @@ import {
   createBeeperBridge,
   type CreateNodeBeeperBridgeOptions,
   type PickleBridge,
-} from "@beeper/pickle-bridge";
+} from "@beeper/pickle-bridge/node";
 import type { MatrixAppserviceInitOptions, MatrixAppserviceRegistration } from "@beeper/pickle-bridge/beeper";
 import { beeperBaseDomain } from "./beeper-setup";
 import { DEFAULT_BEEPER_BRIDGE_TYPE } from "./ids";

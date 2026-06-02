@@ -33,6 +33,22 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     expect(transport.request).toHaveBeenCalledWith("agents.list", {});
   });
 
+  it("uses the agent id as the default ghost name when OpenClaw has no explicit agent list", async () => {
+    const transport = createOpenClawHostRuntimeAdapter({
+      config: {
+        current: () => ({
+          agents: {
+            defaults: { workspace: "/tmp/openclaw/workspace" },
+          },
+        }),
+      },
+    });
+
+    await expect(transport.request("agents.list", {})).resolves.toEqual({
+      agents: [{ id: "main", displayName: "main" }],
+    });
+  });
+
   it("creates sessions through OpenClaw RPC and rejects sends without a host channel runtime", async () => {
     const transport = fakeTransport({
       "sessions.create": { key: "agent:codex:main", sessionId: "session_1" },
@@ -63,7 +79,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       transport,
     });
 
-    await expect(runtime.createSession({ agentId: "codex", label: "Main", reasoningLevel: "on" })).resolves.toMatchObject({
+    await expect(runtime.createSession({ agentId: "codex", label: "Main", reasoningLevel: "stream" })).resolves.toMatchObject({
       agentId: "codex",
       key: "agent:codex:main",
       label: "Main",
@@ -75,7 +91,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     expect(transport.request).toHaveBeenCalledWith("sessions.patch", {
       agentId: "codex",
       key: "agent:codex:main",
-      reasoningLevel: "on",
+      reasoningLevel: "stream",
     });
   });
 
@@ -663,6 +679,9 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       expect.objectContaining({ kind: "tool_result", output: "loading", preliminary: true, toolCallId: "tool-c", toolName: "search" }),
       expect.objectContaining({ kind: "tool_result", output: "checking docs", preliminary: true, toolCallId: "plan", toolName: "plan" }),
       expect.objectContaining({ kind: "tool_result", output: "stdout", preliminary: true, toolCallId: "cmd-1", toolName: "shell" }),
+      expect.objectContaining({ kind: "tool_result", state: "complete", toolCallId: "tool-c", toolName: "search" }),
+      expect.objectContaining({ kind: "tool_result", state: "complete", toolCallId: "plan", toolName: "plan" }),
+      expect.objectContaining({ kind: "tool_result", state: "complete", toolCallId: "cmd-1", toolName: "shell" }),
       expect.objectContaining({
         input: {
           command: "/bin/zsh -lc \"date '+%Y-%m-%d %H:%M:%S %Z'\"",
@@ -841,7 +860,7 @@ function createTestBeeperChannelRuntime(aiRunStreams: ReturnType<typeof createTe
       } as never,
     })),
     flushRemoteEvents: vi.fn(async () => undefined),
-    getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+    getPortalByMXID: vi.fn(() => ({ portalKey: { id: "conversation:one", receiver: "openclaw:plugin" } })),
     queueRemoteEvent: vi.fn(),
   };
   return new BeeperChannelRuntime({
@@ -857,8 +876,6 @@ function createTestBeeperChannelRuntime(aiRunStreams: ReturnType<typeof createTe
           createdAt: 1,
           ghostUserId: "@sh-openclaw_agent_main:example",
           id: "binding",
-          kind: "session",
-          owner: "bridge",
           roomId,
           sessionKey: "agent:main:beeper:room",
           updatedAt: 1,
@@ -870,8 +887,6 @@ function createTestBeeperChannelRuntime(aiRunStreams: ReturnType<typeof createTe
           createdAt: 1,
           ghostUserId: "@sh-openclaw_agent_main:example",
           id: "binding",
-          kind: "session",
-          owner: "bridge",
           roomId: "!room:example",
           sessionKey,
           updatedAt: 1,

@@ -167,6 +167,62 @@ func TestAppserviceTransactionEmitsMautrixClassifiedEvents(t *testing.T) {
 	assertEmittedSyncEvent(t, emitted, "account_data", "m.marked_unread", "!room:example")
 }
 
+func TestAppserviceSetProfileUpdatesGhostProfile(t *testing.T) {
+	requests := make(chan recordedRequest, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.Method + " " + r.URL.RequestURI()}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	initPayload, err := json.Marshal(MatrixAppserviceInitOptions{
+		Homeserver:       server.URL,
+		HomeserverDomain: "example",
+		Registration: MatrixAppserviceRegistration{
+			AppToken:        "as-token",
+			ID:              "test",
+			SenderLocalpart: "testbot",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleInitAppservice(context.Background(), initPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := json.Marshal(MatrixAppserviceSetProfileOptions{
+		AvatarURL:    ptr("mxc://example/avatar"),
+		DisplayName:  ptr("Agent Main"),
+		Identifiers:  []string{"openclaw:agent:main"},
+		IsBridgeBot:  ptr(false),
+		IsNetworkBot: ptr(true),
+		Network:      "openclaw",
+		RemoteID:     "agent_main",
+		Service:      "openclaw",
+		UserID:       "@test_agent_main:example",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleAppserviceSetProfile(context.Background(), payload); err != nil {
+		t.Fatal(err)
+	}
+
+	expectRecordedRequest(t, requests, "POST", "/register", `"username":"test_agent_main"`)
+	expectRecordedRequest(t, requests, "PUT", "/displayname", `"displayname":"Agent Main"`)
+	expectRecordedRequest(t, requests, "PUT", "/avatar_url", `"avatar_url":"mxc://example/avatar"`)
+	waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.HasPrefix(req.path, "PATCH ") &&
+			strings.Contains(req.path, "/profile/") &&
+			strings.Contains(req.body, `"com.beeper.bridge.remote_id":"agent_main"`) &&
+			strings.Contains(req.body, `"com.beeper.bridge.identifiers":["openclaw:agent:main"]`)
+	})
+}
+
 func TestBeeperStreamClientUsesAppserviceBotDevice(t *testing.T) {
 	core := New(nil)
 	mainClient, err := mautrix.NewClient("https://matrix.example/_hungryserv/alice", id.UserID("@bot:example"), "login-token")
@@ -518,6 +574,13 @@ func TestBeeperAIRunStreamUsesCanonicalAIBridgeRun(t *testing.T) {
 	if !strings.Contains(replacementBody, `"com.beeper.ai"`) || !strings.Contains(replacementBody, `"hello"`) {
 		t.Fatalf("expected final replacement to use ai-bridge final content, got %s", replacementBody)
 	}
+	var replacementContent map[string]any
+	if err = json.Unmarshal([]byte(replacementBody), &replacementContent); err != nil {
+		t.Fatal(err)
+	}
+	if replacementContent["body"] != "hello" {
+		t.Fatalf("expected final replacement top-level body to preserve rendered text, got %#v", replacementContent["body"])
+	}
 }
 
 func TestBeeperAIRunStreamStartUsesInitialTextPartForAnchorPreview(t *testing.T) {
@@ -683,6 +746,19 @@ func waitForRecordedRequest(t *testing.T, requests <-chan recordedRequest, match
 			t.Fatal("timed out waiting for recorded request")
 		}
 	}
+}
+
+func expectRecordedRequest(t *testing.T, requests <-chan recordedRequest, method string, pathFragment string, bodyFragment string) {
+	t.Helper()
+	waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.HasPrefix(req.path, method+" ") &&
+			strings.Contains(req.path, pathFragment) &&
+			strings.Contains(req.body, bodyFragment)
+	})
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }
 
 func mustJSON(t *testing.T, value any) json.RawMessage {

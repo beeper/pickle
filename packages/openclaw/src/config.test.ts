@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
@@ -46,7 +46,7 @@ describe("OpenClaw bridge config", () => {
     const config = createConfigFromOpenClawSetup({
       channels: {
         beeper: {
-          appserviceId: "custom-openclaw",
+          bridge: { appserviceId: "custom-openclaw" },
           dataDir: "/tmp/openclaw-bridge",
         },
       },
@@ -84,5 +84,37 @@ describe("OpenClaw bridge config", () => {
     });
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     await expect(readConfig(path)).resolves.toMatchObject(config);
+  });
+
+  it("reads setup-shaped config from generated channels.beeper.bridge state", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-setup-config-"));
+    const path = join(dir, "config.json");
+    await writeFile(path, `${JSON.stringify({
+      channels: {
+        beeper: {
+          beeperEnv: "staging",
+          dataDir: dir,
+          bridge: {
+            appserviceId: "sh-openclaw-device",
+            asToken: "as-secret",
+            homeserver: "https://matrix.example",
+            hsToken: "hs-secret",
+            matrixDeviceId: "DEVICE",
+            matrixUserId: "@alice:example",
+          },
+        },
+      },
+    }, null, 2)}\n`);
+
+    await expect(readConfig(path)).resolves.toMatchObject({
+      appserviceId: "sh-openclaw-device",
+      asToken: "as-secret",
+      beeperEnv: "staging",
+      dataDir: dir,
+      homeserver: "https://matrix.example",
+      hsToken: "hs-secret",
+      matrixDeviceId: "DEVICE",
+      matrixUserId: "@alice:example",
+    });
   });
 });

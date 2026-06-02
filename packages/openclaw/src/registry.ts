@@ -72,8 +72,8 @@ export class OpenClawBridgeRegistry {
 
   upsertBinding(binding: OpenClawSessionBinding): void {
     const index = this.#data.bindings.findIndex((item) => item.id === binding.id);
-    if (index === -1) this.#data.bindings.push(binding);
-    else this.#data.bindings[index] = binding;
+    if (index === -1) this.#data.bindings.push(normalizeBinding(binding));
+    else this.#data.bindings[index] = normalizeBinding(binding);
   }
 
   updateBinding(
@@ -110,8 +110,29 @@ function normalizeRegistry(value: unknown): OpenClawBridgeRegistryData {
   const data = value as Partial<OpenClawBridgeRegistryData>;
   return {
     agents: Array.isArray(data.agents) ? data.agents : [],
-    bindings: Array.isArray(data.bindings) ? data.bindings : [],
+    bindings: Array.isArray(data.bindings) ? data.bindings.map(normalizeBinding).filter(Boolean) : [],
     dedupe: data.dedupe && typeof data.dedupe === "object" ? data.dedupe : {},
     schemaVersion: 1,
+  };
+}
+
+function normalizeBinding(value: unknown): OpenClawSessionBinding {
+  const binding = value as OpenClawSessionBinding;
+  return {
+    agentId: binding.agentId,
+    createdAt: binding.createdAt,
+    ghostUserId: binding.ghostUserId,
+    id: binding.id,
+    ...(binding.cwd ? { cwd: binding.cwd } : {}),
+    ...(binding.humanGhostUserId ? { humanGhostUserId: binding.humanGhostUserId } : {}),
+    ...(binding.label ? { label: binding.label } : {}),
+    ...(binding.lastMatrixEventId ? { lastMatrixEventId: binding.lastMatrixEventId } : {}),
+    ...(binding.lastRunId ? { lastRunId: binding.lastRunId } : {}),
+    ...(binding.lastStreamRunId ? { lastStreamRunId: binding.lastStreamRunId } : {}),
+    ...(binding.lastStreamTargetEventId ? { lastStreamTargetEventId: binding.lastStreamTargetEventId } : {}),
+    roomId: binding.roomId,
+    ...(binding.sessionKey ? { sessionKey: binding.sessionKey } : {}),
+    ...(binding.spaceId ? { spaceId: binding.spaceId } : {}),
+    updatedAt: binding.updatedAt,
   };
 }

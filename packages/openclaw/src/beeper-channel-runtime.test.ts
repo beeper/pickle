@@ -110,7 +110,7 @@ function createBridge(client: ReturnType<typeof createClient> | ReturnType<typeo
       client: client as never,
     })),
     flushRemoteEvents: vi.fn(async () => undefined),
-    getPortalByMXID: vi.fn(() => ({ portalKey: { id: "session:one", receiver: "openclaw:plugin" } })),
+    getPortalByMXID: vi.fn(() => ({ portalKey: { id: "conversation:one", receiver: "openclaw:plugin" } })),
     queueRemoteEvent: vi.fn((_login: unknown, event: unknown) => queued.push(event)),
     uploadMedia: vi.fn((options: Parameters<ReturnType<typeof createClient>["media"]["upload"]>[0]) => client.media.upload(options)),
   };
@@ -161,8 +161,6 @@ describe("BeeperChannelRuntime", () => {
         createdAt: 1,
         ghostUserId: "@codex:example",
         id: "binding",
-        kind: "session",
-        owner: "bridge",
         roomId: "!room",
         sessionKey: "session_1",
         updatedAt: 1,
@@ -228,7 +226,7 @@ describe("BeeperChannelRuntime", () => {
     const bridge = createBridge(client, queued);
     bridge.getPortalByMXID.mockImplementation((roomId: string) =>
         roomId === "!room"
-          ? { portalKey: { id: "session:one", receiver: "openclaw:plugin" } }
+          ? { portalKey: { id: "conversation:one", receiver: "openclaw:plugin" } }
           : undefined
       );
     const runtime = new BeeperChannelRuntime({
@@ -240,8 +238,6 @@ describe("BeeperChannelRuntime", () => {
               createdAt: 1,
               ghostUserId: "@main:example",
               id: "binding",
-              kind: "session",
-              owner: "bridge",
               roomId: "!room",
               sessionKey,
               updatedAt: 1,
@@ -275,8 +271,6 @@ describe("BeeperChannelRuntime", () => {
         createdAt: 1,
         ghostUserId: "@codex:example",
         id: "binding",
-        kind: "session",
-        owner: "bridge",
         roomId: "!room",
         sessionKey: "agent:codex:desktop",
         updatedAt: 1,

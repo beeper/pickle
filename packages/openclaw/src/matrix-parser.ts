@@ -1,4 +1,4 @@
-import type { MatrixMessage } from "@beeper/pickle-bridge";
+import type { MatrixMessage } from "@beeper/pickle-bridge/types";
 
 export interface ParsedMatrixTextMessage {
   attachments: unknown[];

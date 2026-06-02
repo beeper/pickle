@@ -1,16 +1,12 @@
-import { createMatrixClient } from "@beeper/pickle";
 import type { MatrixAppserviceBatchSendOptions, MatrixAppserviceInitOptions, MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixReactionEvent, MatrixSubscription, SentEvent } from "@beeper/pickle";
 import { AppserviceWebsocket, type HTTPProxyRequest, type HTTPProxyResponse } from "./appservice-websocket";
 import { BeeperTurnStream, type CreateBeeperTurnStreamOptions } from "./beeper-stream";
-import { createBeeperAppServiceInit } from "./beeper";
 import { createRemoteMessage } from "./events";
-import { getOrCreateAppserviceDeviceId } from "./store";
 import { handleProvisioningHTTPProxy } from "./provisioning";
 import type {
   BridgeContext,
   BridgeLogger,
   BridgeRequestContext,
-  CreateBeeperBridgeOptions,
   CreateBridgeOptions,
   BridgeBackfillOptions,
   BridgeCreateManagementRoomOptions,
@@ -86,7 +82,6 @@ import type {
   BridgeStateEvent,
   BridgeStatePayload,
   BridgeBeeperOptions,
-  BridgeMatrixConfig,
   BridgeRemoteBackfillOptions,
   BridgeRemoteEventOptions,
   BridgeRemoteMessageOptions,
@@ -116,78 +111,6 @@ type GenericMatrixEvent = Extract<MatrixClientEvent, { content: Record<string, u
   stateKey?: string;
   unsigned?: Record<string, unknown>;
 };
-
-export function createBridge(options: CreateBridgeOptions): PickleBridge {
-  return new RuntimeBridge(options, createMatrixClient(options.matrix));
-}
-
-export async function createBeeperBridge(options: CreateBeeperBridgeOptions): Promise<PickleBridge> {
-  if (!options.store) throw new Error("createBeeperBridge requires store outside the Node entrypoint");
-  const appservice = options.matrix?.appservice ?? await createBeeperAppServiceInit(beeperAppServiceOptions({
-    address: options.address,
-    baseDomain: options.baseDomain,
-    bridge: options.bridge,
-    bridgeType: options.bridgeType,
-    getOnly: options.getOnly,
-    homeserverDomain: options.homeserverDomain,
-    token: requiredAccount(options).accessToken,
-  }));
-  const matrix = {
-    ...options.matrix,
-    appservice: options.matrix?.appservice ?? appservice,
-    beeper: true,
-    deviceId: options.matrix?.deviceId ?? await getOrCreateAppserviceDeviceId(options.store, options.bridge),
-    homeserver: options.matrix?.homeserver ?? appservice.homeserver,
-    store: options.store,
-    token: options.matrix?.token ?? appservice.registration.asToken,
-  };
-  return new RuntimeBridge(createBeeperRuntimeOptions(options, appservice, matrix), createMatrixClient(matrix));
-}
-
-export async function createBeeperBridgeWithClient(options: CreateBeeperBridgeOptions, client: MatrixClient): Promise<PickleBridge> {
-  const store = options.store ?? options.matrix?.store;
-  if (!store) throw new Error("createBeeperBridgeWithClient requires store");
-  const appservice = options.matrix?.appservice ?? await createBeeperAppServiceInit(beeperAppServiceOptions({
-    address: options.address,
-    baseDomain: options.baseDomain,
-    bridge: options.bridge,
-    bridgeType: options.bridgeType,
-    getOnly: options.getOnly,
-    homeserverDomain: options.homeserverDomain,
-    token: requiredAccount(options).accessToken,
-  }));
-  const matrix = {
-    ...options.matrix,
-    appservice: options.matrix?.appservice ?? appservice,
-    beeper: true,
-    deviceId: options.matrix?.deviceId ?? await getOrCreateAppserviceDeviceId(store, options.bridge),
-    homeserver: options.matrix?.homeserver ?? appservice.homeserver,
-    store,
-    token: options.matrix?.token ?? appservice.registration.asToken,
-  };
-  return new RuntimeBridge(createBeeperRuntimeOptions(options, appservice, matrix), client);
-}
-
-function createBeeperRuntimeOptions(options: CreateBeeperBridgeOptions, appservice: NonNullable<CreateBridgeOptions["appservice"]>, matrix: BridgeMatrixConfig): CreateBridgeOptions {
-  const runtimeOptions: CreateBridgeOptions = {
-    appservice,
-    beeper: {
-      bridge: options.bridge,
-      ...(options.account?.userId ?? options.ownerUserId ? { ownerUserId: options.account?.userId ?? options.ownerUserId } : {}),
-      ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
-    },
-    connector: options.connector,
-    matrix,
-  };
-  if (options.dataStore) runtimeOptions.dataStore = options.dataStore;
-  if (options.log) runtimeOptions.log = options.log;
-  return runtimeOptions;
-}
-
-function requiredAccount(options: CreateBeeperBridgeOptions) {
-  if (!options.account) throw new Error("createBeeperBridge requires account unless matrix.appservice is provided");
-  return options.account;
-}
 
 export class RuntimeBridge implements PickleBridge {
   readonly connector: CreateBridgeOptions["connector"];
@@ -585,11 +508,39 @@ export class RuntimeBridge implements PickleBridge {
     return sender.startsWith("@") ? sender : this.ghostUserId(sender);
   }
 
-  registerGhost(ghost: Ghost): void {
-    this.#ghosts.set(ghost.id, ghost);
-    void this.#dataStore?.setGhost(ghost).catch((error: unknown) => {
+  async registerGhost(ghost: Ghost): Promise<void> {
+    const registeredGhost = {
+      ...ghost,
+      mxid: ghost.mxid ?? this.ghostUserId(ghost.id),
+    };
+    this.#ghosts.set(registeredGhost.id, registeredGhost);
+    await this.#dataStore?.setGhost(registeredGhost).catch((error: unknown) => {
       this.#log("warn", "ghost_store_failed", { error });
     });
+    await this.#syncGhostProfile(registeredGhost);
+  }
+
+  async #syncGhostProfile(ghost: Ghost): Promise<void> {
+    if (!this.#appserviceOptions) return;
+    const userId = ghost.mxid ?? this.ghostUserId(ghost.id);
+    const bridgeName = this.connector.getName();
+    try {
+      await this.#matrixClient.appservice.setProfile(stripUndefined({
+        avatarUrl: ghostAvatarURL(ghost),
+        displayName: ghost.displayName,
+        extra: ghost.profile,
+        identifiers: ghost.identifiers,
+        isBridgeBot: false,
+        isNetworkBot: ghost.isBot,
+        network: bridgeName.networkId,
+        remoteId: ghost.id,
+        service: bridgeName.beeperBridgeType ?? bridgeName.networkId,
+        userId,
+      }));
+      this.#log("info", "ghost_profile_synced", { displayName: ghost.displayName, ghostId: ghost.id, userId });
+    } catch (error: unknown) {
+      this.#log("warn", "ghost_profile_sync_failed", { error, ghostId: ghost.id, userId });
+    }
   }
 
   getPortal(portalKey: { id: string; receiver?: string }): Portal | null {
@@ -1862,16 +1813,16 @@ export class RuntimeBridge implements PickleBridge {
   #matrixIntent(): MatrixIntent {
     return {
       client: this.#matrixClient,
-      sendMessage: async (roomId, content) => {
-        const type = "m.room.message";
-        const transactionId = `pickle-bridge-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const result = await this.#matrixClient.raw.request({
-          body: content,
-          method: "PUT",
-          path: `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/${encodeURIComponent(type)}/${transactionId}`,
+      sendMessage: (roomId, content) => {
+        const body = stringContent(content.body);
+        const msgtype = stringContent(content.msgtype);
+        const messageType = msgtype === "m.notice" || msgtype === "m.emote" ? msgtype : "m.text";
+        return this.#matrixClient.messages.send({
+          content,
+          messageType,
+          roomId,
+          text: body ?? "",
         });
-        const eventId = eventIdFromRaw(result.body);
-        return { eventId, raw: result.raw ?? result.body ?? result, roomId };
       },
     };
   }
@@ -2073,6 +2024,12 @@ function eventType(event: MatrixClientEvent): string | undefined {
 function avatarStateValue(avatar: { mxc?: string; remove?: boolean; url?: string } | undefined): string | undefined {
   if (!avatar || avatar.remove) return "";
   return avatar.mxc ?? avatar.url;
+}
+
+function ghostAvatarURL(ghost: Ghost): string | undefined {
+  if (!ghost.avatar) return undefined;
+  if (ghost.avatar.remove) return "";
+  return ghost.avatar.mxc;
 }
 
 function isMatrixEditEvent(event: MatrixMessageEvent): boolean {
@@ -2300,16 +2257,6 @@ function messageFromSentEvent(messageId: string, partId: string, sent: SentEvent
   };
 }
 
-function eventIdFromRaw(body: unknown): string {
-  if (body && typeof body === "object" && typeof (body as { event_id?: unknown }).event_id === "string") {
-    return (body as { event_id: string }).event_id;
-  }
-  if (body && typeof body === "object" && typeof (body as { eventId?: unknown }).eventId === "string") {
-    return (body as { eventId: string }).eventId;
-  }
-  return "";
-}
-
 function eventTimestamp(event: RemoteEvent): number | undefined {
   if ("getTimestamp" in event && typeof event.getTimestamp === "function") {
     const timestamp = event.getTimestamp();
@@ -2362,27 +2309,6 @@ function domainFromUserID(userId: string): string {
     throw new Error(`Cannot infer homeserver domain from Matrix user ID ${userId}`);
   }
   return userId.slice(index + 1);
-}
-
-function beeperAppServiceOptions(input: {
-  address: string | undefined;
-  baseDomain: string | undefined;
-  bridge: string;
-  bridgeType: string | undefined;
-  getOnly: boolean | undefined;
-  homeserverDomain: string | undefined;
-  token: string;
-}) {
-  const output = {
-    bridge: input.bridge,
-    token: input.token,
-  } as Parameters<typeof createBeeperAppServiceInit>[0];
-  if (input.address !== undefined) output.address = input.address;
-  if (input.baseDomain !== undefined) output.baseDomain = input.baseDomain;
-  if (input.bridgeType !== undefined) output.bridgeType = input.bridgeType;
-  if (input.getOnly !== undefined) output.getOnly = input.getOnly;
-  if (input.homeserverDomain !== undefined) output.homeserverDomain = input.homeserverDomain;
-  return output;
 }
 
 function normalizeHTTPProxyResponse(response: { body?: unknown; headers?: Record<string, string | string[]>; status: number }): HTTPProxyResponse {
