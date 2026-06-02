@@ -119,7 +119,7 @@ export async function createBeeperBridge(options: CreateBeeperBridgeOptions): Pr
     bridgeType: options.bridgeType,
     getOnly: options.getOnly,
     homeserverDomain: options.homeserverDomain,
-    token: options.account.accessToken,
+    token: requiredAccount(options).accessToken,
   }));
   const matrix = {
     ...options.matrix,
@@ -143,7 +143,7 @@ export async function createBeeperBridgeWithClient(options: CreateBeeperBridgeOp
     bridgeType: options.bridgeType,
     getOnly: options.getOnly,
     homeserverDomain: options.homeserverDomain,
-    token: options.account.accessToken,
+    token: requiredAccount(options).accessToken,
   }));
   const matrix = {
     ...options.matrix,
@@ -162,7 +162,7 @@ function createBeeperRuntimeOptions(options: CreateBeeperBridgeOptions, appservi
     appservice,
     beeper: {
       bridge: options.bridge,
-      ownerUserId: options.account.userId,
+      ...(options.account?.userId ?? options.ownerUserId ? { ownerUserId: options.account?.userId ?? options.ownerUserId } : {}),
       ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
     },
     connector: options.connector,
@@ -171,6 +171,11 @@ function createBeeperRuntimeOptions(options: CreateBeeperBridgeOptions, appservi
   if (options.dataStore) runtimeOptions.dataStore = options.dataStore;
   if (options.log) runtimeOptions.log = options.log;
   return runtimeOptions;
+}
+
+function requiredAccount(options: CreateBeeperBridgeOptions) {
+  if (!options.account) throw new Error("createBeeperBridge requires account unless matrix.appservice is provided");
+  return options.account;
 }
 
 export class RuntimeBridge implements PickleBridge {
@@ -341,7 +346,7 @@ export class RuntimeBridge implements PickleBridge {
     return this.createPortalRoom({
       ...roomOptions,
       portalKey: { id, receiver: login.id },
-      ...(sender ? { userId: this.ghostUserId(sender) } : {}),
+      ...(sender ? { userId: this.senderUserId(sender) } : {}),
     });
   }
 
@@ -536,6 +541,10 @@ export class RuntimeBridge implements PickleBridge {
     return `@${escaped}:${domainFromUserID(this.#ownerUserId ?? this.#ownUserId ?? "@bridge:example")}`;
   }
 
+  senderUserId(sender: string): string {
+    return sender.startsWith("@") ? sender : this.ghostUserId(sender);
+  }
+
   registerGhost(ghost: Ghost): void {
     this.#ghosts.set(ghost.id, ghost);
     void this.#dataStore?.setGhost(ghost).catch((error: unknown) => {
@@ -562,7 +571,7 @@ export class RuntimeBridge implements PickleBridge {
   }
 
   #eventSenderReference(login: UserLogin, sender: string | EventSender): EventSender {
-    return typeof sender === "string" ? { isFromMe: false, sender: this.ghostUserId(sender), senderLogin: login.id } : sender;
+    return typeof sender === "string" ? { isFromMe: false, sender: this.senderUserId(sender), senderLogin: login.id } : sender;
   }
 
   getPortalByMXID(mxid: string): Portal | null {
@@ -809,7 +818,7 @@ export class RuntimeBridge implements PickleBridge {
       (event) => {
         if (this.#traceToDeviceEvent(event)) return;
         void this.dispatchMatrixEvent(event).catch((error: unknown) => {
-          this.#log("error", "matrix_dispatch_failed", { error });
+          this.#log("error", "matrix_dispatch_failed", { error: errorMessage(error) });
         });
       },
       { live: true }

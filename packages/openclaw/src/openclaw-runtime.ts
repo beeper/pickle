@@ -9,6 +9,7 @@ import {
   AGUIEventType,
   closeReasoningPart,
   createStreamRunState,
+  mapOpenClawActivitySnapshot,
   mapOpenClawApprovalRequest,
   mapOpenClawApprovalResponse,
   mapOpenClawCustom,
@@ -18,6 +19,7 @@ import {
   mapOpenClawStateSnapshot,
   mapOpenClawToolEnd,
   mapOpenClawToolInput,
+  mapOpenClawToolInputDelta,
   mapOpenClawToolOutput,
 } from "./beeper-turn-events";
 import type { AGUIEvent } from "./beeper-turn-events";
@@ -52,16 +54,16 @@ export interface OpenClawHostRuntime {
     };
   };
   channel?: {
+    inbound?: {
+      buildContext?: (params: Record<string, unknown>) => Record<string, unknown>;
+      dispatchReply?: (params: Record<string, unknown>) => Promise<unknown>;
+    };
     reply?: {
       dispatchReplyWithBufferedBlockDispatcher?: (params: Record<string, unknown>) => Promise<unknown>;
     };
     session?: {
       recordInboundSession?: (params: Record<string, unknown>) => Promise<void> | void;
       resolveStorePath?: (store?: string, options?: Record<string, unknown>) => string;
-    };
-    turn?: {
-      buildContext?: (params: Record<string, unknown>) => Record<string, unknown>;
-      runAssembled?: (params: Record<string, unknown>) => Promise<unknown>;
     };
   };
   call?: <T = unknown>(method: string, params?: unknown, options?: GatewayRequestOptions) => Promise<T>;
@@ -314,7 +316,7 @@ export class OpenClawPluginRuntimeAdapter {
     if (this.transport instanceof OpenClawHostRuntimeAdapter) {
       return this.transport.sendMessage(options, requestOptions);
     }
-    throw new Error("OpenClaw Beeper turns require OpenClaw channel turn helpers");
+    throw new Error("OpenClaw Beeper turns require OpenClaw channel inbound helpers");
   }
 
   async resolveApproval(payload: OpenClawApprovalResolvePayload): Promise<unknown> {
@@ -376,7 +378,7 @@ export class OpenClawHostRuntimeAdapter implements OpenClawRuntimeRequestSurface
     }, requestOptions);
     const record = recordValue(raw) ?? {};
     const runId = stringValue(record.runId);
-    if (!runId) throw new Error("OpenClaw channel turn did not return a runId");
+    if (!runId) throw new Error("OpenClaw channel inbound turn did not return a runId");
     return { raw, runId, sessionKey: stringValue(record.sessionKey) ?? options.sessionKey };
   }
 
@@ -684,8 +686,8 @@ async function sendSessionInPluginRuntime(
   const record = recordValue(params) ?? {};
   const sessionKey = stringValue(record.key) ?? stringValue(record.sessionKey);
   const message = stringValue(record.message);
-  if (!sessionKey) throw new Error("OpenClaw channel turn requires session key");
-  if (!message) throw new Error("OpenClaw channel turn requires message");
+  if (!sessionKey) throw new Error("OpenClaw channel inbound turn requires session key");
+  if (!message) throw new Error("OpenClaw channel inbound turn requires message");
   const agentId = agentIdFromSessionKey(sessionKey) ?? "main";
   const resolved = resolvePluginSession(runtime, sessionKey, agentId);
   const entry = resolved.entry ?? {};
@@ -694,7 +696,7 @@ async function sendSessionInPluginRuntime(
   const runId = `beeper:${randomUUID()}`;
   const cfg = runtime.config?.current?.();
   if (!canRunNativeChannelTurn(runtime)) {
-    throw new Error("OpenClaw Beeper requires OpenClaw channel turn helpers (runtime.channel.turn, runtime.channel.reply, and runtime.channel.session)");
+    throw new Error("OpenClaw Beeper requires OpenClaw channel inbound helpers (runtime.channel.inbound, runtime.channel.reply, and runtime.channel.session)");
   }
   const timeoutMs = options?.timeoutMs ?? numberValue(record.timeoutMs) ?? runtime.agent?.resolveAgentTimeoutMs?.({ cfg }) ?? 48 * 60 * 60 * 1000;
   startPluginRun(localEvents, {
@@ -739,8 +741,8 @@ function startPluginRun(
 
 function canRunNativeChannelTurn(runtime: OpenClawHostRuntime): boolean {
   return Boolean(
-    runtime.channel?.turn?.buildContext &&
-      runtime.channel.turn.runAssembled &&
+    runtime.channel?.inbound?.buildContext &&
+      runtime.channel.inbound.dispatchReply &&
       runtime.channel.session?.recordInboundSession &&
       runtime.channel.reply?.dispatchReplyWithBufferedBlockDispatcher,
   );
@@ -759,11 +761,11 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
   sessionKey: string;
   timeoutMs: number;
 }): Promise<void> {
-  const turn = params.runtime.channel?.turn;
+  const inbound = params.runtime.channel?.inbound;
   const channelSession = params.runtime.channel?.session;
   const channelReply = params.runtime.channel?.reply;
-  if (!turn?.buildContext || !turn.runAssembled || !channelSession?.recordInboundSession || !channelReply?.dispatchReplyWithBufferedBlockDispatcher) {
-    throw new Error("OpenClaw plugin runtime channel turn helpers are incomplete");
+  if (!inbound?.buildContext || !inbound.dispatchReply || !channelSession?.recordInboundSession || !channelReply?.dispatchReplyWithBufferedBlockDispatcher) {
+    throw new Error("OpenClaw plugin runtime channel inbound helpers are incomplete");
   }
 
   const sender = recordValue(recordValue(params.record.matrix)?.sender) ?? {};
@@ -778,7 +780,7 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
   const sessionConfig = recordValue(recordValue(params.cfg)?.session);
   const storePath = channelSession.resolveStorePath?.(stringValue(sessionConfig?.store), { agentId: params.agentId })
     ?? path.dirname(params.sessionFile);
-  const ctxPayload = turn.buildContext({
+  const ctxPayload = inbound.buildContext({
     channel: "beeper",
     accountId: "beeper",
     provider: "beeper",
@@ -876,6 +878,17 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
     sessionKey: params.sessionKey,
     stream,
   });
+  let streamCallbackTail = Promise.resolve();
+  const enqueueStream = (operation: () => Promise<void>) => {
+    streamCallbackTail = streamCallbackTail
+      .catch(() => undefined)
+      .then(operation);
+    stream.trackExternal(streamCallbackTail);
+    return streamCallbackTail;
+  };
+  const scheduleStream = (operation: () => Promise<void>) => {
+    enqueueStream(operation);
+  };
   let streamStartError: unknown;
   try {
     params.localEvents.emit({ event: "stream.starting", payload: { agentId: params.agentId, roomId, runId: params.runId, sessionId: params.sessionId, sessionKey: params.sessionKey } });
@@ -887,7 +900,7 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
         streamStartError = error;
       },
     );
-    await turn.runAssembled({
+    await inbound.dispatchReply({
       cfg: params.cfg,
       channel: "beeper",
       accountId: "beeper",
@@ -899,8 +912,9 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
       dispatchReplyWithBufferedBlockDispatcher: channelReply.dispatchReplyWithBufferedBlockDispatcher,
       delivery: {
         deliver: async (payload: unknown, info?: unknown) => {
-          await stream.textPayload(payload, stringValue(recordValue(info)?.kind) === "final" ? "final" : "block");
-          if (stringValue(recordValue(info)?.kind) === "final") await stream.finish(payload);
+          const final = stringValue(recordValue(info)?.kind) === "final";
+          enqueueStream(() => stream.textPayload(payload, final ? "final" : "block"));
+          if (final) await stream.finish();
           return { visibleReplySent: true };
         },
         onError: async (error: unknown) => {
@@ -916,20 +930,20 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
         suppressDefaultToolProgressMessages: true,
         allowProgressCallbacksWhenSourceDeliverySuppressed: true,
         onAssistantMessageStart: stream.assistantMessageStart,
-        onBlockReply: (payload: unknown) => stream.textPayload(payload, "block"),
-        onBlockReplyQueued: (payload: unknown) => stream.textPayload(payload, "block"),
-        onPartialReply: (payload: unknown) => stream.textPayload(payload, "partial"),
-        onReasoningEnd: stream.reasoningEnd,
-        onReasoningStream: stream.reasoningPayload,
-        onToolStart: stream.toolStart,
-        onToolResult: stream.toolResult,
-        onItemEvent: stream.itemEvent,
-        onPlanUpdate: stream.planUpdate,
-        onApprovalEvent: stream.approvalEvent,
-        onCommandOutput: stream.commandOutput,
-        onPatchSummary: stream.patchSummary,
-        onCompactionStart: () => stream.itemEvent({ kind: "compaction", phase: "start", title: "Compacting context" }),
-        onCompactionEnd: () => stream.itemEvent({ kind: "compaction", phase: "complete", title: "Compacted context" }),
+        onBlockReply: (payload: unknown) => scheduleStream(() => stream.textPayload(payload, "block")),
+        onBlockReplyQueued: (payload: unknown) => scheduleStream(() => stream.textPayload(payload, "block")),
+        onPartialReply: (payload: unknown) => scheduleStream(() => stream.textPayload(payload, "partial")),
+        onReasoningEnd: () => scheduleStream(() => stream.reasoningEnd()),
+        onReasoningStream: (payload: unknown) => scheduleStream(() => stream.reasoningPayload(payload)),
+        onToolStart: (payload: unknown) => scheduleStream(() => stream.toolStart(payload)),
+        onToolResult: (payload: unknown) => scheduleStream(() => stream.toolResult(payload)),
+        onItemEvent: (payload: unknown) => scheduleStream(() => stream.itemEvent(payload)),
+        onPlanUpdate: (payload: unknown) => scheduleStream(() => stream.planUpdate(payload)),
+        onApprovalEvent: (payload: unknown) => scheduleStream(() => stream.approvalEvent(payload)),
+        onCommandOutput: (payload: unknown) => scheduleStream(() => stream.commandOutput(payload)),
+        onPatchSummary: (payload: unknown) => scheduleStream(() => stream.patchSummary(payload)),
+        onCompactionStart: () => scheduleStream(() => stream.itemEvent({ kind: "compaction", phase: "start", title: "Compacting context" })),
+        onCompactionEnd: () => scheduleStream(() => stream.itemEvent({ kind: "compaction", phase: "complete", title: "Compacted context" })),
       },
       record: {
         createIfMissing: true,
@@ -979,7 +993,7 @@ function forwardAgentRuntimeStreamEvents(params: {
   return onAgentEvent((event) => {
     const data = recordValue(event.data) ?? {};
     const matched = matchesAgentStreamEvent({ data, event, runId: params.runId, sessionKey: params.sessionKey });
-    const stream = normalizeAgentStream(event.stream);
+    const stream = normalizeAgentStream(event.stream) ?? stringValue(data.type);
     params.stream.debug("openclaw_beeper_agent_event_seen", {
       dataKeys: Object.keys(data).slice(0, 12),
       eventRunId: stringValue(event.runId) ?? stringValue(data.runId) ?? stringValue(data.run_id),
@@ -994,6 +1008,22 @@ function forwardAgentRuntimeStreamEvents(params: {
       case "assistant":
         track(params.stream.textPayload(data, "partial"));
         break;
+      case "run.progress":
+      case "tool.progress":
+      case "tool_progress":
+        track(params.stream.activity({
+          ...data,
+          activityType: stream,
+          text: toolProgressText(data),
+        }));
+        break;
+      case "lifecycle":
+      case "metadata":
+      case "model":
+      case "usage":
+      case "context":
+        track(params.stream.lifecycleEvent(data));
+        break;
       case "thinking":
       case "reasoning":
         track(params.stream.reasoningPayload(data));
@@ -1001,6 +1031,8 @@ function forwardAgentRuntimeStreamEvents(params: {
       case "tool":
         if (stringValue(data.phase) === "start") {
           track(params.stream.toolStart(data));
+        } else if (isToolInputDeltaPhase(stringValue(data.phase)) || stringValue(data.inputTextDelta) || stringValue(data.argsDelta) || stringValue(data.argumentsDelta)) {
+          track(params.stream.toolInputDelta(data));
         } else if (stringValue(data.phase) === "result" || isCompletePhase(stringValue(data.phase))) {
           track(params.stream.toolResult(data));
         } else {
@@ -1039,7 +1071,7 @@ function forwardAgentRuntimeStreamEvents(params: {
       case "files":
       case "document":
       case "documents":
-        track(params.stream.customData("file", data));
+        track(params.stream.customData(stream, data));
         break;
       case "data":
         track(params.stream.customData("data", data));
@@ -1073,6 +1105,246 @@ function normalizeAgentStream(stream: string | undefined): string | undefined {
 function specificToolName(value: string | undefined): string | undefined {
   if (!value || value === "tool" || value === "item" || value === "tool_call" || value === "tool-call") return undefined;
   return value;
+}
+
+function toolCallIdFromPayload(data: Record<string, unknown>): string | undefined {
+  const toolCall = toolCallRecordFromPayload(data);
+  return stringValue(data.toolCallId)
+    ?? stringValue(data.callId)
+    ?? stringValue(data.id)
+    ?? stringValue(toolCall?.toolCallId)
+    ?? stringValue(toolCall?.callId)
+    ?? stringValue(toolCall?.id);
+}
+
+function toolNameFromPayload(data: Record<string, unknown>): string | undefined {
+  const toolCall = toolCallRecordFromPayload(data);
+  const fn = recordValue(toolCall?.function) ?? recordValue(data.function);
+  return stringValue(data.toolName)
+    ?? stringValue(data.name)
+    ?? stringValue(data.command)
+    ?? stringValue(toolCall?.toolName)
+    ?? stringValue(toolCall?.name)
+    ?? stringValue(fn?.name);
+}
+
+function toolInputFromPayload(data: Record<string, unknown>): unknown {
+  const toolCall = toolCallRecordFromPayload(data);
+  const fn = recordValue(toolCall?.function) ?? recordValue(data.function);
+  const value = data.args
+    ?? data.input
+    ?? data.arguments
+    ?? data.parameters
+    ?? toolCall?.args
+    ?? toolCall?.input
+    ?? toolCall?.arguments
+    ?? fn?.arguments;
+  return typeof value === "string" ? parseMaybeJSONValue(value) : value;
+}
+
+function toolOutputFromPayload(data: Record<string, unknown>, fallback?: unknown): unknown {
+  return data.output ?? data.result ?? data.content ?? data.text ?? data.partialResult ?? fallback;
+}
+
+function toolProgressText(data: Record<string, unknown>): string | undefined {
+  return stringValue(data.text)
+    ?? stringValue(data.progressText)
+    ?? stringValue(data.progressSummary)
+    ?? stringValue(data.message)
+    ?? stringValue(data.summary)
+    ?? stringValue(data.status)
+    ?? stringValue(data.phase)
+    ?? stringValue(data.name);
+}
+
+function toolItemOutput(data: Record<string, unknown>): unknown {
+  return data.progressText ?? data.summary ?? data.output ?? data.result ?? data.partialResult ?? data.error;
+}
+
+function toolCallRecordFromPayload(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const direct = recordValue(data.toolCall) ?? recordValue(data.tool_call) ?? recordValue(data.call);
+  if (direct) return direct;
+  const content = arrayValue(data.content);
+  if (!content) return undefined;
+  for (const part of content) {
+    const record = recordValue(part);
+    const type = stringValue(record?.type);
+    if (record && (!type || type === "toolCall" || type === "tool_call" || type === "function_call")) return record;
+  }
+  return undefined;
+}
+
+function parseMaybeJSONValue(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function isToolInputDeltaPhase(value: string | undefined): boolean {
+  return value === "delta" || value === "input_delta" || value === "args_delta" || value === "arguments_delta" || value === "toolcall_delta";
+}
+
+function beeperCustomEvents(name: string, payload: unknown): AGUIEvent[] {
+  const normalized = name === "sources" ? "source"
+    : name === "documents" ? "document"
+      : name === "files" ? "file"
+        : name;
+  if (normalized === "source") {
+    const events = sourceEventsFromPayload(payload, "source");
+    return events.length > 0 ? events : mapOpenClawCustom(name, payload);
+  }
+  if (normalized === "document") {
+    const events = documentEventsFromPayload(payload);
+    return events.length > 0 ? events : mapOpenClawCustom(name, payload);
+  }
+  if (normalized === "file") {
+    const events = fileEventsFromPayload(payload);
+    return events.length > 0 ? events : mapOpenClawCustom(name, payload);
+  }
+  if (normalized === "data") {
+    const record = recordValue(payload);
+    return mapOpenClawCustom("com.beeper.data", record && stringValue(record.name) ? payload : { name: "openclaw.data", value: payload });
+  }
+  return mapOpenClawCustom(name, payload);
+}
+
+function toolArtifactEvents(toolName: string | undefined, output: unknown): AGUIEvent[] {
+  const name = toolName?.toLowerCase();
+  if (!name) return [];
+  const value = typeof output === "string" ? parseMaybeJSONValue(output) : output;
+  if (name === "web_search" || name === "search" || name.includes("web_search")) {
+    return sourceEventsFromPayload(value, "web_search");
+  }
+  if (name === "fetch" || name === "web_fetch" || name.includes("fetch")) {
+    return [
+      ...sourceEventsFromPayload(value, "fetch"),
+      ...documentEventsFromPayload(value),
+    ];
+  }
+  return [];
+}
+
+function sourceEventsFromPayload(payload: unknown, appearanceKind: string): AGUIEvent[] {
+  const records = artifactRecords(payload, ["items", "results", "sources", "urls"]);
+  return records.flatMap((record) => {
+    const source = sourcePayload(record, appearanceKind);
+    return source ? mapOpenClawCustom("com.beeper.source", source) : [];
+  });
+}
+
+function documentEventsFromPayload(payload: unknown): AGUIEvent[] {
+  const records = artifactRecords(payload, ["documents", "docs", "items", "results"]);
+  return records.flatMap((record) => {
+    const document = documentPayload(record);
+    return document ? mapOpenClawCustom("com.beeper.document", document) : [];
+  });
+}
+
+function fileEventsFromPayload(payload: unknown): AGUIEvent[] {
+  const records = artifactRecords(payload, ["files", "items", "results"]);
+  return records.flatMap((record) => {
+    const url = stringValue(record.url) ?? stringValue(record.mxc) ?? stringValue(record.uri);
+    const title = stringValue(record.title) ?? stringValue(record.name) ?? stringValue(record.filename);
+    if (!url && !title) return [];
+    return mapOpenClawCustom("com.beeper.file", stripUndefined({
+      id: stringValue(record.id),
+      mediaType: stringValue(record.mediaType) ?? stringValue(record.mimeType),
+      title,
+      url,
+    }));
+  });
+}
+
+function artifactRecords(payload: unknown, arrayKeys: string[]): Record<string, unknown>[] {
+  const directArray = arrayValue(payload);
+  if (directArray) return directArray.flatMap((item) => recordValue(item) ? [recordValue(item)!] : []);
+  const record = recordValue(payload);
+  if (!record) return [];
+  for (const key of arrayKeys) {
+    const values = arrayValue(record[key]);
+    if (values) return values.flatMap((item) => recordValue(item) ? [recordValue(item)!] : []);
+  }
+  return [record];
+}
+
+function sourcePayload(record: Record<string, unknown>, appearanceKind: string): Record<string, unknown> | undefined {
+  const url = stringValue(record.url) ?? stringValue(record.finalUrl) ?? stringValue(record.final_url);
+  const title = stringValue(record.title) ?? stringValue(record.name);
+  const sourceId = stringValue(record.sourceId) ?? stringValue(record.id) ?? url ?? title;
+  if (!sourceId && !url && !title) return undefined;
+  return stripUndefined({
+    appearances: arrayValue(record.appearances) ?? [{ kind: appearanceKind }],
+    author: stringValue(record.author),
+    description: stringValue(record.description) ?? stringValue(record.summary) ?? stringValue(record.text),
+    faviconUrl: stringValue(record.faviconUrl) ?? stringValue(record.favicon_url),
+    finalUrl: stringValue(record.finalUrl) ?? stringValue(record.final_url),
+    highlights: arrayValue(record.highlights),
+    imageUrl: stringValue(record.imageUrl) ?? stringValue(record.image_url),
+    metadata: recordValue(record.metadata),
+    publishedAt: stringValue(record.publishedAt) ?? stringValue(record.published_at),
+    siteName: stringValue(record.siteName) ?? stringValue(record.site_name),
+    sourceId,
+    title,
+    url,
+  });
+}
+
+function documentPayload(record: Record<string, unknown>): Record<string, unknown> | undefined {
+  const text = stringValue(record.markdown) ?? stringValue(record.text) ?? stringValue(record.content);
+  const url = stringValue(record.url) ?? stringValue(record.finalUrl) ?? stringValue(record.final_url);
+  const title = stringValue(record.title) ?? stringValue(record.name);
+  const id = stringValue(record.id) ?? stringValue(record.requestId) ?? stringValue(record.request_id) ?? url ?? title;
+  if (!id || !text) return undefined;
+  return stripUndefined({
+    id,
+    markdown: stringValue(record.markdown),
+    mediaType: stringValue(record.mediaType) ?? stringValue(record.mimeType) ?? "text/markdown",
+    metadata: recordValue(record.metadata),
+    sourceId: stringValue(record.sourceId) ?? id,
+    text: stringValue(record.text) ?? text,
+    title,
+    url,
+  });
+}
+
+function usageFromPayload(data: Record<string, unknown>): Record<string, number> | undefined {
+  const usage = recordValue(data.usage) ?? data;
+  const promptTokens = intValue(usage.promptTokens) ?? intValue(usage.prompt_tokens) ?? intValue(usage.inputTokens) ?? intValue(usage.input);
+  const completionTokens = intValue(usage.completionTokens) ?? intValue(usage.completion_tokens) ?? intValue(usage.outputTokens) ?? intValue(usage.output);
+  const reasoningTokens = intValue(usage.reasoningTokens) ?? intValue(usage.reasoning_tokens);
+  const totalTokens = intValue(usage.totalTokens) ?? intValue(usage.total_tokens) ?? intValue(usage.total);
+  const contextLimit = intValue(usage.contextLimit) ?? intValue(usage.context_limit) ?? intValue(data.contextTokenBudget);
+  const out = stripUndefined({ promptTokens, completionTokens, reasoningTokens, totalTokens, contextLimit });
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function lifecycleModelMetadata(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const model = stripUndefined({
+    model: stringValue(data.model) ?? stringValue(data.modelId) ?? stringValue(data.selectedModel),
+    provider: stringValue(data.provider),
+    reasoning: data.reasoning ?? data.reasoningLevel,
+    requestId: stringValue(data.requestId) ?? stringValue(data.request_id),
+    serviceTier: stringValue(data.serviceTier) ?? stringValue(data.service_tier),
+    systemFingerprint: stringValue(data.systemFingerprint) ?? stringValue(data.system_fingerprint),
+  });
+  return Object.keys(model).length > 0 ? model : undefined;
+}
+
+function lifecycleContextMetadata(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const context = stripUndefined({
+    contextTokenBudget: intValue(data.contextTokenBudget),
+    contextWindowReferenceTokens: intValue(data.contextWindowReferenceTokens),
+    contextWindowSource: stringValue(data.contextWindowSource),
+    promptTokens: intValue(data.promptTokens) ?? intValue(data.prompt_tokens),
+    sessionId: stringValue(data.sessionId),
+    sessionKey: stringValue(data.sessionKey),
+  });
+  return Object.keys(context).length > 0 ? context : undefined;
 }
 
 function isToolItemType(value: string | undefined): boolean {
@@ -1124,6 +1396,8 @@ function createBeeperReplyStreamEmitter(base: {
   const toolInputs = new Map<string, unknown>();
   const toolNames = new Map<string, string>();
   const startedToolCalls = new Set<string>();
+  const endedToolInputs = new Set<string>();
+  let latestUsage: unknown;
   const emit = (event: string, payload: Record<string, unknown>) => {
     base.localEvents.emit({
       event,
@@ -1177,6 +1451,7 @@ function createBeeperReplyStreamEmitter(base: {
       runId: base.runId,
     });
     await publisher.publishMany(list);
+    channelRuntime.recordOutboundActivity();
   };
   const trackExternal = (promise: Promise<void>) => {
     let tracked: Promise<void>;
@@ -1204,6 +1479,22 @@ function createBeeperReplyStreamEmitter(base: {
       textLength: text?.length ?? 0,
     });
     if (!text) return;
+    if (isWorkingPlaceholder(text)) {
+      channelRuntime.debug("openclaw_beeper_text_payload_suppressed", {
+        reason: "working_placeholder",
+        source,
+        textLength: text.length,
+      });
+      if (source !== "final") {
+        emit("activity.updated", { activityType: "status", source, text });
+        await publish(mapOpenClawActivitySnapshot(state, {
+          activityType: "status",
+          content: { state: "running", text },
+          replace: true,
+        }));
+      }
+      return;
+    }
     const explicitDelta = stringValue(recordValue(payload)?.delta);
     const delta = explicitDelta ?? visibleTextDelta(lastVisibleText, text);
     lastVisibleText = nextVisibleText(lastVisibleText, text, delta);
@@ -1224,7 +1515,7 @@ function createBeeperReplyStreamEmitter(base: {
     await publish(mapOpenClawMessageDelta(state, { kind: "text", value: delta }));
   };
   const reasoningPayload = async (payload: unknown) => {
-    const text = stringValue(recordValue(payload)?.text);
+    const text = replyPayloadText(payload);
     if (!text) return;
     const explicitDelta = stringValue(recordValue(payload)?.delta);
     const delta = explicitDelta ?? (text.startsWith(lastReasoningText) ? text.slice(lastReasoningText.length) : text);
@@ -1234,7 +1525,7 @@ function createBeeperReplyStreamEmitter(base: {
     await publish(mapOpenClawMessageDelta(state, { kind: "thinking", value: delta }));
   };
   const toolIdFor = (payload: Record<string, unknown>, fallback: string) =>
-    stringValue(payload.toolCallId) ?? stringValue(payload.itemId) ?? stringValue(payload.approvalId) ?? fallback;
+    toolCallIdFromPayload(payload) ?? stringValue(payload.itemId) ?? stringValue(payload.approvalId) ?? fallback;
   const fallbackToolIdForName = (name: string | undefined, fallback: string) => `tool:${name || fallback}`;
   const rememberTool = (toolCallId: string, toolName: string | undefined, input?: unknown) => {
     if (toolName) toolNames.set(toolCallId, toolName);
@@ -1245,6 +1536,11 @@ function createBeeperReplyStreamEmitter(base: {
     if (startedToolCalls.has(event.toolCallId)) return [];
     startedToolCalls.add(event.toolCallId);
     return mapOpenClawToolInput(event);
+  };
+  const endToolInput = (event: Parameters<typeof mapOpenClawToolEnd>[0]) => {
+    if (endedToolInputs.has(event.toolCallId)) return [];
+    endedToolInputs.add(event.toolCallId);
+    return mapOpenClawToolEnd(event);
   };
   return {
     start: ensureStarted,
@@ -1259,15 +1555,37 @@ function createBeeperReplyStreamEmitter(base: {
     },
     reasoningPayload,
     textPayload,
+    activity: async (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      const text = stringValue(data.text)
+        ?? stringValue(data.progressText)
+        ?? stringValue(data.progressSummary)
+        ?? stringValue(data.message)
+        ?? stringValue(data.status)
+        ?? stringValue(data.phase)
+        ?? stringValue(data.title);
+      if (!text) return;
+      const activityType = stringValue(data.activityType) ?? stringValue(data.type) ?? "activity";
+      emit("activity.updated", { activityType, text });
+      await publish(mapOpenClawActivitySnapshot(state, {
+        activityType,
+        content: stripUndefined({
+          label: stringValue(data.label) ?? stringValue(data.title) ?? stringValue(data.name),
+          phase: stringValue(data.phase),
+          state: stringValue(data.state) ?? stringValue(data.status) ?? "running",
+          text,
+        }),
+        replace: true,
+      }));
+    },
     toolStart: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
-      const toolName = stringValue(data.name) ?? stringValue(data.toolName);
+      const toolName = toolNameFromPayload(data);
       const toolCallId = toolIdFor(data, fallbackToolIdForName(toolName, "tool"));
-      const input = data.args ?? data.input;
+      const input = toolInputFromPayload(data);
       rememberTool(toolCallId, toolName, input);
       emit("tool.call.started", {
-        args: data.args,
-        input: data.args,
+        input,
         phase: stringValue(data.phase),
         toolCallId,
         toolName,
@@ -1275,7 +1593,7 @@ function createBeeperReplyStreamEmitter(base: {
       await publish(startToolCall(stripUndefined({
         approval: recordValue(data.approval),
         index: numberValue(data.index),
-        input: data.args ?? data.input,
+        input,
         metadata: recordValue(data.metadata),
         providerExecuted: booleanValue(data.providerExecuted),
         startedAtMs: numberValue(data.startedAt) ?? numberValue(data.startedAtMs),
@@ -1284,40 +1602,88 @@ function createBeeperReplyStreamEmitter(base: {
         toolName,
       })));
     },
+    toolInputDelta: async (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      const rawToolName = toolNameFromPayload(data);
+      const toolCallId = toolIdFor(data, fallbackToolIdForName(rawToolName, "tool_delta"));
+      const toolName = rememberedToolName(toolCallId, rawToolName);
+      const input = toolInputFromPayload(data);
+      const inputTextDelta = stringValue(data.inputTextDelta) ?? stringValue(data.argsDelta) ?? stringValue(data.argumentsDelta) ?? stringValue(data.delta);
+      rememberTool(toolCallId, toolName, input);
+      emit("tool.call.input.delta", {
+        inputTextDelta,
+        toolCallId,
+        toolName,
+      });
+      await publish([
+        ...startToolCall(stripUndefined({
+          metadata: recordValue(data.metadata),
+          providerExecuted: booleanValue(data.providerExecuted),
+          toolCallId,
+          toolName,
+        })),
+        ...mapOpenClawToolInputDelta(stripUndefined({
+          input,
+          inputTextDelta,
+          toolCallId,
+          toolName,
+        })),
+      ]);
+    },
     toolResult: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
       const toolCallId = toolIdFor(data, "tool_result");
-      const toolName = rememberedToolName(toolCallId, stringValue(data.toolName) ?? stringValue(data.name));
-      const error = data.error ?? (booleanValue(data.isError) ? (data.text ?? data.content ?? data.output ?? payload) : undefined);
-      const output = data.text ?? data.content ?? data.output ?? data.result ?? payload;
+      const toolName = rememberedToolName(toolCallId, toolNameFromPayload(data));
+      const input = data.input ?? toolInputs.get(toolCallId);
+      const error = data.error ?? (booleanValue(data.isError) ? toolOutputFromPayload(data, payload) : undefined);
+      const output = toolOutputFromPayload(data, payload);
       emit("tool.call.completed", {
         output,
         toolCallId,
         toolName,
       });
-      await publish(mapOpenClawToolEnd(stripUndefined({
-        error,
-        input: data.input ?? toolInputs.get(toolCallId),
-        result: error === undefined ? output : undefined,
-        toolCallId,
-        toolName,
-      })));
+      await publish([
+        ...startToolCall(stripUndefined({
+          input,
+          providerExecuted: booleanValue(data.providerExecuted),
+          toolCallId,
+          toolName,
+        })),
+        ...endToolInput(stripUndefined({
+          error,
+          input,
+          toolCallId,
+          toolName,
+        })),
+        ...mapOpenClawToolOutput(stripUndefined({
+          completedAtMs: numberValue(data.completedAt) ?? numberValue(data.completedAtMs),
+          error,
+          output: error === undefined ? output : undefined,
+          providerExecuted: booleanValue(data.providerExecuted),
+          toolCallId,
+          toolName,
+        })),
+        ...toolArtifactEvents(toolName, output),
+      ]);
     },
     itemEvent: async (payload: unknown) => {
       const data = recordValue(payload) ?? {};
-      const toolCallId = toolIdFor(data, stringValue(data.kind) ?? "item");
-      const rawToolName = stringValue(data.name) ?? stringValue(data.toolName);
+      const rawToolName = toolNameFromPayload(data);
       const itemType = stringValue(data.type);
       const kind = stringValue(data.kind);
-      const hasToolIdentity = Boolean(rawToolName || stringValue(data.toolCallId) || kind === "tool" || kind === "command" || kind === "patch");
+      const hasToolIdentity = Boolean(rawToolName || toolCallIdFromPayload(data) || kind === "tool" || kind === "command" || kind === "patch");
       if (!hasToolIdentity && !isToolItemType(itemType)) return;
+      const toolCallId = toolIdFor(data, stringValue(data.kind) ?? "item");
       const toolName = rememberedToolName(toolCallId, rawToolName ?? specificToolName(kind) ?? specificToolName(itemType) ?? "tool");
+      const input = toolInputFromPayload(data);
+      const inputTextDelta = stringValue(data.inputTextDelta) ?? stringValue(data.argsDelta) ?? stringValue(data.argumentsDelta) ?? (isToolInputDeltaPhase(stringValue(data.phase)) ? stringValue(data.delta) : undefined);
       const title = stringValue(data.title) ?? stringValue(data.progressText) ?? stringValue(data.summary) ?? rawToolName ?? itemType ?? kind;
-      const output = stringValue(data.progressText) ?? stringValue(data.summary) ?? stringValue(data.error);
+      const output = toolItemOutput(data);
       const phase = stringValue(data.phase);
       const status = stringValue(data.status);
       const preliminary = !isCompletePhase(phase) && !isCompletePhase(status);
-      rememberTool(toolCallId, toolName);
+      const error = data.error;
+      rememberTool(toolCallId, toolName, input);
       emit("tool.call.updated", {
         output,
         phase,
@@ -1326,20 +1692,35 @@ function createBeeperReplyStreamEmitter(base: {
         toolName,
       });
       await publish([
-        ...startToolCall(stripUndefined({ title, toolCallId, toolName })),
-        ...(output ? mapOpenClawToolOutput(stripUndefined({
-          error: data.error,
-          output,
+        ...startToolCall(stripUndefined({
+          input,
+          metadata: recordValue(data.metadata),
+          providerExecuted: booleanValue(data.providerExecuted),
+          title,
+          toolCallId,
+          toolName,
+        })),
+        ...(inputTextDelta ? mapOpenClawToolInputDelta(stripUndefined({
+          input,
+          inputTextDelta,
+          toolCallId,
+          toolName,
+        })) : []),
+        ...(!preliminary ? endToolInput(stripUndefined({
+          error,
+          input: input ?? toolInputs.get(toolCallId),
+          toolCallId,
+          toolName,
+        })) : []),
+        ...(output !== undefined ? mapOpenClawToolOutput(stripUndefined({
+          error,
+          output: error === undefined ? output : undefined,
           preliminary,
+          providerExecuted: booleanValue(data.providerExecuted),
           toolCallId,
           toolName,
         })) : []),
-        ...(!preliminary ? mapOpenClawToolEnd(stripUndefined({
-          error: data.error,
-          result: output,
-          toolCallId,
-          toolName,
-        })) : []),
+        ...(!preliminary ? toolArtifactEvents(toolName, output) : []),
       ]);
     },
     planUpdate: async (payload: unknown) => {
@@ -1371,7 +1752,28 @@ function createBeeperReplyStreamEmitter(base: {
     },
     customData: async (name: string, payload: unknown) => {
       emit(`${name}.event`, { value: payload });
-      await publish(mapOpenClawCustom(name, payload));
+      await publish(beeperCustomEvents(name, payload));
+    },
+    lifecycleEvent: async (payload: unknown) => {
+      const data = recordValue(payload) ?? {};
+      const usage = usageFromPayload(data);
+      if (usage !== undefined) latestUsage = usage;
+      const model = lifecycleModelMetadata(data);
+      const context = lifecycleContextMetadata(data);
+      const events = [
+        ...(model ? mapOpenClawCustom("com.beeper.data", { name: "openclaw.model", value: model }) : []),
+        ...(context ? mapOpenClawCustom("com.beeper.data", { name: "openclaw.context", value: context }) : []),
+        ...(usage !== undefined ? mapOpenClawCustom("com.beeper.data", { name: "openclaw.usage", value: usage }) : []),
+      ];
+      if (events.length > 0) {
+        emit("lifecycle.metadata", {
+          context,
+          model,
+          phase: stringValue(data.phase),
+          usage,
+        });
+        await publish(events);
+      }
     },
     raw: async (source: string, payload: unknown) => {
       emit("raw.event", { source, value: payload });
@@ -1431,7 +1833,7 @@ function createBeeperReplyStreamEmitter(base: {
       const status = stringValue(data.status);
       const complete = isCompletePhase(phase) || isCompletePhase(status);
       const toolCallId = toolIdFor(data, fallbackToolIdForName(toolName, "command"));
-      const output = stringValue(data.output) ?? data;
+      const output = data.output ?? data;
       rememberTool(toolCallId, toolName);
       emit("tool.call.completed", {
         output,
@@ -1439,6 +1841,13 @@ function createBeeperReplyStreamEmitter(base: {
         toolCallId,
         toolName,
       });
+      if (complete) {
+        await publish(endToolInput(stripUndefined({
+          input: toolInputs.get(toolCallId),
+          toolCallId,
+          toolName,
+        })));
+      }
       await publish(mapOpenClawToolOutput({
         output,
         preliminary: !complete,
@@ -1446,12 +1855,7 @@ function createBeeperReplyStreamEmitter(base: {
         toolName,
       }));
       if (complete) {
-        await publish(mapOpenClawToolEnd(stripUndefined({
-          input: toolInputs.get(toolCallId),
-          result: status ? { output, status } : output,
-          toolCallId,
-          toolName,
-        })));
+        await publish(toolArtifactEvents(toolName, output));
       }
     },
     patchSummary: async (payload: unknown) => {
@@ -1465,26 +1869,33 @@ function createBeeperReplyStreamEmitter(base: {
         toolCallId,
         toolName,
       });
-      await publish(mapOpenClawToolOutput(stripUndefined({ output, toolCallId, toolName })));
-      await publish(mapOpenClawToolEnd(stripUndefined({
+      await publish(endToolInput(stripUndefined({
         input: toolInputs.get(toolCallId),
-        result: output,
         toolCallId,
         toolName,
       })));
+      await publish(mapOpenClawToolOutput(stripUndefined({ output, toolCallId, toolName })));
+      await publish(toolArtifactEvents(toolName, output));
     },
     finish: async (payload?: unknown) => {
       if (payload !== undefined) await textPayload(payload, "final");
       await drainExternal();
       if (!hasPublished || finalized) return;
       const preTerminal = closeReasoningPart(state);
-      if (preTerminal.length > 0) await publisher.publishMany(preTerminal);
+      if (preTerminal.length > 0) {
+        await publisher.publishMany(preTerminal);
+        channelRuntime.recordOutboundActivity();
+      }
       finalized = true;
       channelRuntime.debug("openclaw_beeper_stream_finalizing", {
         roomId: base.roomId,
         runId: base.runId,
       });
-      await publisher.finalize({ finishReason: "stop" });
+      await publisher.finalize({
+        finishReason: "stop",
+        ...(latestUsage !== undefined ? { usage: latestUsage } : {}),
+      });
+      channelRuntime.recordOutboundActivity();
       channelRuntime.clearActiveStream(base.sessionKey, publisher);
       channelRuntime.debug("openclaw_beeper_stream_finalized", {
         eventId: publisher.targetEventId,
@@ -1502,7 +1913,6 @@ function createBeeperReplyStreamEmitter(base: {
         runId: base.runId,
       });
       await publisher.finalize({
-        body: errorText(error),
         terminalPart: {
           error: { message: errorText(error) },
           message: errorText(error),
@@ -1511,6 +1921,7 @@ function createBeeperReplyStreamEmitter(base: {
           type: AGUIEventType.RUN_ERROR,
         },
       });
+      channelRuntime.recordOutboundActivity();
       channelRuntime.clearActiveStream(base.sessionKey, publisher);
     },
   };
@@ -1531,6 +1942,10 @@ function replyPayloadText(payload: unknown): string | undefined {
     if (text) chunks.push(text);
   }
   return chunks.length > 0 ? chunks.join("") : undefined;
+}
+
+function isWorkingPlaceholder(text: string): boolean {
+  return /^working(?:\.{3}|\u2026)?$/iu.test(text.trim());
 }
 
 function visibleTextDelta(previous: string, next: string): string {
@@ -1675,6 +2090,11 @@ function agentIdFromSessionKey(sessionKey: string): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function intValue(value: unknown): number | undefined {
+  const number = numberValue(value);
+  return number === undefined ? undefined : Math.trunc(number);
 }
 
 function errorText(error: unknown): string {

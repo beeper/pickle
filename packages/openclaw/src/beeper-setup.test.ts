@@ -44,36 +44,43 @@ describe("OpenClaw Beeper setup", () => {
       }),
     ]);
     expect(result.config).toEqual({
-      accessToken: "mx-token",
       homeserver: "https://matrix.beeper.com",
       matrixDeviceId: "DEV",
       matrixUserId: "@batuhan:beeper.com",
     });
   });
 
-  it("infers Beeper Matrix account identity from an access token", async () => {
-    const seen: Array<{ url: string; authorization?: string }> = [];
+  it("logs in with username/password when email login is not used", async () => {
+    const seen: unknown[] = [];
     const result = await loginToBeeperForOpenClaw({
-      accessToken: "mx-token",
       env: "staging",
-      fetch: async (url, init) => {
-        seen.push({
-          url: String(url),
-          authorization: new Headers(init?.headers).get("authorization") ?? undefined,
-        });
-        return new Response(JSON.stringify({
-          device_id: "DEV",
-          user_id: "@batuhan:beeper-staging.com",
-        }), { status: 200 });
+      openClawDeviceId: "OPENCLAW-DEVICE",
+      username: "batuhan",
+      password: "secret",
+      passwordLogin: async (options) => {
+        seen.push(options);
+        return {
+          accessToken: "mx-token",
+          deviceId: "DEV",
+          homeserver: options.homeserver,
+          userId: "@batuhan:beeper-staging.com",
+        };
       },
     });
 
-    expect(seen).toEqual([{
-      authorization: "Bearer mx-token",
-      url: "https://matrix.beeper-staging.com/_matrix/client/v3/account/whoami",
-    }]);
+    expect(seen).toEqual([
+      expect.objectContaining({
+        homeserver: "https://matrix.beeper-staging.com",
+        password: "secret",
+        username: "batuhan",
+        metadata: {
+          bridge: "sh-openclaw-openclaw-device",
+          bridgeType: "openclaw",
+          openClawDeviceId: "OPENCLAW-DEVICE",
+        },
+      }),
+    ]);
     expect(result.config).toEqual({
-      accessToken: "mx-token",
       homeserver: "https://matrix.beeper-staging.com",
       matrixDeviceId: "DEV",
       matrixUserId: "@batuhan:beeper-staging.com",
@@ -184,7 +191,6 @@ describe("OpenClaw Beeper setup", () => {
     });
 
     expect(result.config).toEqual({
-      accessToken: "mx-token",
       appserviceId: "appservice-uuid",
       asToken: "as",
       bridgeId: "sh-openclaw-openclaw-device",
@@ -195,44 +201,4 @@ describe("OpenClaw Beeper setup", () => {
     });
   });
 
-  it("combines Beeper access token introspection and appservice registration config", async () => {
-    const result = await setupOpenClawBeeperBridge({
-      accessToken: "mx-token",
-      env: "staging",
-      openClawDeviceId: "OPENCLAW-DEVICE",
-      fetch: async () => new Response(JSON.stringify({
-        device_id: "DEV",
-        user_id: "@batuhan:beeper-staging.com",
-      }), { status: 200 }),
-      createAppServiceInit: async (options) => {
-        expect(options).toMatchObject({
-          baseDomain: "beeper-staging.com",
-          bridge: "sh-openclaw-openclaw-device",
-          token: "mx-token",
-        });
-        return {
-          homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
-          registration: {
-            asToken: "as",
-            hsToken: "hs",
-            id: "appservice-uuid",
-            namespaces: { aliases: [], rooms: [], users: [] },
-            senderLocalpart: "sh-openclawbot",
-            url: "http://127.0.0.1:29391",
-          },
-        };
-      },
-    });
-
-    expect(result.config).toEqual({
-      accessToken: "mx-token",
-      appserviceId: "appservice-uuid",
-      asToken: "as",
-      bridgeId: "sh-openclaw-openclaw-device",
-      homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",
-      hsToken: "hs",
-      matrixDeviceId: "DEV",
-      matrixUserId: "@batuhan:beeper-staging.com",
-    });
-  });
 });

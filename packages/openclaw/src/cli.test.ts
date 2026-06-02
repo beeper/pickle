@@ -33,7 +33,6 @@ describe("pickle-openclaw CLI", () => {
         userId: "@batuhan:beeper.com",
       },
       config: {
-        accessToken: "mx-token",
         appserviceId: "sh-openclaw-device",
         asToken: "as-token",
         bridgeId: "sh-openclaw-device",
@@ -77,7 +76,6 @@ describe("pickle-openclaw CLI", () => {
     await expect(setupBridge.mock.calls[0]?.[0].getLoginCode()).resolves.toBe("123456");
     expect((await stat(configPath)).mode & 0o777).toBe(0o600);
     expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
-      accessToken: "mx-token",
       appserviceId: "sh-openclaw-device",
       asToken: "as-token",
       beeperEnv: "staging",
@@ -112,7 +110,6 @@ describe("pickle-openclaw CLI", () => {
         userId: "@alice:beeper.com",
       },
       config: {
-        accessToken: "mx-token",
         appserviceId: "sh-openclaw-device",
         asToken: "as-token",
         bridgeId: "sh-openclaw-device",
@@ -146,8 +143,8 @@ describe("pickle-openclaw CLI", () => {
     expect(io.stderrText).toContain("Enter Beeper login code:");
   });
 
-  it("can register from an existing Beeper access token without prompting for OTP", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-token-"));
+  it("can log in with username/password without prompting for OTP", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-password-"));
     const setupBridge = successfulSetupBridge();
     const io = captureIO();
 
@@ -155,17 +152,20 @@ describe("pickle-openclaw CLI", () => {
       "login",
       "--config",
       join(dir, "config.json"),
-      "--access-token",
-      "mx-token",
+      "--username",
+      "batuhan",
+      "--password",
+      "secret",
       "--env",
       "staging",
     ], io, { setupBridge })).resolves.toBe(0);
 
     expect(setupBridge).toHaveBeenCalledWith(expect.objectContaining({
-      accessToken: "mx-token",
       env: "staging",
+      password: "secret",
       push: false,
       selfHosted: true,
+      username: "batuhan",
     }));
     expect(setupBridge.mock.calls[0]?.[0]).not.toHaveProperty("getLoginCode");
     expect(io.stderrText).not.toContain("Enter Beeper login code:");
@@ -178,11 +178,13 @@ describe("pickle-openclaw CLI", () => {
       "login",
       "--email",
       "you@example.com",
-      "--access-token",
-      "mx-token",
+      "--username",
+      "batuhan",
+      "--password",
+      "secret",
     ], io)).resolves.toBe(1);
 
-    expect(io.stderrText).toContain("Choose either --email or --access-token");
+    expect(io.stderrText).toContain("Choose only one login method");
   });
 
   it("prints the saved Beeper bridge identity", async () => {
@@ -234,7 +236,6 @@ function successfulSetupBridge() {
       userId: "@batuhan:beeper.com",
     },
     config: {
-      accessToken: "mx-token",
       appserviceId: "sh-openclaw-device",
       asToken: "as-token",
       bridgeId: "sh-openclaw-device",

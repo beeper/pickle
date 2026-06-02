@@ -10,7 +10,6 @@
   ],
   "channelEnvVars": {
     "beeper": [
-      "PICKLE_OPENCLAW_ACCESS_TOKEN",
       "PICKLE_OPENCLAW_ALLOW_ROOMS",
       "PICKLE_OPENCLAW_ALLOW_USERS",
       "PICKLE_OPENCLAW_AS_TOKEN",
@@ -43,10 +42,6 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "accessToken": {
-            "type": "string",
-            "description": "Beeper Matrix access token returned by login."
-          },
           "appserviceId": {
             "type": "string",
             "description": "Matrix appservice id used in registration namespaces."
@@ -152,11 +147,6 @@
         }
       },
       "uiHints": {
-        "accessToken": {
-          "label": "Beeper Access Token",
-          "help": "Beeper Matrix access token returned by login.",
-          "sensitive": true
-        },
         "hsToken": {
           "label": "Homeserver Token",
           "help": "Homeserver token returned by Beeper bridge registration.",

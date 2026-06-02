@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -104,9 +106,9 @@ func (c *Core) handleAppendBeeperAIRunEvent(payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	event := agui.Event(copyOutboundEvent(req.Event))
-	if event["timestamp"] == nil {
-		event["timestamp"] = time.Now().UnixMilli()
+	event := agui.NewEvent(map[string]any(copyOutboundEvent(req.Event)))
+	if !event.Has("timestamp") {
+		event.Set("timestamp", time.Now().UnixMilli())
 	}
 	if err := agui.ValidateEvent(event); err != nil {
 		return nil, err
@@ -132,9 +134,6 @@ func (c *Core) handleFinishBeeperAIRun(payload []byte) ([]byte, error) {
 	} else {
 		state.writer.Finish(req.FinishReason)
 	}
-	if req.Terminal != nil {
-		state.run.Status.Terminal = req.Terminal
-	}
 	return c.marshalBeeperAIRunSnapshot(state.run, outboundEventsFromAGUI(state.run.Events[before:]))
 }
 
@@ -156,9 +155,6 @@ func (c *Core) handleErrorBeeperAIRun(payload []byte) ([]byte, error) {
 		state.writer.Abort(message)
 	} else {
 		state.writer.Error(message)
-	}
-	if req.Terminal != nil {
-		state.run.Status.Terminal = req.Terminal
 	}
 	if state.run.Preview.Text == "" {
 		state.run.Preview = aistream.PreviewFromText(message, aistream.PreviewBudgetBytes)
@@ -201,7 +197,7 @@ func (c *Core) handleStartBeeperAIRunStream(ctx context.Context, payload []byte)
 		contentMap["com.beeper.stream"] = descriptor
 	} else {
 		contentMap["com.beeper.stream"] = map[string]any{
-			"type": aistream.BeeperAIStreamDeltas,
+			"type": req.StreamType,
 		}
 	}
 	resp, err := c.sendBeeperStreamMessageEvent(ctx, req.RoomID, req.ThreadRootEventID, req.UserID, contentMap)
@@ -245,9 +241,9 @@ func (c *Core) handleAppendBeeperAIRunStreamEvent(ctx context.Context, payload [
 	if err != nil {
 		return nil, err
 	}
-	event := agui.Event(copyOutboundEvent(req.Event))
-	if event["timestamp"] == nil {
-		event["timestamp"] = time.Now().UnixMilli()
+	event := agui.NewEvent(map[string]any(copyOutboundEvent(req.Event)))
+	if !event.Has("timestamp") {
+		event.Set("timestamp", time.Now().UnixMilli())
 	}
 	if err := agui.ValidateEvent(event); err != nil {
 		return nil, err
@@ -277,9 +273,6 @@ func (c *Core) handleFinishBeeperAIRunStream(ctx context.Context, payload []byte
 	} else {
 		state.writer.Finish(req.FinishReason)
 	}
-	if req.Terminal != nil {
-		state.run.Status.Terminal = req.Terminal
-	}
 	events := outboundEventsFromAGUI(state.run.Events[before:])
 	if err := c.publishBeeperAIRunStreamPending(ctx, state); err != nil {
 		return nil, err
@@ -305,9 +298,6 @@ func (c *Core) handleErrorBeeperAIRunStream(ctx context.Context, payload []byte)
 		state.writer.Abort(message)
 	} else {
 		state.writer.Error(message)
-	}
-	if req.Terminal != nil {
-		state.run.Status.Terminal = req.Terminal
 	}
 	if state.run.Preview.Text == "" {
 		state.run.Preview = aistream.PreviewFromText(message, aistream.PreviewBudgetBytes)
@@ -345,26 +335,15 @@ func (c *Core) publishBeeperAIRunStreamPending(ctx context.Context, state *beepe
 	if state.published >= len(state.run.Events) {
 		return nil
 	}
-	streamType := stream.descriptor.Type
-	if streamType == "" {
-		streamType = "com.beeper.llm"
-	}
 	partial := *state.run
 	partial.Events = append([]agui.Event(nil), state.run.Events[state.published:]...)
-	carriers, err := aistream.PackRunFromSeq(partial, state.streamEventID.String(), aistream.CarrierBudgetBytes, stream.nextSeq)
+	carriers, err := aistream.PackRunFromSeq(partial, stream.nextSeq)
 	if err != nil {
 		return err
 	}
 	contents := make([]map[string]any, 0, len(carriers))
 	for _, carrier := range carriers {
-		content := aistream.CarrierContent(carrier.Envelopes)
-		if streamType != aistream.BeeperAIStreamKey {
-			if deltas, ok := content[aistream.BeeperAIStreamDeltas]; ok {
-				delete(content, aistream.BeeperAIStreamDeltas)
-				content[streamType+".deltas"] = deltas
-			}
-		}
-		contents = append(contents, content)
+		contents = append(contents, aistream.CarrierContent(partial, carrier.Envelopes))
 	}
 	if err := c.publishBeeperStreamCarrierContents(ctx, state.streamEventID, stream, contents); err != nil {
 		return err
@@ -382,10 +361,17 @@ func (c *Core) finalizeBeeperAIRunStream(ctx context.Context, state *beeperAIRun
 	if stream == nil {
 		return nil, fmt.Errorf("beeper stream message %s is not registered", state.streamEventID)
 	}
-	content, extra := aimatrix.FinalContent(*state.run)
-	contentMap := messageContentMap(content, OutboundEvent(extra))
+	projection := aimatrix.ProjectFinal(*state.run, nil)
+	if projection.NeedsAttachment {
+		partsRef, err := c.uploadBeeperAIFinalPartsRef(ctx, *state.run, projection.Message)
+		if err != nil {
+			return nil, err
+		}
+		projection = aimatrix.ProjectFinal(*state.run, partsRef)
+	}
+	contentMap := messageContentMap(projection.Content, OutboundEvent(projection.Extra))
 	result, err := c.finalizeBeeperStreamMessage(ctx, MatrixFinalizeBeeperStreamMessageOptions{
-		Body:            content.Body,
+		Body:            projection.Content.Body,
 		Content:         contentMap,
 		EventID:         state.streamEventID.String(),
 		RoomID:          stream.roomID.String(),
@@ -397,6 +383,33 @@ func (c *Core) finalizeBeeperAIRunStream(ctx context.Context, state *beeperAIRun
 	}
 	delete(c.beeperAIRuns, state.run.RunID)
 	return c.marshalBeeperAIRunStreamResult(state, events, result.ReplacementEventID, result.Raw)
+}
+
+func (c *Core) uploadBeeperAIFinalPartsRef(ctx context.Context, run aistream.Run, message aistream.UIMessage) (*aistream.FinalPartsRef, error) {
+	payload, err := json.Marshal(run.FinalPartsPayload(message))
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode Beeper AI final parts: %w", err)
+	}
+	raw, err := c.uploadEncryptedMedia(ctx, MatrixUploadMediaOptions{
+		ContentType: aistream.FinalPartsMediaType,
+		Filename:    fmt.Sprintf("ai-final-parts-%s.json", run.RunID),
+	}, payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload Beeper AI final parts: %w", err)
+	}
+	var uploaded MatrixUploadEncryptedMediaResult
+	if err := json.Unmarshal(raw, &uploaded); err != nil {
+		return nil, err
+	}
+	hash := sha256.Sum256(payload)
+	return &aistream.FinalPartsRef{
+		Schema:     aistream.FinalPartsRefSchema,
+		MediaType:  aistream.FinalPartsMediaType,
+		File:       uploaded.File,
+		ByteSize:   len(payload),
+		SHA256:     base64.RawURLEncoding.EncodeToString(hash[:]),
+		PartsCount: len(message.Parts),
+	}, nil
 }
 
 func (c *Core) requireBeeperAIRun(runID string) (*beeperAIRunState, error) {
@@ -436,9 +449,9 @@ func (c *Core) beeperAIRunSnapshot(run *aistream.Run, events []OutboundEvent) Ma
 	return MatrixBeeperAIRunSnapshot{
 		Body:             body,
 		Events:           events,
-		InitialAIMessage: run.InitialUIMessage(),
-		FinalAIMessage:   run.FinalUIMessage(0, true),
-		Metadata:         run.Metadata(),
+		InitialAIMessage: run.InitialBeeperAIMessage(),
+		FinalAIMessage:   run.FinalBeeperAIMessage(0, true),
+		Metadata:         run.AI(aistream.AIKindStream),
 		MessageID:        run.MessageID,
 		RunID:            run.RunID,
 		ThreadID:         run.ThreadID,
@@ -448,7 +461,7 @@ func (c *Core) beeperAIRunSnapshot(run *aistream.Run, events []OutboundEvent) Ma
 func outboundEventsFromAGUI(events []agui.Event) []OutboundEvent {
 	out := make([]OutboundEvent, 0, len(events))
 	for _, event := range events {
-		out = append(out, OutboundEvent(event))
+		out = append(out, OutboundEvent(event.Map()))
 	}
 	return out
 }

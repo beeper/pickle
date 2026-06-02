@@ -155,20 +155,14 @@ export function mapOpenClawToolInputDelta(event: {
 export function mapOpenClawToolEnd(event: {
   error?: unknown;
   input?: unknown;
-  result?: unknown;
   state?: string;
   toolCallId: string;
   toolName?: string;
 }): AGUIEvent[] {
-  const result = event.result ?? (event.error !== undefined ? {
-    reason: stringifyToolValue(event.error),
-    state: "error",
-    status: "failed",
-  } : undefined);
   return [{
+    ...(event.error !== undefined ? { error: stringifyToolValue(event.error) } : {}),
     ...(event.input !== undefined ? { input: event.input } : {}),
-    ...(result !== undefined ? { result: stringifyToolValue(result) } : {}),
-    state: event.state ?? "input-complete",
+    state: event.state ?? (event.error !== undefined ? "error" : "input-complete"),
     toolCallId: event.toolCallId,
     ...(event.toolName !== undefined ? { toolCallName: event.toolName, toolName: event.toolName } : {}),
     type: AGUIEventType.TOOL_CALL_END,
@@ -209,6 +203,23 @@ export function mapOpenClawStep(event: { phase?: string; stepName: string }): AG
       type: event.phase === "end" || event.phase === "complete" ? AGUIEventType.STEP_FINISHED : AGUIEventType.STEP_STARTED,
     },
   ];
+}
+
+export function mapOpenClawActivitySnapshot(
+  state: StreamRunState,
+  event: {
+    activityType?: string;
+    content: Record<string, unknown>;
+    replace?: boolean;
+  },
+): AGUIEvent[] {
+  return [{
+    activityType: event.activityType ?? "activity",
+    content: event.content,
+    messageId: state.turnId,
+    ...(event.replace !== undefined ? { replace: event.replace } : {}),
+    type: "ACTIVITY_SNAPSHOT",
+  } as unknown as AGUIEvent];
 }
 
 export function mapOpenClawStateDelta(delta: unknown): AGUIEvent[] {

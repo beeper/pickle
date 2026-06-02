@@ -291,28 +291,25 @@ func TestBeeperStreamCarrierContentUsesAIBridgeEnvelopeShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deltas, ok := content[aistream.BeeperAIStreamDeltas].([]aistream.Envelope)
-	if !ok || len(deltas) != 1 {
-		t.Fatalf("expected ai-bridge deltas envelope, got %#v", content)
+	payload, ok := content[aistream.BeeperAIKey].(aistream.BeeperAI)
+	if !ok || len(payload.Events) != 1 {
+		t.Fatalf("expected ai-bridge stream payload, got %#v", content)
 	}
-	envelope := deltas[0]
-	if envelope.Seq != 7 || envelope.TargetEvent != "$stream" || envelope.AgentID != "codex" {
-		t.Fatalf("unexpected ai-bridge envelope routing fields: %#v", envelope)
+	envelope := payload.Events[0]
+	if envelope.Seq != 7 || payload.Agent.ID != "codex" {
+		t.Fatalf("unexpected ai-bridge envelope routing fields: payload=%#v envelope=%#v", payload, envelope)
 	}
-	if envelope.ThreadID != "thread-1" || envelope.RunID != "run-1" || envelope.MessageID != "msg-1" {
-		t.Fatalf("unexpected ai-bridge run identity: %#v", envelope)
+	if payload.ThreadID != "thread-1" || payload.RunID != "run-1" || payload.MessageID != "msg-1" {
+		t.Fatalf("unexpected ai-bridge run identity: %#v", payload)
 	}
-	if envelope.RelatesTo.Type != "m.reference" || envelope.RelatesTo.EventID != "$stream" {
-		t.Fatalf("expected ai-bridge reference relation, got %#v", envelope.RelatesTo)
+	if envelope.Event.Type() != "TEXT_MESSAGE_CONTENT" || envelope.Event.Get("delta") != "hello" {
+		t.Fatalf("unexpected ai-bridge event payload: %#v", envelope.Event.Map())
 	}
-	if envelope.Part["type"] != "TEXT_MESSAGE_CONTENT" || envelope.Part["delta"] != "hello" {
-		t.Fatalf("unexpected ai-bridge part payload: %#v", envelope.Part)
-	}
-	if _, ok := envelope.Part["timestamp"]; !ok {
-		t.Fatalf("expected native bridge to add timestamp before ai-bridge validation: %#v", envelope.Part)
+	if !envelope.Event.Has("timestamp") {
+		t.Fatalf("expected native bridge to add timestamp before ai-bridge validation: %#v", envelope.Event.Map())
 	}
 
-	remapped, err := core.beeperStreamCarrierContent("com.example.custom", MatrixPublishBeeperStreamMessagePartOptions{
+	custom, err := core.beeperStreamCarrierContent("com.example.custom", MatrixPublishBeeperStreamMessagePartOptions{
 		EventID: "$stream",
 		Part: OutboundEvent{
 			"delta":     "custom",
@@ -324,11 +321,8 @@ func TestBeeperStreamCarrierContentUsesAIBridgeEnvelopeShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := remapped[aistream.BeeperAIStreamDeltas]; ok {
-		t.Fatalf("expected custom stream type to remap ai-bridge deltas key, got %#v", remapped)
-	}
-	if _, ok := remapped["com.example.custom.deltas"].([]aistream.Envelope); !ok {
-		t.Fatalf("expected custom stream deltas to still use ai-bridge envelopes, got %#v", remapped)
+	if _, ok := custom[aistream.BeeperAIKey].(aistream.BeeperAI); !ok {
+		t.Fatalf("expected custom stream type to use ai-bridge payload, got %#v", custom)
 	}
 }
 
@@ -368,7 +362,7 @@ func TestBeeperStreamPublishWithoutSubscribersSendsRoomCarrierEvent(t *testing.T
 
 	select {
 	case req := <-requests:
-		if !strings.Contains(req.body, `"com.beeper.stream":{"type":"com.beeper.llm.deltas"}`) {
+		if !strings.Contains(req.body, `"com.beeper.stream":{"type":"com.beeper.llm"}`) {
 			t.Fatalf("expected room-carrier anchor descriptor, got %s", req.body)
 		}
 	default:
@@ -399,7 +393,7 @@ func TestBeeperStreamPublishWithoutSubscribersSendsRoomCarrierEvent(t *testing.T
 			if !strings.Contains(req.path, "/rooms/!room:example/send/m.room.message/") {
 				continue
 			}
-			if !strings.Contains(req.body, `"com.beeper.llm.deltas"`) {
+			if !strings.Contains(req.body, `"com.beeper.ai"`) {
 				continue
 			}
 			if !strings.Contains(req.body, `"body":""`) || !strings.Contains(req.body, `"msgtype":"m.text"`) {
@@ -409,7 +403,7 @@ func TestBeeperStreamPublishWithoutSubscribersSendsRoomCarrierEvent(t *testing.T
 				t.Fatalf("expected carrier event to reference stream root, got %s", req.body)
 			}
 			if !strings.Contains(req.body, `"delta":"hello"`) {
-				t.Fatalf("expected ai-bridge stream deltas in carrier body, got %s", req.body)
+				t.Fatalf("expected ai-bridge stream payload in carrier body, got %s", req.body)
 			}
 			return
 		case <-deadline:

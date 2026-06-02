@@ -2,10 +2,6 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "accessToken": {
-      "type": "string",
-      "description": "Beeper Matrix access token returned by login."
-    },
     "appserviceId": {
       "type": "string",
       "description": "Matrix appservice id used in registration namespaces."

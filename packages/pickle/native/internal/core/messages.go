@@ -152,7 +152,7 @@ func (c *Core) handleStartBeeperStreamMessage(ctx context.Context, payload []byt
 		content["com.beeper.stream"] = descriptor
 	} else {
 		content["com.beeper.stream"] = map[string]any{
-			"type": aistream.BeeperAIStreamDeltas,
+			"type": req.StreamType,
 		}
 	}
 	resp, err := c.sendBeeperStreamMessageEvent(ctx, req.RoomID, req.ThreadRootEventID, req.UserID, content)
@@ -277,12 +277,13 @@ func (c *Core) beeperStreamCarrierContent(streamType string, req MatrixPublishBe
 		return nil, err
 	}
 	if len(contents) == 0 {
-		return aistream.CarrierContent(nil), nil
+		return aistream.CarrierContent(aistream.Run{}, nil), nil
 	}
 	return contents[0], nil
 }
 
 func (c *Core) beeperStreamCarrierContents(streamType string, req MatrixPublishBeeperStreamMessagePartOptions, seq int) ([]map[string]any, int, error) {
+	_ = streamType
 	run := aistream.Run{
 		ThreadID:  firstString(req.Part["threadId"], req.TurnID),
 		RunID:     firstString(req.Part["runId"], req.TurnID),
@@ -290,25 +291,18 @@ func (c *Core) beeperStreamCarrierContents(streamType string, req MatrixPublishB
 		AgentID:   firstNonEmpty(req.AgentID, "ai"),
 		Model:     firstString(req.Part["model"], aistream.DefaultModel),
 	}
-	part := agui.Event(copyOutboundEvent(req.Part))
-	if part["timestamp"] == nil {
-		part["timestamp"] = time.Now().UnixMilli()
+	part := agui.NewEvent(map[string]any(copyOutboundEvent(req.Part)))
+	if !part.Has("timestamp") {
+		part.Set("timestamp", time.Now().UnixMilli())
 	}
 	run.Events = []agui.Event{part}
-	carriers, err := aistream.PackRunFromSeq(run, req.EventID, aistream.CarrierBudgetBytes, seq)
+	carriers, err := aistream.PackRunFromSeq(run, seq)
 	if err != nil {
 		return nil, seq, err
 	}
 	contents := make([]map[string]any, 0, len(carriers))
 	for _, carrier := range carriers {
-		content := aistream.CarrierContent(carrier.Envelopes)
-		if streamType != aistream.BeeperAIStreamKey {
-			if deltas, ok := content[aistream.BeeperAIStreamDeltas]; ok {
-				delete(content, aistream.BeeperAIStreamDeltas)
-				content[streamType+".deltas"] = deltas
-			}
-		}
-		contents = append(contents, content)
+		contents = append(contents, aistream.CarrierContent(run, carrier.Envelopes))
 	}
 	return contents, aistream.NextSeq(carriers), nil
 }

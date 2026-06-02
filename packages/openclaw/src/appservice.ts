@@ -1,11 +1,8 @@
-import type { MatrixAccount, MatrixAppserviceInitOptions, MatrixAppserviceRegistration } from "@beeper/pickle";
+import type { MatrixAppserviceInitOptions, MatrixAppserviceRegistration } from "@beeper/pickle";
 import {
   createBeeperBridge,
-  createBeeperBridgeManagerClient,
-  type BeeperBridgeManagerClient,
   type CreateNodeBeeperBridgeOptions,
   type PickleBridge,
-  type PostBridgeStateOptions,
 } from "@beeper/pickle-bridge";
 import { backfillAllOpenClawSessions } from "./backfill";
 import { beeperBaseDomain } from "./beeper-setup";
@@ -17,11 +14,9 @@ import { OpenClawBridgeRegistry } from "./registry";
 import type { OpenClawBridgeConfig } from "./types";
 
 export interface CreateOpenClawBeeperBridgeOptions extends OpenClawConnectorOptions {
-  account: MatrixAccount;
   backfill?: boolean;
   backfillLimit?: number;
   bridge?: string;
-  bridgeStateClientFactory?: (options: { baseDomain?: string; token: string }) => Pick<BeeperBridgeManagerClient, "postBridgeState">;
   bridgeFactory?: (options: CreateNodeBeeperBridgeOptions) => Promise<PickleBridge>;
   bridgeType?: string;
   connector?: CreateNodeBeeperBridgeOptions["connector"];
@@ -36,11 +31,11 @@ export async function createOpenClawBeeperBridge(options: CreateOpenClawBeeperBr
   const config = options.config;
   const connector = options.connector ?? createOpenClawConnector(connectorOptions(options));
   const bridgeOptions: CreateNodeBeeperBridgeOptions = {
-    account: options.account,
     bridge: options.bridge ?? config?.bridgeId ?? config?.appserviceId ?? "sh-openclaw",
     bridgeType: options.bridgeType ?? DEFAULT_BEEPER_BRIDGE_TYPE,
     connector,
   };
+  if (config?.matrixUserId !== undefined) bridgeOptions.ownerUserId = config.matrixUserId;
   bridgeOptions.address = "websocket";
   const baseDomain = beeperBaseDomain(config?.beeperEnv);
   if (baseDomain !== undefined) bridgeOptions.baseDomain = baseDomain;
@@ -60,7 +55,6 @@ export async function createOpenClawBeeperBridge(options: CreateOpenClawBeeperBr
 export async function startOpenClawBeeperBridge(options: CreateOpenClawBeeperBridgeOptions): Promise<PickleBridge> {
   const bridge = await createOpenClawBeeperBridge(options);
   await bridge.start();
-  await postOpenClawBridgeRunningState(options);
   await bridge.setBridgeState("running");
   if (options.backfill) {
     await runStartupBackfill(options, bridge);
@@ -109,50 +103,10 @@ async function runStartupBackfill(options: CreateOpenClawBeeperBridgeOptions, br
   }
 }
 
-async function postOpenClawBridgeRunningState(options: CreateOpenClawBeeperBridgeOptions): Promise<void> {
-  const config = options.config;
-  const bridge = options.bridge ?? config?.bridgeId ?? config?.appserviceId;
-  if (!config?.accessToken || !config.asToken || !bridge) return;
-  const baseDomain = beeperBaseDomain(config.beeperEnv);
-  const factory = options.bridgeStateClientFactory ?? createBeeperBridgeManagerClient;
-  const clientOptions: { baseDomain?: string; token: string } = { token: config.accessToken };
-  if (baseDomain !== undefined) clientOptions.baseDomain = baseDomain;
-  const state: PostBridgeStateOptions = {
-    bridge,
-    bridgeType: options.bridgeType ?? DEFAULT_BEEPER_BRIDGE_TYPE,
-    info: {
-      openclaw: {
-        appserviceId: config.appserviceId,
-        matrixUserId: config.matrixUserId,
-      },
-    },
-    isSelfHosted: true,
-    reason: "BRIDGE_STARTED",
-    stateEvent: "RUNNING",
-  };
-  try {
-    await factory(clientOptions).postBridgeState(state, config.asToken);
-  } catch {
-    // The websocket bridge_status still reports liveness; keep the plugin running if the REST state echo fails.
-  }
-}
-
-export function accountFromOpenClawConfig(config: OpenClawBridgeConfig): MatrixAccount {
-  if (!config.accessToken) throw new Error("OpenClaw config is missing accessToken");
-  if (!config.homeserver) throw new Error("OpenClaw config is missing homeserver");
-  if (!config.matrixDeviceId) throw new Error("OpenClaw config is missing matrixDeviceId");
-  if (!config.matrixUserId) throw new Error("OpenClaw config is missing matrixUserId");
-  return {
-    accessToken: config.accessToken,
-    deviceId: config.matrixDeviceId,
-    homeserver: config.homeserver,
-    userId: config.matrixUserId,
-  };
-}
-
 function connectorOptions(options: CreateOpenClawBeeperBridgeOptions): OpenClawConnectorOptions {
   const output: OpenClawConnectorOptions = {};
   if (options.config !== undefined) output.config = options.config;
+  if (options.onActivity !== undefined) output.onActivity = options.onActivity;
   if (options.registry !== undefined) output.registry = options.registry;
   if (options.runtimeFactory !== undefined) output.runtimeFactory = options.runtimeFactory;
   if (options.runtime !== undefined) output.runtime = options.runtime;
@@ -204,23 +158,16 @@ function matrixOptionsFromConfig(
 ): CreateNodeBeeperBridgeOptions["matrix"] | undefined {
   const appservice = config && hasPersistedAppservice(config) ? appserviceInitFromConfig(config) : undefined;
   if (!appservice && input === undefined) return undefined;
-  const useUserMatrixAccount = !appservice && config && hasPersistedMatrixAccount(config);
   return {
     ...input,
-    ...(useUserMatrixAccount && input?.account === undefined ? { account: accountFromOpenClawConfig(config) } : {}),
     ...(appservice && input?.appservice === undefined ? { appservice } : {}),
-    ...(!appservice && config?.matrixDeviceId && input?.deviceId === undefined ? { deviceId: config.matrixDeviceId } : {}),
-    ...(!appservice && config?.accessToken && input?.token === undefined ? { token: config.accessToken } : {}),
+    ...(appservice && config?.matrixDeviceId && input?.deviceId === undefined ? { deviceId: config.matrixDeviceId } : {}),
     ...(config?.homeserver && input?.homeserver === undefined ? { homeserver: config.homeserver } : {}),
   };
 }
 
 function hasPersistedAppservice(config: OpenClawBridgeConfig): boolean {
   return Boolean(config.asToken && config.hsToken && config.homeserver);
-}
-
-function hasPersistedMatrixAccount(config: OpenClawBridgeConfig): boolean {
-  return Boolean(config.accessToken && config.homeserver && config.matrixDeviceId && config.matrixUserId);
 }
 
 function appserviceInitFromConfig(config: OpenClawBridgeConfig): MatrixAppserviceInitOptions {

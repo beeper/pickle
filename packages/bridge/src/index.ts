@@ -22,7 +22,7 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
   const store = options.store ?? options.matrix?.store ?? createFileMatrixStore(defaultDataDir(options));
   const appservice = options.matrix?.appservice ?? await createBeeperAppServiceInit({
     bridge: options.bridge,
-    token: options.account.accessToken,
+    token: requiredAccount(options).accessToken,
     ...(options.address ? { address: options.address } : {}),
     ...(options.baseDomain ? { baseDomain: options.baseDomain } : {}),
     ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
@@ -44,7 +44,7 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
     appservice,
     beeper: {
       bridge: options.bridge,
-      ownerUserId: options.account.userId,
+      ...(options.account?.userId ?? options.ownerUserId ? { ownerUserId: options.account?.userId ?? options.ownerUserId } : {}),
       ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
     },
     connector: options.connector,
@@ -54,6 +54,11 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
   }, createMatrixClient({
     ...matrix,
   }));
+}
+
+function requiredAccount(options: CreateNodeBeeperBridgeOptions) {
+  if (!options.account) throw new Error("createBeeperBridge requires account unless matrix.appservice is provided");
+  return options.account;
 }
 
 function defaultDataDir(options: { bridge: string; dataDir?: string }): string {

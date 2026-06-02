@@ -1,12 +1,27 @@
 import type { MatrixBeeper, MatrixBeeperAIRunStreamResult, SentEvent } from "@beeper/pickle";
-import { SerialQueue } from "./serial";
-import { AGUIEventType, createTurnId, type AGUIEvent } from "./beeper-turn-events";
 
+type AGUIEvent = Record<string, unknown> & { type?: string };
 type FinishReason = "stop" | "length" | "content_filter" | "tool_calls";
 
 const BEEPER_AI_STREAM_TYPE = "com.beeper.llm";
 
-export interface BeeperTurnStreamCoordinatorClient {
+const EVENT_RUN_ERROR = "RUN_ERROR";
+const EVENT_RUN_FINISHED = "RUN_FINISHED";
+const EVENT_RUN_STARTED = "RUN_STARTED";
+const EVENT_TEXT_MESSAGE_START = "TEXT_MESSAGE_START";
+const EVENT_TEXT_MESSAGE_CONTENT = "TEXT_MESSAGE_CONTENT";
+const EVENT_TEXT_MESSAGE_END = "TEXT_MESSAGE_END";
+const EVENT_REASONING_START = "REASONING_START";
+const EVENT_REASONING_MESSAGE_START = "REASONING_MESSAGE_START";
+const EVENT_REASONING_MESSAGE_CONTENT = "REASONING_MESSAGE_CONTENT";
+const EVENT_REASONING_MESSAGE_END = "REASONING_MESSAGE_END";
+const EVENT_REASONING_END = "REASONING_END";
+const EVENT_TOOL_CALL_START = "TOOL_CALL_START";
+const EVENT_TOOL_CALL_RESULT = "TOOL_CALL_RESULT";
+const EVENT_ACTIVITY_SNAPSHOT = "ACTIVITY_SNAPSHOT";
+const EVENT_ACTIVITY_DELTA = "ACTIVITY_DELTA";
+
+export interface BeeperTurnStreamClient {
   beeper: MatrixBeeper;
 }
 
@@ -15,15 +30,16 @@ export interface BeeperStreamSubscriber {
   userId: string;
 }
 
-export interface CreateBeeperTurnStreamCoordinatorOptions {
+export interface CreateBeeperTurnStreamOptions {
   agentId?: string;
   agentName?: string;
-  client: BeeperTurnStreamCoordinatorClient;
+  client: BeeperTurnStreamClient;
   initialMessageMetadata?: Record<string, unknown>;
+  model?: string;
   roomId: string;
   subscribers?: BeeperStreamSubscriber[];
   threadRoot?: string;
-  turnId?: string;
+  turnId: string;
   userId?: string;
 }
 
@@ -34,37 +50,44 @@ export interface BeeperStreamStartResult {
 }
 
 export interface BeeperStreamFinalizeOptions {
-  body?: string;
-  finalText?: string;
   finishReason?: string;
-  message?: Record<string, unknown>;
   terminalPart?: AGUIEvent;
+  usage?: unknown;
 }
 
-export class BeeperTurnStreamCoordinator {
+export interface RunBeeperTurnStreamOptions<T> {
+  events: Iterable<T> | AsyncIterable<T>;
+  finishReason?: string;
+  mapEvent: (event: T, stream: BeeperTurnStream) => Iterable<AGUIEvent> | AGUIEvent | undefined | Promise<Iterable<AGUIEvent> | AGUIEvent | undefined>;
+  stream: BeeperTurnStream;
+}
+
+export class BeeperTurnStream {
   readonly roomId: string;
   readonly turnId: string;
   #agentId: string | undefined;
   #agentName: string | undefined;
-  #client: BeeperTurnStreamCoordinatorClient;
+  #client: BeeperTurnStreamClient;
   #descriptor: Record<string, unknown> | undefined;
   #eventId: string | undefined;
   #finalized = false;
   #initialMessageMetadata: Record<string, unknown>;
   #messageId: string | undefined;
+  #model: string;
   #queue = new SerialQueue();
   #started = false;
   #subscribers: BeeperStreamSubscriber[];
   #threadRoot: string | undefined;
   #userId: string | undefined;
 
-  constructor(options: CreateBeeperTurnStreamCoordinatorOptions) {
+  constructor(options: CreateBeeperTurnStreamOptions) {
     this.#agentId = options.agentId;
     this.#agentName = options.agentName;
     this.#client = options.client;
     this.#initialMessageMetadata = options.initialMessageMetadata ?? {};
+    this.#model = options.model ?? "bridge/plugin";
     this.roomId = options.roomId;
-    this.turnId = options.turnId ?? createTurnId();
+    this.turnId = options.turnId;
     this.#subscribers = options.subscribers ?? [];
     this.#threadRoot = options.threadRoot;
     this.#userId = options.userId;
@@ -81,24 +104,17 @@ export class BeeperTurnStreamCoordinator {
     });
   }
 
-  async publish(part: AGUIEvent): Promise<void> {
-    return this.#queue.run(async () => {
-      if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
-      await this.#ensureStarted();
-      await this.#client.beeper.aiRunStreams.appendEvent({
-        event: this.#canonicalizePart(part),
-        runId: this.turnId,
-      });
-    });
+  async publish(event: AGUIEvent): Promise<void> {
+    await this.publishMany([event]);
   }
 
-  async publishMany(parts: Iterable<AGUIEvent>): Promise<void> {
+  async publishMany(events: Iterable<AGUIEvent>): Promise<void> {
     return this.#queue.run(async () => {
-      for (const part of parts) {
+      for (const event of events) {
         if (this.#finalized) throw new Error("Cannot publish to finalized Beeper stream");
         await this.#ensureStarted();
         await this.#client.beeper.aiRunStreams.appendEvent({
-          event: this.#canonicalizePart(part),
+          event: this.#canonicalizeEvent(event),
           runId: this.turnId,
         });
       }
@@ -109,24 +125,25 @@ export class BeeperTurnStreamCoordinator {
     return this.#queue.run(async () => {
       if (this.#finalized) throw new Error("Beeper stream is already finalized");
       await this.#ensureStarted();
-      const terminalPart = options.terminalPart ?? {
+      const terminal = options.terminalPart ?? {
         finishReason: normalizeFinishReason(options.finishReason),
         runId: this.turnId,
         threadId: this.turnId,
-        type: AGUIEventType.RUN_FINISHED,
+        type: EVENT_RUN_FINISHED,
       };
-      const finishReason = normalizeFinishReason(stringValue((terminalPart as Record<string, unknown>).finishReason) ?? options.finishReason);
-      const result = terminalPart.type === AGUIEventType.RUN_ERROR
+      const finishReason = normalizeFinishReason(stringValue(terminal.finishReason) ?? options.finishReason);
+      const result = terminal.type === EVENT_RUN_ERROR
         ? await this.#client.beeper.aiRunStreams.error({
-            message: terminalFallbackText(terminalPart),
+            message: terminalFallbackText(terminal),
             runId: this.turnId,
-            terminal: terminalPart as Record<string, unknown>,
-            type: stringValue((terminalPart as Record<string, unknown>).terminalType) === "abort" ? "abort" : "error",
+            terminal,
+            type: stringValue(terminal.terminalType) === "abort" ? "abort" : "error",
           })
         : await this.#client.beeper.aiRunStreams.finish({
             finishReason,
             runId: this.turnId,
-            terminal: terminalPart as Record<string, unknown>,
+            terminal,
+            ...(options.usage !== undefined ? { usage: options.usage } : {}),
           });
       this.#rememberStreamResult(result);
       this.#finalized = true;
@@ -155,7 +172,7 @@ export class BeeperTurnStreamCoordinator {
       ...(this.#agentId ? { agentId: this.#agentId } : {}),
       ...(this.#agentName ? { agentName: this.#agentName } : {}),
       data: this.#initialMessageMetadata,
-      model: "openclaw/plugin",
+      model: this.#model,
       roomId: this.roomId,
       runId: this.turnId,
       streamType: BEEPER_AI_STREAM_TYPE,
@@ -179,42 +196,75 @@ export class BeeperTurnStreamCoordinator {
     this.#messageId = result.messageId || this.#messageId || `msg-${this.turnId}`;
   }
 
-  #canonicalizePart(part: AGUIEvent): AGUIEvent {
-    const event = { ...(part as Record<string, unknown>) };
+  #canonicalizeEvent(event: AGUIEvent): AGUIEvent {
+    const canonical = { ...event };
     const messageId = this.#messageId ?? `msg-${this.turnId}`;
-    if (event.type === AGUIEventType.RUN_STARTED || event.type === AGUIEventType.RUN_FINISHED) {
-      event.runId = this.turnId;
-      event.threadId = this.turnId;
+    if (canonical.type === EVENT_RUN_STARTED || canonical.type === EVENT_RUN_FINISHED) {
+      canonical.runId = this.turnId;
+      canonical.threadId = this.turnId;
     }
-    if (event.type === AGUIEventType.RUN_ERROR && !stringValue(event.message)) {
-      event.message = terminalFallbackText(part);
+    if (canonical.type === EVENT_RUN_ERROR && !stringValue(canonical.message)) {
+      canonical.message = terminalFallbackText(event);
     }
-    if (usesCanonicalMessageId(event.type)) {
-      event.messageId = messageId;
+    if (usesCanonicalMessageId(canonical.type)) {
+      canonical.messageId = messageId;
     }
-    if (event.type === AGUIEventType.TOOL_CALL_START) {
-      event.parentMessageId = messageId;
+    if (canonical.type === EVENT_TOOL_CALL_START) {
+      canonical.parentMessageId = messageId;
     }
-    return stripUndefined(event) as AGUIEvent;
+    return stripUndefined(canonical);
+  }
+}
+
+export async function runBeeperTurnStream<T>(options: RunBeeperTurnStreamOptions<T>): Promise<SentEvent> {
+  try {
+    for await (const event of toAsyncIterable(options.events)) {
+      const mapped = await options.mapEvent(event, options.stream);
+      const events = mapped === undefined ? [] : isAGUIEvent(mapped) ? [mapped] : [...mapped];
+      if (events.length > 0) await options.stream.publishMany(events);
+    }
+    return await options.stream.finalize(options.finishReason === undefined ? {} : { finishReason: options.finishReason });
+  } catch (error) {
+    await options.stream.finalize({
+      terminalPart: {
+        error: { message: errorMessage(error) },
+        message: errorMessage(error),
+        runId: options.stream.turnId,
+        threadId: options.stream.turnId,
+        type: EVENT_RUN_ERROR,
+      },
+    });
+    throw error;
+  }
+}
+
+class SerialQueue {
+  #tail = Promise.resolve();
+
+  run<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.#tail.then(operation, operation);
+    this.#tail = next.then(() => undefined, () => undefined);
+    return next;
   }
 }
 
 function usesCanonicalMessageId(type: unknown): boolean {
-  return type === AGUIEventType.TEXT_MESSAGE_START ||
-    type === AGUIEventType.TEXT_MESSAGE_CONTENT ||
-    type === AGUIEventType.TEXT_MESSAGE_END ||
-    type === AGUIEventType.REASONING_START ||
-    type === AGUIEventType.REASONING_MESSAGE_START ||
-    type === AGUIEventType.REASONING_MESSAGE_CONTENT ||
-    type === AGUIEventType.REASONING_MESSAGE_END ||
-    type === AGUIEventType.REASONING_END ||
-    type === AGUIEventType.TOOL_CALL_RESULT;
+  return type === EVENT_TEXT_MESSAGE_START ||
+    type === EVENT_TEXT_MESSAGE_CONTENT ||
+    type === EVENT_TEXT_MESSAGE_END ||
+    type === EVENT_REASONING_START ||
+    type === EVENT_REASONING_MESSAGE_START ||
+    type === EVENT_REASONING_MESSAGE_CONTENT ||
+    type === EVENT_REASONING_MESSAGE_END ||
+    type === EVENT_REASONING_END ||
+    type === EVENT_ACTIVITY_SNAPSHOT ||
+    type === EVENT_ACTIVITY_DELTA;
 }
 
 function terminalFallbackText(event: AGUIEvent | undefined): string {
   if (!event) return "";
-  if (event.type === AGUIEventType.RUN_ERROR) {
-    return stringValue(event.message) ?? stringValue(event.error) ?? "OpenClaw run failed";
+  if (event.type === EVENT_RUN_ERROR) {
+    return stringValue(event.message) ?? stringValue(event.error) ?? "Bridge run failed";
   }
   return "";
 }
@@ -235,4 +285,20 @@ function normalizeFinishReason(reason: string | undefined): FinishReason {
 
 function stripUndefined<T extends Record<string, unknown>>(record: T): T {
   return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as T;
+}
+
+async function* toAsyncIterable<T>(events: Iterable<T> | AsyncIterable<T>): AsyncIterable<T> {
+  if (Symbol.asyncIterator in events) {
+    yield* events;
+    return;
+  }
+  yield* events;
+}
+
+function isAGUIEvent(value: unknown): value is AGUIEvent {
+  return Boolean(recordValue(value)?.type);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

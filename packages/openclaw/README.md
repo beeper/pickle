@@ -14,7 +14,7 @@ OpenClaw loads the runtime entry from `dist/plugin-entry.mjs` and the lightweigh
 
 ## What It Provides
 
-- Beeper email-code login for existing accounts.
+- Beeper email-code login for existing accounts, with username/password login available when needed.
 - Beeper appservice registration for the OpenClaw bridge.
 - OpenClaw channel metadata, setup entrypoint, runtime entrypoint, and ClawHub install metadata.
 - Pickle bridgev2-style transport for Matrix portals, media, reactions, receipts, and backfill.
@@ -54,19 +54,14 @@ import {
   backfillAllOpenClawSessions,
 } from "@beeper/openclaw/backfill";
 import {
-  createDefaultConfig,
+  readConfig,
 } from "@beeper/openclaw/config";
 import {
   accountFromOpenClawConfig,
   createOpenClawBeeperBridge,
 } from "@beeper/openclaw/appservice";
 
-const config = createDefaultConfig({
-  accessToken: process.env.BEEPER_ACCESS_TOKEN,
-  homeserver: "https://matrix.beeper.com",
-  matrixDeviceId: process.env.BEEPER_DEVICE_ID,
-  matrixUserId: process.env.BEEPER_USER_ID,
-});
+const config = await readConfig();
 
 const bridge = await createOpenClawBeeperBridge({
   account: accountFromOpenClawConfig(config),
@@ -75,6 +70,8 @@ const bridge = await createOpenClawBeeperBridge({
 
 await bridge.start();
 ```
+
+For normal use, run `pickle-openclaw login --email you@example.com` and let setup persist the owned Beeper device credentials.
 
 The runtime uses the in-process OpenClaw plugin context and exposes the Beeper bridge as an OpenClaw channel connector.
 

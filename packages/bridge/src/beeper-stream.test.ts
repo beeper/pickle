@@ -1,15 +1,16 @@
 import type { MatrixClient } from "@beeper/pickle";
 import { describe, expect, it, vi } from "vitest";
-import { BeeperTurnStreamCoordinator } from "./beeper-stream";
+import { BeeperTurnStream, runBeeperTurnStream } from "./beeper-stream";
 
-describe("OpenClaw Beeper native stream publisher", () => {
+describe("Beeper AI turn stream publisher", () => {
   it("starts one ai-bridge backed stream and appends canonical AG-UI events", async () => {
     const { appendEvent, client, finish, start } = createClient();
-    const publisher = new BeeperTurnStreamCoordinator({
+    const publisher = new BeeperTurnStream({
       agentId: "codex",
       agentName: "Codex",
       client,
       initialMessageMetadata: { agent_id: "codex" },
+      model: "openclaw/plugin",
       roomId: "!room:example.com",
       turnId: "turn_1",
       userId: "@sh-openclaw_agent_codex:example.com",
@@ -49,7 +50,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
 
   it("does not promote provider message ids into additional Matrix stream messages", async () => {
     const { appendEvent, client, finish, start } = createClient();
-    const publisher = new BeeperTurnStreamCoordinator({
+    const publisher = new BeeperTurnStream({
       client,
       roomId: "!room:example.com",
       turnId: "turn_multi",
@@ -73,9 +74,38 @@ describe("OpenClaw Beeper native stream publisher", () => {
     expect(finish).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps tool result message ids separate from the assistant message", async () => {
+    const { appendEvent, client } = createClient();
+    const publisher = new BeeperTurnStream({
+      client,
+      roomId: "!room:example.com",
+      turnId: "turn_tool",
+    });
+
+    await publisher.publish({
+      content: "{\"ok\":true}",
+      messageId: "tool_1",
+      role: "tool",
+      state: "complete",
+      toolCallId: "tool_1",
+      type: "TOOL_CALL_RESULT",
+    });
+
+    expect(appendEvent.mock.calls.map(([options]) => options.event)).toEqual([
+      {
+        content: "{\"ok\":true}",
+        messageId: "tool_1",
+        role: "tool",
+        state: "complete",
+        toolCallId: "tool_1",
+        type: "TOOL_CALL_RESULT",
+      },
+    ]);
+  });
+
   it("finalizes run errors through the native stream", async () => {
     const { client, error } = createClient();
-    const publisher = new BeeperTurnStreamCoordinator({
+    const publisher = new BeeperTurnStream({
       client,
       roomId: "!room:example.com",
       turnId: "turn_error",
@@ -100,7 +130,7 @@ describe("OpenClaw Beeper native stream publisher", () => {
 
   it("starts with subscribers, thread root, and ghost sender when provided", async () => {
     const { client, start } = createClient();
-    const publisher = new BeeperTurnStreamCoordinator({
+    const publisher = new BeeperTurnStream({
       client,
       roomId: "!room:example.com",
       subscribers: [{ deviceId: "DEVICE", userId: "@alice:example.com" }],
@@ -116,6 +146,52 @@ describe("OpenClaw Beeper native stream publisher", () => {
       threadRootEventId: "$root",
       userId: "@agent:example.com",
     }));
+  });
+
+  it("runs mapped provider events through one finalized turn stream", async () => {
+    const { appendEvent, client, finish } = createClient();
+    const publisher = new BeeperTurnStream({
+      client,
+      roomId: "!room:example.com",
+      turnId: "turn_runner",
+    });
+
+    await expect(runBeeperTurnStream({
+      events: ["a", "b"],
+      mapEvent: (delta) => ({ delta, type: "TEXT_MESSAGE_CONTENT" }),
+      stream: publisher,
+    })).resolves.toMatchObject({ eventId: "$target" });
+
+    expect(appendEvent.mock.calls.map(([options]) => options.event)).toEqual([
+      { delta: "a", messageId: "msg-turn_runner", type: "TEXT_MESSAGE_CONTENT" },
+      { delta: "b", messageId: "msg-turn_runner", type: "TEXT_MESSAGE_CONTENT" },
+    ]);
+    expect(finish).toHaveBeenCalledOnce();
+  });
+
+  it("finalizes mapped provider failures as stream errors before rethrowing", async () => {
+    const { client, error, finish } = createClient();
+    const publisher = new BeeperTurnStream({
+      client,
+      roomId: "!room:example.com",
+      turnId: "turn_runner_error",
+    });
+
+    await expect(runBeeperTurnStream({
+      events: ["a"],
+      mapEvent: () => {
+        throw new Error("provider exploded");
+      },
+      stream: publisher,
+    })).rejects.toThrow("provider exploded");
+
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({
+      message: "provider exploded",
+      runId: "turn_runner_error",
+      terminal: expect.objectContaining({ message: "provider exploded", type: "RUN_ERROR" }),
+      type: "error",
+    }));
+    expect(finish).not.toHaveBeenCalled();
   });
 });
 
@@ -153,18 +229,6 @@ function createClient() {
         error,
         finish,
         start,
-      },
-      aiRuns: {
-        appendEvent: vi.fn(),
-        begin: vi.fn(),
-        delete: vi.fn(),
-        error: vi.fn(),
-        finish: vi.fn(),
-      },
-      streams: {
-        finalizeMessage: vi.fn(),
-        publishPart: vi.fn(),
-        startMessage: vi.fn(),
       },
     },
   } as unknown as MatrixClient;

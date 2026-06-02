@@ -596,6 +596,37 @@ describe("RuntimeBridge", () => {
     expect(backfill.eventIds).toEqual(["$backfilled"]);
   });
 
+  it("uses full Matrix user IDs directly for appservice portal senders", async () => {
+    const client = createFakeMatrixClient();
+    const bridge = new RuntimeBridge({
+      appservice: {
+        homeserver: "https://matrix.example",
+        homeserverDomain: "example",
+        registration: {
+          asToken: "as",
+          hsToken: "hs",
+          id: "test",
+          namespaces: { users: [{ exclusive: true, regex: "@test_.*:example" }] },
+          senderLocalpart: "testbot",
+          url: "http://localhost:29300",
+        },
+      },
+      connector: createFakeConnector(createFakeNetworkAPI()),
+      matrix: matrixConfig(),
+    }, client);
+
+    await bridge.start();
+    await bridge.createPortal({ id: "remote-room", userId: "@owner:example" }, {
+      id: "remote-room",
+      roomType: "dm",
+      sender: "@test_agent_main:example",
+    });
+
+    expect(client.appservice.createPortalRoom).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "@test_agent_main:example",
+    }));
+  });
+
   it("adds Beeper room metadata and autojoin members for Beeper bridges", async () => {
     const client = createFakeMatrixClient();
     const connector = createFakeConnector(createFakeNetworkAPI());

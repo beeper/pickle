@@ -28,7 +28,7 @@ func TestBeeperAIRunLifecycleUsesAIBridgeFinalContent(t *testing.T) {
 	if begin.RunID != "run-1" || begin.ThreadID != "thread-1" || begin.MessageID == "" {
 		t.Fatalf("unexpected begin identity: %#v", begin)
 	}
-	if got := eventTypes(begin.Events); strings.Join(got, ",") != "RUN_STARTED,TEXT_MESSAGE_START" {
+	if got := eventTypes(begin.Events); strings.Join(got, ",") != "RUN_STARTED" {
 		t.Fatalf("unexpected begin events: %#v", got)
 	}
 	if begin.InitialAIMessage == nil || begin.Metadata == nil {
@@ -76,7 +76,7 @@ func TestBeeperAIRunLifecycleUsesAIBridgeFinalContent(t *testing.T) {
 	if finish.Body != "hello" {
 		t.Fatalf("finish body = %q, want hello", finish.Body)
 	}
-	if got := eventTypes(finish.Events); strings.Join(got, ",") != "TEXT_MESSAGE_END,MESSAGES_SNAPSHOT,RUN_FINISHED" {
+	if got := eventTypes(finish.Events); strings.Join(got, ",") != "MESSAGES_SNAPSHOT,RUN_FINISHED" {
 		t.Fatalf("unexpected finish events: %#v", got)
 	}
 	finalMessage, ok := finish.FinalAIMessage.(map[string]any)
@@ -134,13 +134,13 @@ func TestBeeperAIRunErrorAbortAndDelete(t *testing.T) {
 	}
 }
 
-func TestBeeperStreamCarrierContentsSplitsLargeEventsAndAdvancesSeq(t *testing.T) {
+func TestBeeperStreamCarrierContentsUsesBeeperAIPayloadAndAdvancesSeq(t *testing.T) {
 	core := New(nil)
 	contents, nextSeq, err := core.beeperStreamCarrierContents("com.beeper.llm", MatrixPublishBeeperStreamMessagePartOptions{
 		AgentID: "codex",
 		EventID: "$stream",
 		Part: OutboundEvent{
-			"delta":     strings.Repeat("x", aistream.CarrierBudgetBytes*2),
+			"delta":     "hello",
 			"messageId": "msg-1",
 			"runId":     "run-1",
 			"threadId":  "thread-1",
@@ -151,23 +151,20 @@ func TestBeeperStreamCarrierContentsSplitsLargeEventsAndAdvancesSeq(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(contents) < 2 {
-		t.Fatalf("expected large event to split into multiple carriers, got %d", len(contents))
+	if len(contents) != 1 {
+		t.Fatalf("expected one carrier, got %d", len(contents))
 	}
 	if nextSeq != 7+len(contents) {
 		t.Fatalf("next seq = %d, want %d", nextSeq, 7+len(contents))
 	}
 	for index, content := range contents {
-		if size := aistream.JSONSize(content); size > aistream.CarrierBudgetBytes {
-			t.Fatalf("carrier %d size = %d, budget %d", index, size, aistream.CarrierBudgetBytes)
-		}
-		envelopes, ok := content[aistream.BeeperAIStreamDeltas].([]aistream.Envelope)
-		if !ok || len(envelopes) != 1 {
-			t.Fatalf("carrier %d has unexpected envelope shape: %#v", index, content)
+		payload, ok := content[aistream.BeeperAIKey].(aistream.BeeperAI)
+		if !ok || len(payload.Events) != 1 {
+			t.Fatalf("carrier %d has unexpected payload shape: %#v", index, content)
 		}
 		wantSeq := 7 + index
-		if envelopes[0].Seq != wantSeq {
-			t.Fatalf("carrier %d seq = %d, want %d", index, envelopes[0].Seq, wantSeq)
+		if payload.Events[0].Seq != wantSeq {
+			t.Fatalf("carrier %d seq = %d, want %d", index, payload.Events[0].Seq, wantSeq)
 		}
 	}
 }

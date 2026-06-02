@@ -140,6 +140,7 @@ export async function backfillAllOpenClawSessions(options: BackfillAllOpenClawSe
       },
       name: session.label,
       roomType: "dm",
+      sender: agent.ghostUserId,
     };
     const creationContent = openClawBackfillRoomCreationContent(options.runtime.config);
     if (creationContent) portalOptions.creationContent = creationContent;
@@ -187,6 +188,7 @@ async function createInitialOpenClawRoom(options: BackfillAllOpenClawSessionsOpt
     },
     name: agent.displayName,
     roomType: "dm",
+    sender: agent.ghostUserId,
   };
   const creationContent = openClawBackfillRoomCreationContent(options.runtime.config);
   if (creationContent) portalOptions.creationContent = creationContent;
@@ -278,10 +280,11 @@ export function shouldImportSession(
 function normalizeHistoryMessage(message: OpenClawChatHistoryMessage, index: number): OpenClawBackfillMessage {
   const role = typeof message.role === "string" ? message.role : "assistant";
   const text = contentText(message.content);
+  const sender = role === "assistant" || role === "tool" ? "agent" : role === "system" ? "system" : "human";
   const normalized: OpenClawBackfillMessage = {
     content: {
       body: text || JSON.stringify(message.content ?? message),
-      msgtype: role === "assistant" ? "m.text" : "m.notice",
+      msgtype: sender === "system" ? "m.notice" : "m.text",
       "com.beeper.openclaw.backfill": {
         messageSeq: message.messageSeq ?? index,
         role,
@@ -289,7 +292,7 @@ function normalizeHistoryMessage(message: OpenClawChatHistoryMessage, index: num
     },
     id: typeof message.id === "string" ? message.id : `history_${index}`,
     role,
-    sender: role === "assistant" || role === "tool" ? "agent" : role === "system" ? "system" : "human",
+    sender,
     seq: typeof message.messageSeq === "number" ? message.messageSeq : index,
   };
   const timestamp = historyTimestamp(message);

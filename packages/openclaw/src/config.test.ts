@@ -27,7 +27,7 @@ describe("OpenClaw bridge config", () => {
   it("derives the self-hosted Beeper bridge id from the OpenClaw device id environment", () => {
     process.env.PICKLE_OPENCLAW_DEVICE_ID = "OPENCLAW.DEV.123";
     expect(createDefaultConfig({ dataDir: "/tmp/openclaw-bridge" })).toMatchObject({
-      appserviceId: "sh-openclaw",
+      appserviceId: "sh-openclaw-openclaw-dev-123",
       bridgeId: "sh-openclaw-openclaw-dev-123",
     });
   });
@@ -90,12 +90,12 @@ describe("OpenClaw bridge config", () => {
   it("stores config with owner-only file permissions", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-config-"));
     const path = join(dir, "config.json");
-    const config = createDefaultConfig({ accessToken: "secret", asToken: "as-secret", dataDir: dir, homeserver: "https://matrix.example" });
+    const config = createDefaultConfig({ asToken: "as-secret", dataDir: dir, homeserver: "https://matrix.example", hsToken: "hs-secret" });
     await writeConfig(config, path);
     expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
-      accessToken: "secret",
       asToken: "as-secret",
       homeserver: "https://matrix.example",
+      hsToken: "hs-secret",
     });
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     await expect(readConfig(path)).resolves.toMatchObject(config);

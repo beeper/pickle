@@ -243,9 +243,10 @@ describe("OpenClaw bridge integration", () => {
   it("smokes contact DM creation, Matrix ingress, approval, and backfill with local fakes", async () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-local-smoke-"));
     const config = createDefaultConfig({
-      accessToken: "mx-token",
+      asToken: "as-token",
       dataDir: dir,
       homeserver: "https://matrix.example",
+      hsToken: "hs-token",
       importSources: ["dashboard"],
       matrixDeviceId: "DEVICE",
       matrixUserId: "@sh-openclawbot:example",

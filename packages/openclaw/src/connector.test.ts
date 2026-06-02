@@ -27,7 +27,6 @@ describe("OpenClawBridgeConnector", () => {
 
   it("keeps Beeper Matrix tokens out of OpenClaw plugin login metadata", () => {
     expect(userLoginFromOpenClawConfig(createDefaultConfig({
-      accessToken: "matrix-token",
       dataDir: "/tmp/openclaw",
     }))).toMatchObject({
       id: "openclaw:plugin",
@@ -86,7 +85,10 @@ describe("OpenClawBridgeConnector", () => {
   it("loads a network API that registers OpenClaw agents as ghosts", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     const runtime = runtimeWith({
-      responses: { "agents.list": { agents: [{ id: "codex", name: "Codex" }] } },
+      responses: {
+        "agents.list": { agents: [{ id: "codex", name: "Codex" }] },
+        "sessions.create": { key: "agent:codex:beeper:bootstrap" },
+      },
     });
     const api = new OpenClawNetworkAPI({
       config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
@@ -94,8 +96,8 @@ describe("OpenClawBridgeConnector", () => {
       registry,
       runtime,
     });
-    const registerGhost = vi.fn();
-    await api.connect({ bridge: { registerGhost }, queue: vi.fn(), queueRemoteEvent: vi.fn() } as unknown as Parameters<typeof api.connect>[0]);
+    const { ctx, registerGhost } = connectContext();
+    await api.connect(ctx);
     expect(registerGhost).toHaveBeenCalledWith({
       displayName: "Codex",
       id: "codex",
@@ -110,11 +112,90 @@ describe("OpenClawBridgeConnector", () => {
     });
   });
 
+  it("creates a default room and sends a Beeper-owner ping when no rooms exist", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-bootstrap-test.json");
+    const runtime = runtimeWith({
+      responses: {
+        "agents.list": { agents: [] },
+        "sessions.create": { key: "agent:main:beeper:bootstrap" },
+      },
+    });
+    const api = new OpenClawNetworkAPI({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      login: login(),
+      registry,
+      runtime,
+    });
+    const { createPortal, ctx, registerPortal, sendMessage } = connectContext();
+
+    await api.connect(ctx);
+
+    expect(createPortal).toHaveBeenCalledWith(login(), expect.objectContaining({
+      creationContent: { "m.federate": false },
+      name: "Main",
+      roomType: "dm",
+      sender: "@sh-openclaw_agent_main:localhost",
+    }));
+    expect(sendMessage).toHaveBeenCalledWith({
+      content: {
+        body: "hey, are you alive? - sent from my beeper",
+        msgtype: "m.text",
+      },
+      roomId: "!bootstrap:example.com",
+      userId: "@alice:example.com",
+    });
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: "$bootstrap",
+      message: "hey, are you alive? - sent from my beeper",
+      sessionKey: "agent:main:beeper:bootstrap",
+    }));
+    expect(registerPortal).toHaveBeenCalledWith(expect.objectContaining({
+      mxid: "!bootstrap:example.com",
+      portalKey: expect.objectContaining({ receiver: "openclaw:plugin" }),
+    }));
+  });
+
+  it("does not create a bootstrap room when a room binding already exists", async () => {
+    const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-bootstrap-existing-test.json");
+    registry.upsertBinding({
+      agentId: "main",
+      createdAt: 1,
+      ghostUserId: "@main:example.com",
+      id: "existing",
+      kind: "session",
+      owner: "bridge",
+      roomId: "!existing:example.com",
+      sessionKey: "agent:main:existing",
+      updatedAt: 1,
+    });
+    const runtime = runtimeWith({
+      responses: { "agents.list": { agents: [] } },
+    });
+    const api = new OpenClawNetworkAPI({
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      login: login(),
+      registry,
+      runtime,
+    });
+    const { createPortal, ctx, sendMessage } = connectContext();
+
+    await api.connect(ctx);
+
+    expect(createPortal).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("honors contact visibility when registering ghosts", async () => {
     const registry = new OpenClawBridgeRegistry("/tmp/openclaw-connector-test.json");
     registry.upsertAgent({ agentId: "codex", displayName: "Codex", ghostUserId: "@codex:example.com" });
     registry.upsertUser({ displayName: "Alice", ghostUserId: "@alice-ghost:example.com", userId: "alice" });
-    const runtime = runtimeWith({ responses: { "agents.list": { agents: [] } } });
+    const runtime = runtimeWith({
+      responses: {
+        "agents.list": { agents: [] },
+        "sessions.create": { key: "agent:codex:beeper:bootstrap" },
+      },
+    });
     runtime.config.contactVisibility = "agents-and-users";
     const api = new OpenClawNetworkAPI({
       config: runtime.config,
@@ -122,11 +203,16 @@ describe("OpenClawBridgeConnector", () => {
       registry,
       runtime,
     });
-    const registerGhost = vi.fn();
-    await api.connect({ bridge: { registerGhost }, queue: vi.fn(), queueRemoteEvent: vi.fn() } as unknown as Parameters<typeof api.connect>[0]);
+    const { ctx, registerGhost } = connectContext();
+    await api.connect(ctx);
     expect(registerGhost).toHaveBeenCalledWith(expect.objectContaining({ id: "alice", mxid: "@alice-ghost:example.com" }));
 
-    const hidden = runtimeWith({ responses: { "agents.list": { agents: [] } } });
+    const hidden = runtimeWith({
+      responses: {
+        "agents.list": { agents: [] },
+        "sessions.create": { key: "agent:main:beeper:bootstrap" },
+      },
+    });
     hidden.config.contactVisibility = "none";
     const hiddenApi = new OpenClawNetworkAPI({
       config: hidden.config,
@@ -134,8 +220,8 @@ describe("OpenClawBridgeConnector", () => {
       registry,
       runtime: hidden,
     });
-    const hiddenRegisterGhost = vi.fn();
-    await hiddenApi.connect({ bridge: { registerGhost: hiddenRegisterGhost }, queue: vi.fn(), queueRemoteEvent: vi.fn() } as unknown as Parameters<typeof hiddenApi.connect>[0]);
+    const { ctx: hiddenCtx, registerGhost: hiddenRegisterGhost } = connectContext();
+    await hiddenApi.connect(hiddenCtx);
     expect(hiddenRegisterGhost).not.toHaveBeenCalled();
   });
 
@@ -229,6 +315,7 @@ describe("OpenClawBridgeConnector", () => {
       },
       name: "Codex",
       roomType: "dm",
+      sender: "@codex:example.com",
     });
     expect(registry.getBindingByRoom("!codex-dm:example.com")).toMatchObject({
       agentId: "codex",
@@ -1251,7 +1338,7 @@ describe("OpenClawBridgeConnector", () => {
     expect(response.hasMore).toBe(false);
     expect(response.messages).toHaveLength(2);
     expect(response.messages.map((message) => message.event.getID())).toEqual(["m1", "m2"]);
-    expect(response.messages.map((message) => message.event.getSender().sender)).toEqual(["@sh-openclawbot:localhost", "@codex:example.com"]);
+    expect(response.messages.map((message) => message.event.getSender().sender)).toEqual(["@alice:example.com", "@codex:example.com"]);
     expect(response.messages.map((message) => message.event.getTimestamp())).toEqual([
       new Date("2026-05-16T11:59:00.000Z"),
       new Date(1_779_000_000_000),
@@ -1265,6 +1352,35 @@ describe("OpenClawBridgeConnector", () => {
 
 function login(): UserLogin {
   return { id: "openclaw:plugin", metadata: {}, userId: "@alice:example.com" };
+}
+
+function connectContext() {
+  const registerGhost = vi.fn();
+  const registerPortal = vi.fn();
+  const createPortal = vi.fn(async (_login: UserLogin, portal: { id: string; metadata?: unknown; portalKey?: { id: string; receiver?: string } }) => ({
+    ...portal,
+    mxid: "!bootstrap:example.com",
+    portalKey: { id: portal.id, receiver: "openclaw:plugin" },
+    receiver: "openclaw:plugin",
+  }));
+  const sendMessage = vi.fn(async () => ({
+    eventId: "$bootstrap",
+    raw: {},
+    roomId: "!bootstrap:example.com",
+  }));
+  return {
+    createPortal,
+    ctx: {
+      bridge: { createPortal, registerGhost, registerPortal },
+      client: { appservice: { sendMessage } },
+      log: vi.fn(),
+      queue: vi.fn(),
+      queueRemoteEvent: vi.fn(),
+    } as unknown as Parameters<OpenClawNetworkAPI["connect"]>[0],
+    registerGhost,
+    registerPortal,
+    sendMessage,
+  };
 }
 
 function runtimeWith(options: {

@@ -22,7 +22,6 @@ import {
 import { createConfigFromOpenClawSetup } from "./config";
 
 const appserviceMocks = vi.hoisted(() => ({
-  accountFromOpenClawConfig: vi.fn((config: unknown) => ({ config, kind: "account" })),
   startOpenClawBeeperBridge: vi.fn(),
 }));
 
@@ -30,7 +29,6 @@ vi.mock("./appservice", () => appserviceMocks);
 
 describe("OpenClaw Beeper setup surface", () => {
   beforeEach(() => {
-    appserviceMocks.accountFromOpenClawConfig.mockClear();
     appserviceMocks.startOpenClawBeeperBridge.mockReset();
     setBeeperOpenClawPluginRuntime(undefined);
   });
@@ -58,9 +56,6 @@ describe("OpenClaw Beeper setup surface", () => {
         stopAccount: expect.any(Function),
       },
       uiHints: {
-        accessToken: {
-          sensitive: true,
-        },
         asToken: {
           sensitive: true,
         },
@@ -262,10 +257,9 @@ describe("OpenClaw Beeper setup surface", () => {
     const channelRuntime = {
       reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
       session: { recordInboundSession: vi.fn() },
-      turn: { buildContext: vi.fn(), runAssembled: vi.fn() },
+      inbound: { buildContext: vi.fn(), dispatchReply: vi.fn() },
     };
     const cfg = applyBeeperChannelSettings({}, {
-      accessToken: "at",
       asToken: "as",
       backfillLimit: 25,
       dataDir: "/tmp/openclaw-beeper",
@@ -285,13 +279,7 @@ describe("OpenClaw Beeper setup surface", () => {
       setStatus: (next) => statuses.push(next),
     } as never);
     await vi.waitFor(() => expect(appserviceMocks.startOpenClawBeeperBridge).toHaveBeenCalledOnce());
-    expect(appserviceMocks.accountFromOpenClawConfig).toHaveBeenCalledWith(expect.objectContaining({
-      accessToken: "at",
-      asToken: "as",
-      hsToken: "hs",
-    }));
     expect(appserviceMocks.startOpenClawBeeperBridge).toHaveBeenCalledWith(expect.objectContaining({
-      account: expect.objectContaining({ kind: "account" }),
       backfill: true,
       backfillLimit: 25,
       config: expect.objectContaining({
@@ -370,7 +358,8 @@ describe("OpenClaw Beeper setup surface", () => {
       accountId: "default",
       cfg: {},
       input: {
-        accessToken: "mx-token",
+        password: "secret",
+        username: "alice",
       },
     })).toThrow("Beeper login is asynchronous");
   });
@@ -383,7 +372,6 @@ describe("OpenClaw Beeper setup surface", () => {
     const promptValues: Record<string, string> = {
       "Beeper email": "alice@example.com",
       "Beeper login code": "123456",
-      "Backfill limit per session": "500",
     };
     const result = await beeperSetupWizard.configureInteractive({
       cfg: {},
@@ -393,7 +381,6 @@ describe("OpenClaw Beeper setup surface", () => {
         progress: () => progress,
         select: async ({ message }) => {
           if (message === "Beeper login method") return "email";
-          if (message === "Beeper environment") return "dev";
           if (message === "Beeper contact visibility") return "agents";
           if (message === "Approval behavior") return "native";
           throw new Error(`unexpected select prompt ${message}`);
@@ -409,7 +396,7 @@ describe("OpenClaw Beeper setup surface", () => {
       runtime: {
         setupBridge: async (options) => {
           expect(options.email).toBe("alice@example.com");
-          expect(options.env).toBe("dev");
+          expect(options.env).toBe("production");
           expect(options).not.toHaveProperty("bridgeManagerToken");
           expect(options).not.toHaveProperty("homeserverDomain");
           expect(await options.getLoginCode?.()).toBe("123456");
@@ -421,7 +408,6 @@ describe("OpenClaw Beeper setup surface", () => {
               userId: "@alice:example",
             },
             config: {
-              accessToken: "at",
               appserviceId: "sh-openclaw-dev",
               asToken: "as",
               bridgeId: "sh-openclaw-dev",
@@ -447,7 +433,6 @@ describe("OpenClaw Beeper setup surface", () => {
     expect(result.accountId).toBe("default");
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       enabled: true,
-      accessToken: "at",
       asToken: "as",
       bridgeId: "sh-openclaw-dev",
       homeserver: "https://matrix.example",
@@ -457,19 +442,21 @@ describe("OpenClaw Beeper setup surface", () => {
     });
   });
 
-  it("infers generated bridge settings from access token setup input", async () => {
+  it("infers generated bridge settings from username/password setup input", async () => {
     const { applyBeeperSetupConfig } = await import("./setup");
     const cfg = await applyBeeperSetupConfig({
       cfg: {},
       input: {
-        accessToken: "at",
         beeperEnv: "dev",
+        password: "secret",
+        username: "alice",
       },
       runtime: {
         setupBridge: async (options) => {
-          expect(options.accessToken).toBe("at");
           expect(options.email).toBeUndefined();
           expect(options.env).toBe("dev");
+          expect(options.password).toBe("secret");
+          expect(options.username).toBe("alice");
           return {
             account: {
               accessToken: "at",
@@ -478,7 +465,6 @@ describe("OpenClaw Beeper setup surface", () => {
               userId: "@alice:example",
             },
             config: {
-              accessToken: "at",
               appserviceId: "sh-openclaw-dev",
               asToken: "as",
               bridgeId: "sh-openclaw-dev",
@@ -501,7 +487,6 @@ describe("OpenClaw Beeper setup surface", () => {
       },
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
-      accessToken: "at",
       appserviceId: "sh-openclaw-dev",
       asToken: "as",
       beeperEnv: "dev",
@@ -518,7 +503,6 @@ describe("OpenClaw Beeper setup surface", () => {
       enabled: true,
     }))).toBe(false);
     const cfg = applyBeeperChannelSettings({}, {
-      accessToken: "at",
       asToken: "as",
       enabled: true,
       homeserver: "https://matrix.example",
@@ -553,7 +537,6 @@ describe("OpenClaw Beeper setup surface", () => {
               userId: "@alice:example",
             },
             config: {
-              accessToken: "at",
               appserviceId: "sh-openclaw-dev",
               asToken: "as",
               bridgeId: "sh-openclaw-dev",
@@ -577,7 +560,6 @@ describe("OpenClaw Beeper setup surface", () => {
     });
     expect(getBeeperChannelSettings(cfg)).toMatchObject({
       enabled: true,
-      accessToken: "at",
       appserviceId: "sh-openclaw-dev",
       asToken: "as",
       bridgeId: "sh-openclaw-dev",
@@ -588,22 +570,22 @@ describe("OpenClaw Beeper setup surface", () => {
     });
   });
 
-  it("keeps default import scope opt-in to dashboard and TUI sessions", async () => {
+  it("defaults new setup to no historical imports", async () => {
     expect(defaultBeeperChannelSettings()).toMatchObject({
       enabled: true,
-      importSources: ["dashboard", "tui"],
+      importSources: [],
     });
     const configured = await beeperSetupWizard.configure({ cfg: {} });
     expect(getBeeperChannelSettings(configured.cfg)).toMatchObject({
       enabled: true,
-      importSources: ["dashboard", "tui"],
+      importSources: [],
     });
   });
 
   it("reports setup status and validates dashboard input", async () => {
     expect(validateBeeperSetupInput({ email: "not-email" })).toContain("valid email");
-    expect(validateBeeperSetupInput({ accessToken: "  " })).toContain("access token");
-    expect(validateBeeperSetupInput({ email: "alice@example.com", accessToken: "at" })).toContain("either");
+    expect(validateBeeperSetupInput({ username: "alice" })).toContain("requires both");
+    expect(validateBeeperSetupInput({ email: "alice@example.com", username: "alice", password: "secret" })).toContain("only one");
     expect(validateBeeperSetupInput({ backfillLimit: "-1" })).toContain("non-negative");
     const cfg = applyBeeperChannelSettings({}, {
       enabled: true,

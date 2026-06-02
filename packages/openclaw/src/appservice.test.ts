@@ -1,7 +1,7 @@
 import type { CreateNodeBeeperBridgeOptions, PickleBridge } from "@beeper/pickle-bridge";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "./config";
-import { accountFromOpenClawConfig, createOpenClawBeeperBridge, startOpenClawBeeperBridge } from "./appservice";
+import { createOpenClawBeeperBridge, startOpenClawBeeperBridge } from "./appservice";
 import { OpenClawPluginRuntimeAdapter, type OpenClawRuntimeRequestSurface } from "./openclaw-runtime";
 import { OpenClawBridgeRegistry } from "./registry";
 
@@ -13,11 +13,14 @@ describe("OpenClaw Beeper appservice runtime", () => {
       beeperEnv: "staging",
       bridgeManagerToken: "hungry-token",
       dataDir: "/tmp/openclaw",
+      asToken: "as-token",
+      homeserver: "https://matrix.beeper-staging.com",
       homeserverDomain: "beeper.local",
+      hsToken: "hs-token",
+      matrixUserId: "@batuhan:beeper-staging.com",
     });
 
     await expect(createOpenClawBeeperBridge({
-      account: account(),
       bridgeFactory,
       config,
       dataDir: "/tmp/openclaw-data",
@@ -25,7 +28,6 @@ describe("OpenClaw Beeper appservice runtime", () => {
     })).resolves.toBe(bridge);
 
     expect(bridgeFactory).toHaveBeenCalledWith(expect.objectContaining({
-      account: account(),
       address: "websocket",
       baseDomain: "beeper-staging.com",
       bridge: "sh-openclaw",
@@ -38,58 +40,50 @@ describe("OpenClaw Beeper appservice runtime", () => {
       dataDir: "/tmp/openclaw-data",
       getOnly: true,
       homeserverDomain: "beeper.local",
+      ownerUserId: "@batuhan:beeper-staging.com",
     }));
   });
 
   it("starts the created bridge", async () => {
     const bridge = fakeBridge();
     await expect(startOpenClawBeeperBridge({
-      account: account(),
       bridgeFactory: async () => bridge,
-      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      config: createDefaultConfig({
+        asToken: "as-token",
+        dataDir: "/tmp/openclaw",
+        homeserver: "https://matrix.beeper.com",
+        hsToken: "hs-token",
+      }),
     })).resolves.toBe(bridge);
     expect(bridge.start).toHaveBeenCalledOnce();
   });
 
-  it("marks the self-hosted bridge running after the appservice starts", async () => {
+  it("marks the bridge running after the appservice starts", async () => {
     const bridge = fakeBridge();
-    const postBridgeState = vi.fn(async () => undefined);
-    const bridgeStateClientFactory = vi.fn(() => ({ postBridgeState }));
     const config = createDefaultConfig({
-      accessToken: "mx-token",
       appserviceId: "sh-openclaw-device",
       asToken: "as-token",
       beeperEnv: "staging",
       bridgeId: "sh-openclaw-device",
       dataDir: "/tmp/openclaw",
+      homeserver: "https://matrix.beeper-staging.com",
+      hsToken: "hs-token",
       matrixUserId: "@batuhan:beeper-staging.com",
     });
 
     await expect(startOpenClawBeeperBridge({
-      account: account(),
       bridgeFactory: async () => bridge,
-      bridgeStateClientFactory,
       config,
     })).resolves.toBe(bridge);
 
-    expect(bridgeStateClientFactory).toHaveBeenCalledWith({
-      baseDomain: "beeper-staging.com",
-      token: "mx-token",
-    });
-    expect(postBridgeState).toHaveBeenCalledWith(expect.objectContaining({
-      bridge: "sh-openclaw-device",
-      bridgeType: "openclaw",
-      isSelfHosted: true,
-      reason: "BRIDGE_STARTED",
-      stateEvent: "RUNNING",
-    }), "as-token");
+    expect(bridge.start).toHaveBeenCalledOnce();
+    expect(bridge.setBridgeState).toHaveBeenCalledWith("running");
   });
 
   it("starts from persisted appservice config without re-registering", async () => {
     const bridge = fakeBridge();
     const bridgeFactory = vi.fn(async (_options: CreateNodeBeeperBridgeOptions) => bridge);
     const config = createDefaultConfig({
-      accessToken: "mx-token",
       appserviceId: "sh-openclaw-device",
       asToken: "as-token",
       dataDir: "/tmp/openclaw",
@@ -101,7 +95,6 @@ describe("OpenClaw Beeper appservice runtime", () => {
     });
 
     await expect(startOpenClawBeeperBridge({
-      account: account(),
       bridgeFactory,
       config,
     })).resolves.toBe(bridge);
@@ -123,8 +116,10 @@ describe("OpenClaw Beeper appservice runtime", () => {
       }),
     }));
     expect(bridgeFactory.mock.calls[0]?.[0].matrix).not.toHaveProperty("account");
-    expect(bridgeFactory.mock.calls[0]?.[0].matrix).not.toHaveProperty("deviceId");
     expect(bridgeFactory.mock.calls[0]?.[0].matrix).not.toHaveProperty("token");
+    expect(bridgeFactory.mock.calls[0]?.[0]).toMatchObject({
+      ownerUserId: "@batuhan:beeper-staging.com",
+    });
   });
 
   it("runs startup backfill with the configured import source scope", async () => {
@@ -138,9 +133,10 @@ describe("OpenClaw Beeper appservice runtime", () => {
     }));
     bridge.backfillPortal = vi.fn(async () => ({ eventIds: [] }));
     const config = createDefaultConfig({
-      accessToken: "mx-token",
+      asToken: "as-token",
       dataDir: "/tmp/openclaw",
       homeserver: "https://matrix.beeper.com",
+      hsToken: "hs-token",
       importSources: ["dashboard"],
       matrixDeviceId: "DEVICE",
       matrixUserId: "@batuhan:beeper.com",
@@ -158,7 +154,6 @@ describe("OpenClaw Beeper appservice runtime", () => {
     });
 
     await expect(startOpenClawBeeperBridge({
-      account: account(),
       backfill: true,
       backfillLimit: 3,
       bridgeFactory: async () => bridge,
@@ -190,16 +185,16 @@ describe("OpenClaw Beeper appservice runtime", () => {
     }));
     bridge.backfillPortal = vi.fn(async () => ({ eventIds: [] }));
     const config = createDefaultConfig({
-      accessToken: "mx-token",
+      asToken: "as-token",
       dataDir: "/tmp/openclaw",
       homeserver: "https://matrix.beeper.com",
+      hsToken: "hs-token",
       importSources: ["dashboard"],
       matrixDeviceId: "DEVICE",
       matrixUserId: "@batuhan:beeper.com",
     });
 
     await expect(startOpenClawBeeperBridge({
-      account: account(),
       backfill: true,
       bridgeFactory: async () => bridge,
       config,
@@ -239,9 +234,10 @@ describe("OpenClaw Beeper appservice runtime", () => {
       backfill: true,
       bridgeFactory: async () => bridge,
       config: createDefaultConfig({
-        accessToken: "mx-token",
+        asToken: "as-token",
         dataDir: "/tmp/openclaw",
         homeserver: "https://matrix.beeper.com",
+        hsToken: "hs-token",
         importSources: ["dashboard"],
         matrixDeviceId: "DEVICE",
         matrixUserId: "@batuhan:beeper.com",
@@ -251,16 +247,6 @@ describe("OpenClaw Beeper appservice runtime", () => {
 
     expect(bridge.start).toHaveBeenCalledOnce();
     expect(bridge.createPortal).not.toHaveBeenCalled();
-  });
-
-  it("recreates the Beeper Matrix account from persisted setup config", () => {
-    expect(accountFromOpenClawConfig(createDefaultConfig({
-      accessToken: "mx-token",
-      dataDir: "/tmp/openclaw",
-      homeserver: "https://matrix.beeper.com",
-      matrixDeviceId: "DEVICE",
-      matrixUserId: "@batuhan:beeper.com",
-    }))).toEqual(account());
   });
 });
 

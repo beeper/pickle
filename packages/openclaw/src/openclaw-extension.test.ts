@@ -115,6 +115,7 @@ describe("OpenClaw plugin package metadata", () => {
     expect(packageJson.files).toContain("dist");
     expect(manifest).toEqual(expect.objectContaining({ id: "beeper", channels: ["beeper"] }));
     expect(manifest.channelEnvVars?.beeper).toContain("PICKLE_OPENCLAW_DEVICE_ID");
+    expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_ACCESS_TOKEN");
     expect(manifest.channelEnvVars?.beeper).not.toContain("PICKLE_OPENCLAW_GATEWAY_ACCESS_TOKEN");
     expect(manifest.channelEnvVars?.beeper).not.toContain("OPENCLAW_GATEWAY_TOKEN");
     expect(manifest.uiHints).toBeUndefined();
@@ -132,13 +133,12 @@ describe("OpenClaw plugin package metadata", () => {
       },
       schema: {
         properties: expect.objectContaining({
-          accessToken: expect.any(Object),
           importSources: expect.any(Object),
         }),
       },
-      uiHints: {
-        accessToken: { sensitive: true },
-      },
+      uiHints: expect.not.objectContaining({
+        accessToken: expect.anything(),
+      }),
     });
   });
 

@@ -25,15 +25,19 @@ export async function runCli(argv = process.argv.slice(2), io: CliIO = process, 
     if (command === "login") {
       const options = parseOptions(args);
       const email = stringOption(options, "email");
-      const accessToken = stringOption(options, "access-token");
-      if (!email && !accessToken) throw new Error("Missing required option --email or --access-token");
-      if (email && accessToken) throw new Error("Choose either --email or --access-token, not both");
+      const username = stringOption(options, "username");
+      const password = stringOption(options, "password");
+      const authMethods = [email, username || password].filter(Boolean).length;
+      if (authMethods === 0) throw new Error("Missing required option --email or --username/--password");
+      if (authMethods > 1) throw new Error("Choose only one login method");
+      if ((username && !password) || (password && !username)) throw new Error("Username/password login requires both --username and --password");
       const setupOptions: Parameters<typeof setupOpenClawBeeperBridge>[0] = {
         push: booleanOption(options, "push"),
         selfHosted: !booleanOption(options, "not-self-hosted"),
       };
       if (email !== undefined) setupOptions.email = email;
-      if (accessToken !== undefined) setupOptions.accessToken = accessToken;
+      if (username !== undefined) setupOptions.username = username;
+      if (password !== undefined) setupOptions.password = password;
       const env = beeperEnvOption(options);
       if (env !== undefined) setupOptions.env = env;
       if (email !== undefined) setupOptions.getLoginCode = () => promptForLoginCode(io);
@@ -74,7 +78,8 @@ function helpText(): string {
     "  --config <path>",
     "  --data-dir <path>",
     "  --email <address>",
-    "  --access-token <token>",
+    "  --username <user>",
+    "  --password <password>",
     "  --env <production|staging|dev|local>",
     "",
   ].join("\n");
@@ -106,7 +111,6 @@ function whoamiPayload(config: OpenClawBridgeConfig): Record<string, unknown> {
     beeperEnv: config.beeperEnv ?? "production",
     bridgeId: config.bridgeId ?? null,
     canConnect: Boolean(
-      config.accessToken &&
       config.asToken &&
       config.homeserver &&
       config.hsToken &&

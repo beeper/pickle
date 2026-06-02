@@ -49,7 +49,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       sessionId: "session_1",
     });
     await expect(runtime.sendMessage({ message: "hello", sessionKey: "agent:codex:main", timeoutMs: 1000 }))
-      .rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel turn helpers");
+      .rejects.toThrow("OpenClaw Beeper turns require OpenClaw channel inbound helpers");
   });
 
   it("filters gateway events by run id and resolves approvals", async () => {
@@ -132,7 +132,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     const runDone = new Promise<void>((resolve) => {
       resolveRun = resolve;
     });
-    const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
+    const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
       const delivery = params.delivery as { deliver?: (payload: unknown, info?: unknown) => Promise<unknown> };
       await delivery.deliver?.("direct final", { kind: "final" });
       resolveRun?.();
@@ -145,9 +145,9 @@ describe("OpenClawPluginRuntimeAdapter", () => {
           recordInboundSession: vi.fn(),
           resolveStorePath: () => "/tmp/openclaw",
         },
-        turn: {
+        inbound: {
           buildContext: vi.fn((params) => params),
-          runAssembled,
+          dispatchReply,
         },
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
@@ -174,7 +174,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     expect(sent.runId).toMatch(/^beeper:/u);
     await runDone;
     expect(request).not.toHaveBeenCalled();
-    expect(runAssembled).toHaveBeenCalledTimes(1);
+    expect(dispatchReply).toHaveBeenCalledTimes(1);
     expect(aiRunStreams.start).toHaveBeenCalledTimes(1);
     expect(aiRunStreams.finish).toHaveBeenCalledWith(expect.objectContaining({
       runId: sent.runId,
@@ -252,10 +252,10 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       sessionKey: "agent:main:beeper:room",
       message: "from Beeper",
       idempotencyKey: "$event",
-    })).rejects.toThrow("OpenClaw Beeper requires OpenClaw channel turn helpers");
+    })).rejects.toThrow("OpenClaw Beeper requires OpenClaw channel inbound helpers");
   });
 
-  it("runs Beeper-originated sends through OpenClaw channel turn helpers for live AG-UI progress", async () => {
+  it("runs Beeper-originated sends through OpenClaw channel inbound helpers for live AG-UI progress", async () => {
     const beeperStreams = {
       finalizeMessage: vi.fn(async () => ({
         eventId: "$stream-root",
@@ -271,7 +271,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       })),
     };
     const aiRunStreams = createTestBeeperAIRunStreams();
-    const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
+    const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
       await replyOptions.onReasoningStream?.({ text: "checking" });
       await replyOptions.onToolStart?.({ args: { path: "README.md" }, name: "read_file", phase: "start", toolCallId: "real-tool-id" });
@@ -296,7 +296,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
           recordInboundSession: vi.fn(),
           resolveStorePath: () => "/tmp/sessions.json",
         },
-        turn: {
+        inbound: {
           buildContext: (params: Record<string, unknown>) => ({
             Body: "from Beeper",
             BodyForAgent: "from Beeper",
@@ -305,7 +305,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
             SessionKey: (params.route as { routeSessionKey?: string }).routeSessionKey,
             To: "beeper",
           }),
-          runAssembled,
+          dispatchReply,
         },
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
@@ -339,13 +339,13 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     observedRunId = (sent as { runId?: string }).runId;
     await done;
 
-    expect(runAssembled).toHaveBeenCalledWith(expect.objectContaining({
+    expect(dispatchReply).toHaveBeenCalledWith(expect.objectContaining({
       accountId: "beeper",
       agentId: "main",
       channel: "beeper",
       routeSessionKey: "agent:main:beeper:room",
     }));
-    expect((runAssembled.mock.calls[0]?.[0] as { replyOptions?: Record<string, unknown> } | undefined)?.replyOptions).toMatchObject({
+    expect((dispatchReply.mock.calls[0]?.[0] as { replyOptions?: Record<string, unknown> } | undefined)?.replyOptions).toMatchObject({
       disableBlockStreaming: false,
       sourceReplyDeliveryMode: "automatic",
     });
@@ -407,7 +407,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       })),
     };
     const aiRunStreams = createTestBeeperAIRunStreams();
-    const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
+    const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
       await replyOptions.onPartialReply?.({ text: "hel" });
       await replyOptions.onBlockReplyQueued?.({ text: "hel" });
@@ -425,7 +425,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       channel: {
         reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
         session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
-        turn: {
+        inbound: {
           buildContext: (params: Record<string, unknown>) => ({
             Body: "from Beeper",
             BodyForAgent: "from Beeper",
@@ -434,7 +434,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
             SessionKey: (params.route as { routeSessionKey?: string }).routeSessionKey,
             To: "beeper",
           }),
-          runAssembled,
+          dispatchReply,
         },
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
@@ -473,6 +473,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     expect(parts.filter((part) => part.type === "TOOL_CALL_RESULT").map((part) => [part.toolCallId, part.content, part.state])).toEqual([
       ["tool-a", "chunk-a", "streaming"],
       ["tool-a", "done-a", "complete"],
+      ["tool-b", "{\"ok\":true}", "complete"],
     ]);
     expect(parts.filter((part) => part.type === "TOOL_CALL_END").map((part) => [part.toolCallId, part.toolName])).toEqual([
       ["tool-a", "read_file"],
@@ -498,9 +499,11 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     };
     const aiRunStreams = createTestBeeperAIRunStreams();
     let agentEventListener: ((event: { data?: Record<string, unknown>; runId?: string; sessionKey?: string; stream?: string }) => void) | undefined;
-    const runAssembled = vi.fn(async (params: Record<string, unknown>) => {
+    const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
       const replyOptions = params.replyOptions as { runId?: string };
       const sessionKey = params.routeSessionKey as string;
+      agentEventListener?.({ data: { text: "Working..." }, runId: replyOptions.runId, stream: "assistant" });
+      agentEventListener?.({ data: { name: "search", phase: "running", text: "Searching docs", type: "tool.progress" }, runId: replyOptions.runId, stream: "tool.progress" });
       agentEventListener?.({ data: { delta: "hel", text: "hel" }, runId: replyOptions.runId, stream: "assistant" });
       agentEventListener?.({ data: { delta: "lo", text: "hello" }, sessionKey, stream: "assistant" });
       agentEventListener?.({ data: { itemId: "user-message", phase: "start", type: "userMessage" }, runId: replyOptions.runId, stream: "codex_app_server.item" });
@@ -510,6 +513,31 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       agentEventListener?.({ data: { itemId: "codex-tool", phase: "finished", type: "tool_call" }, runId: replyOptions.runId, stream: "codex_app_server.item" });
       agentEventListener?.({ data: { args: { query: "docs" }, name: "search", phase: "start", toolCallId: "tool-stream" }, runId: replyOptions.runId, stream: "tool" });
       agentEventListener?.({ data: { name: "search", phase: "result", result: "found docs", toolCallId: "tool-stream" }, runId: replyOptions.runId, stream: "tool" });
+      agentEventListener?.({
+        data: {
+          metadata: { source: "codex" },
+          phase: "start",
+          providerExecuted: true,
+          startedAtMs: 123,
+          toolCall: { arguments: "{\"query\":\"openclaw\"}", id: "nested-tool", name: "search" },
+        },
+        runId: replyOptions.runId,
+        stream: "tool",
+      });
+      agentEventListener?.({
+        data: {
+          call: { id: "nested-tool", name: "search" },
+          completedAtMs: 456,
+          phase: "result",
+          providerExecuted: true,
+          result: { items: [{ title: "OpenClaw", url: "https://example.com/openclaw" }] },
+        },
+        runId: replyOptions.runId,
+        stream: "tool",
+      });
+      agentEventListener?.({ data: { name: "bash", phase: "start", toolCallId: "delta-tool" }, runId: replyOptions.runId, stream: "tool" });
+      agentEventListener?.({ data: { delta: "{\"cmd\":\"pwd\"}", name: "bash", phase: "input_delta", toolCallId: "delta-tool" }, runId: replyOptions.runId, stream: "tool" });
+      agentEventListener?.({ data: { name: "bash", output: "/tmp/project", phase: "finished", toolCallId: "delta-tool" }, runId: replyOptions.runId, stream: "tool" });
       agentEventListener?.({ data: { phase: "update", title: "Plan", explanation: "checking docs", steps: ["Search", "Answer"] }, runId: replyOptions.runId, stream: "plan" });
       agentEventListener?.({ data: { itemId: "cmd-1", phase: "delta", title: "Shell", toolCallId: "cmd-1", name: "shell", output: "stdout" }, runId: replyOptions.runId, stream: "command_output" });
       agentEventListener?.({ data: { itemId: "patch-1", phase: "end", title: "Patch", toolCallId: "patch-1", name: "patch", added: [], modified: ["a.ts"], deleted: [], summary: "changed a.ts" }, runId: replyOptions.runId, stream: "patch" });
@@ -525,7 +553,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       channel: {
         reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
         session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
-        turn: {
+        inbound: {
           buildContext: (params: Record<string, unknown>) => ({
             Body: "from Beeper",
             BodyForAgent: "from Beeper",
@@ -534,7 +562,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
             SessionKey: (params.route as { routeSessionKey?: string }).routeSessionKey,
             To: "beeper",
           }),
-          runAssembled,
+          dispatchReply,
         },
       },
       config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
@@ -577,15 +605,24 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     expect(parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ toolCallId: "codex-tool", toolName: "tool", type: "TOOL_CALL_START" }),
       expect.objectContaining({ toolCallId: "codex-tool", toolName: "tool", type: "TOOL_CALL_END" }),
+      expect.objectContaining({ content: { state: "running", text: "Working..." }, type: "ACTIVITY_SNAPSHOT" }),
+      expect.objectContaining({ activityType: "tool.progress", content: expect.objectContaining({ label: "search", phase: "running", text: "Searching docs" }), type: "ACTIVITY_SNAPSHOT" }),
       expect.objectContaining({ toolCallId: "tool-stream", toolName: "search", type: "TOOL_CALL_START" }),
       expect.objectContaining({ toolCallId: "tool-stream", toolName: "search", type: "TOOL_CALL_END" }),
+      expect.objectContaining({ metadata: { source: "codex" }, providerExecuted: true, startedAtMs: 123, toolCallId: "nested-tool", toolName: "search", type: "TOOL_CALL_START" }),
+      expect.objectContaining({ delta: "{\"query\":\"openclaw\"}", toolCallId: "nested-tool", type: "TOOL_CALL_ARGS" }),
+      expect.objectContaining({ input: { query: "openclaw" }, toolCallId: "nested-tool", toolName: "search", type: "TOOL_CALL_END" }),
+      expect.objectContaining({ completedAtMs: 456, content: "{\"items\":[{\"title\":\"OpenClaw\",\"url\":\"https://example.com/openclaw\"}]}", providerExecuted: true, state: "complete", toolCallId: "nested-tool", toolName: "search", type: "TOOL_CALL_RESULT" }),
+      expect.objectContaining({ name: "com.beeper.source", type: "CUSTOM", value: expect.objectContaining({ sourceId: "https://example.com/openclaw", title: "OpenClaw", url: "https://example.com/openclaw" }) }),
+      expect.objectContaining({ delta: "{\"cmd\":\"pwd\"}", toolCallId: "delta-tool", type: "TOOL_CALL_ARGS" }),
+      expect.objectContaining({ content: "/tmp/project", state: "complete", toolCallId: "delta-tool", toolName: "bash", type: "TOOL_CALL_RESULT" }),
       expect.objectContaining({ content: "loading", state: "streaming", toolCallId: "tool-c", toolName: "search", type: "TOOL_CALL_RESULT" }),
       expect.objectContaining({ content: "checking docs", state: "streaming", toolCallId: "plan", toolName: "plan", type: "TOOL_CALL_RESULT" }),
       expect.objectContaining({ content: "stdout", state: "streaming", toolCallId: "cmd-1", toolName: "shell", type: "TOOL_CALL_RESULT" }),
       expect.objectContaining({ content: "changed a.ts", toolCallId: "patch-1", toolName: "patch", type: "TOOL_CALL_RESULT" }),
-      expect.objectContaining({ name: "source", type: "CUSTOM", value: { items: [{ title: "Docs", url: "https://example.com" }] } }),
-      expect.objectContaining({ name: "file", type: "CUSTOM", value: { filename: "report.txt", id: "file_1" } }),
-      expect.objectContaining({ name: "data", type: "CUSTOM", value: { status: "indexed" } }),
+      expect.objectContaining({ name: "com.beeper.source", type: "CUSTOM", value: expect.objectContaining({ sourceId: "https://example.com", title: "Docs", url: "https://example.com" }) }),
+      expect.objectContaining({ name: "com.beeper.file", type: "CUSTOM", value: { id: "file_1", title: "report.txt" } }),
+      expect.objectContaining({ name: "com.beeper.data", type: "CUSTOM", value: { name: "openclaw.data", value: { status: "indexed" } } }),
       expect.objectContaining({ snapshot: { phase: "retrieval" }, type: "STATE_SNAPSHOT" }),
     ]));
     expect(parts).not.toEqual(expect.arrayContaining([

@@ -47,9 +47,8 @@ describe("OpenClaw appservice registration", () => {
     });
   });
 
-  it("keeps appservice tokens independent from the Beeper Matrix access token", () => {
+  it("uses appservice tokens without Matrix user credentials", () => {
     const config = createDefaultConfig({
-      accessToken: "mx-token",
       asToken: "as-token",
       dataDir: "/tmp/openclaw",
       hsToken: "hs-token",
@@ -58,10 +57,8 @@ describe("OpenClaw appservice registration", () => {
     expect(createAppserviceRegistration(config).hs_token).toBe("hs-token");
 
     const generated = createAppserviceRegistration(createDefaultConfig({
-      accessToken: "mx-token",
       dataDir: "/tmp/openclaw",
     }));
-    expect(generated.as_token).not.toBe("mx-token");
     expect(generated.as_token).toMatch(/^[a-f0-9]{64}$/u);
   });
 });

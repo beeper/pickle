@@ -108,7 +108,7 @@ describe("OpenClaw backfill", () => {
           {
             content: {
               body: "hello",
-              msgtype: "m.notice",
+              msgtype: "m.text",
               "com.beeper.openclaw.backfill": { messageSeq: 1, role: "user" },
             },
             id: "m1",
@@ -227,6 +227,7 @@ describe("OpenClaw backfill", () => {
       },
       name: "Alice",
       roomType: "dm",
+      sender: "@sh-openclaw_agent_codex:localhost",
     }));
     expect(bridge.backfillPortal).toHaveBeenCalledWith(login, expect.objectContaining({
       mxid: "!room:example.com",
@@ -428,6 +429,7 @@ describe("OpenClaw backfill", () => {
       id: "agent:main",
       name: "Main Agent",
       roomType: "dm",
+      sender: "@sh-openclaw_agent_main:localhost",
     }));
     expect(bridge.backfillPortal).not.toHaveBeenCalled();
     expect(registry.getBindingBySessionKey("agent:main")).toMatchObject({

@@ -47,10 +47,6 @@
       "types": "./dist/beeper-channel-runtime.d.mts",
       "import": "./dist/beeper-channel-runtime.mjs"
     },
-    "./beeper-stream": {
-      "types": "./dist/beeper-stream.d.mts",
-      "import": "./dist/beeper-stream.mjs"
-    },
     "./cli": {
       "types": "./dist/cli.d.mts",
       "import": "./dist/cli.mjs"
@@ -136,6 +132,14 @@
         {
           "flags": "--email <email>",
           "description": "Beeper account email for login"
+        },
+        {
+          "flags": "--username <username>",
+          "description": "Beeper Matrix username for password login"
+        },
+        {
+          "flags": "--password <password>",
+          "description": "Beeper Matrix password for password login"
         },
         {
           "flags": "--bridge-manager-token <token>",

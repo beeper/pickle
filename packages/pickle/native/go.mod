@@ -3,7 +3,7 @@ module github.com/beeper/pickle/packages/pickle/native
 go 1.25.0
 
 require (
-	github.com/beeper/ai-bridge v0.0.0-20260525012312-44694d3834e5
+	github.com/beeper/ai-bridge v0.0.0-20260601222736-fee8bd8892f9
 	github.com/gzuidhof/tygo v0.2.21
 	maunium.net/go/mautrix v0.27.1-0.20260513120123-5fba7e3afae4
 )

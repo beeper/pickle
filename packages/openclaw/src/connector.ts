@@ -81,13 +81,22 @@ import { matrixDomainFromHomeserver } from "./rooms";
 import type { OpenClawAgentContact, OpenClawBridgeConfig, OpenClawSessionBinding, OpenClawUserContact } from "./types";
 
 const DEFAULT_NEW_SESSION_LABEL = "New OpenClaw Session";
+const DEFAULT_BOOTSTRAP_MESSAGE = "hey, are you alive? - sent from my beeper";
 
 export interface OpenClawConnectorOptions {
   config?: OpenClawBridgeConfig;
+  onActivity?: (patch: OpenClawBridgeActivityPatch) => void;
   registry?: OpenClawBridgeRegistry;
   runtime?: OpenClawPluginRuntimeAdapter | OpenClawHostRuntime;
   runtimeFactory?: (config: OpenClawBridgeConfig) => OpenClawPluginRuntimeAdapter;
 }
+
+export type OpenClawBridgeActivityPatch = {
+  lastEventAt?: number;
+  lastInboundAt?: number;
+  lastOutboundAt?: number;
+  lastTransportActivityAt?: number;
+};
 
 export function createOpenClawConnector(options: OpenClawConnectorOptions = {}): OpenClawBridgeConnector {
   return new OpenClawBridgeConnector(options);
@@ -99,11 +108,13 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
   readonly runtime: OpenClawPluginRuntimeAdapter | undefined;
   readonly #hostRuntime: OpenClawHostRuntime | undefined;
   #channelRuntime: BeeperChannelRuntime | undefined;
+  #onActivity: ((patch: OpenClawBridgeActivityPatch) => void) | undefined;
   #runtimeFactory: (config: OpenClawBridgeConfig) => OpenClawPluginRuntimeAdapter;
 
   constructor(options: OpenClawConnectorOptions = {}) {
     this.config = options.config ?? createDefaultConfig();
     this.registry = options.registry ?? new OpenClawBridgeRegistry();
+    this.#onActivity = options.onActivity;
     this.#hostRuntime = options.runtime && !(options.runtime instanceof OpenClawPluginRuntimeAdapter)
       ? options.runtime
       : undefined;
@@ -180,6 +191,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
       getBindingBySessionKey: (sessionKey) => this.registry.getBindingBySessionKey(sessionKey),
       login,
       log: (level, message, data) => ctx.log(level, message, data),
+      ...(this.#onActivity ? { onActivity: this.#onActivity } : {}),
       ...(ownUserId ? { userId: ownUserId } : {}),
     });
     this.#channelRuntime = channelRuntime;
@@ -205,6 +217,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
     return new OpenClawNetworkAPI({
       config: this.config,
       login,
+      ...(this.#onActivity ? { onActivity: this.#onActivity } : {}),
       registry: this.registry,
       runtime: this.#runtimeFactory(this.config),
       sendTurn: this.#sendTurn,
@@ -227,18 +240,21 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
   readonly #agent: OpenClawMatrixBridgeAgent;
   readonly #config: OpenClawBridgeConfig;
   readonly #login: UserLogin;
+  readonly #onActivity: ((patch: OpenClawBridgeActivityPatch) => void) | undefined;
   readonly #registry: OpenClawBridgeRegistry;
   readonly #runtime: OpenClawBridgeRuntime;
 
   constructor(options: {
     config: OpenClawBridgeConfig;
     login: UserLogin;
+    onActivity?: (patch: OpenClawBridgeActivityPatch) => void;
     registry: OpenClawBridgeRegistry;
     runtime: OpenClawBridgeRuntime;
     sendTurn?: (options: OpenClawSessionSendOptions) => Promise<OpenClawRunRef>;
   }) {
     this.#config = options.config;
     this.#login = options.login;
+    this.#onActivity = options.onActivity;
     this.#registry = options.registry;
     this.#runtime = options.runtime;
     this.#agent = new OpenClawMatrixBridgeAgent({
@@ -250,6 +266,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
 
   async connect(ctx: ConnectContext): Promise<void> {
     await this.#agent.syncAgentContacts();
+    const bootstrapContact = this.bootstrapAgentContact();
     const contactVisibility = this.#runtime.config.contactVisibility ?? "agents";
     if (contactVisibility !== "none") {
       for (const contact of this.#registry.data.agents) {
@@ -271,6 +288,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         });
       }
     }
+    await this.ensureBootstrapRoom(ctx, bootstrapContact);
   }
 
   async disconnect(): Promise<void> {
@@ -290,6 +308,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
         metadata: portal.metadata,
         name: contact.displayName,
         roomType: "dm",
+        sender: contact.ghostUserId,
       };
       const creationContent = openClawPortalCreationContent(this.#runtime.config);
       if (creationContent) portalOptions.creationContent = creationContent;
@@ -337,6 +356,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
       this.logRejectedMatrixIngress(ctx, "message", msg.portal.mxid, msg.sender.userId);
       return { pending: false };
     }
+    this.#onActivity?.(inboundActivityPatch());
     const binding = bindingFromPortal(msg.portal, this.#runtime.config);
     if (binding && !this.#registry.getBindingByRoom(msg.portal.mxid ?? "")) this.#registry.upsertBinding(binding);
     let currentBinding = msg.portal.mxid ? this.#registry.getBindingByRoom(msg.portal.mxid) ?? binding : binding;
@@ -580,7 +600,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
           portalKey: params.portal.portalKey,
           sender: {
             isFromMe: message.sender === "agent",
-            sender: backfillSenderUserId(this.#runtime.config, binding, message.sender),
+            sender: backfillSenderUserId(this.#runtime.config, this.#login, binding, message.sender),
           },
           timestamp: message.timestamp ?? new Date(0),
         }),
@@ -701,6 +721,76 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
     });
     return portalForAgentSession(contact, this.#login.id, session.key, label);
   }
+
+  private bootstrapAgentContact(): OpenClawAgentContact {
+    const contact =
+      this.#registry.getAgent("main") ??
+      this.#registry.data.agents[0] ??
+      agentContactFromOpenClawAgent(this.#runtime.config, { id: "main", name: "Main" });
+    if (!this.#registry.getAgent(contact.agentId)) this.#registry.upsertAgent(contact);
+    return contact;
+  }
+
+  private async ensureBootstrapRoom(ctx: ConnectContext, contact: OpenClawAgentContact): Promise<void> {
+    if (this.#registry.data.bindings.length > 0) return;
+    let portal = await this.createSessionPortalForAgent(ctx, contact, "OpenClaw");
+    const portalOptions: Parameters<typeof ctx.bridge.createPortal>[1] = {
+      id: portal.id,
+      metadata: portal.metadata,
+      name: contact.displayName,
+      roomType: "dm",
+      sender: contact.ghostUserId,
+    };
+    const creationContent = openClawPortalCreationContent(this.#runtime.config);
+    if (creationContent) portalOptions.creationContent = creationContent;
+    const created = await ctx.bridge.createPortal(this.#login, portalOptions);
+    portal = {
+      ...portal,
+      ...created,
+      metadata: created.metadata ?? portal.metadata,
+      portalKey: created.portalKey ?? portal.portalKey,
+    };
+    const receiver = created.receiver ?? portal.receiver;
+    if (receiver !== undefined) portal.receiver = receiver;
+    this.upsertPortalBinding(portal);
+    const binding = portal.mxid ? this.#registry.getBindingByRoom(portal.mxid) : undefined;
+    if (!portal.mxid || !binding) throw new Error("OpenClaw Beeper bootstrap room was created without a bound Matrix room");
+    this.registerCanonicalPortalForBinding(ctx, portal, binding);
+    const sender = this.#login.userId ?? userLoginFromOpenClawConfig(this.#runtime.config).userId ?? serviceBotUserId(this.#runtime.config);
+    const sent = await ctx.client.appservice.sendMessage({
+      content: {
+        body: DEFAULT_BOOTSTRAP_MESSAGE,
+        msgtype: "m.text",
+      },
+      roomId: portal.mxid,
+      userId: sender,
+    });
+    this.#onActivity?.(outboundActivityPatch());
+    await this.#agent.handleMatrixText({
+      eventId: sent.eventId,
+      matrix: { sender },
+      roomId: portal.mxid,
+      sender,
+      text: DEFAULT_BOOTSTRAP_MESSAGE,
+    });
+    await this.#registry.save();
+  }
+}
+
+function inboundActivityPatch(now = Date.now()): OpenClawBridgeActivityPatch {
+  return {
+    lastEventAt: now,
+    lastInboundAt: now,
+    lastTransportActivityAt: now,
+  };
+}
+
+function outboundActivityPatch(now = Date.now()): OpenClawBridgeActivityPatch {
+  return {
+    lastEventAt: now,
+    lastOutboundAt: now,
+    lastTransportActivityAt: now,
+  };
 }
 
 function newBeeperSessionKey(agentId: string): string {
@@ -910,11 +1000,12 @@ function agentIdFromSessionKey(sessionKey: string | undefined): string | undefin
 
 function backfillSenderUserId(
   config: OpenClawBridgeConfig,
+  login: UserLogin,
   binding: OpenClawSessionBinding,
   sender: "agent" | "human" | "system"
 ): string {
   if (sender === "agent") return binding.ghostUserId;
-  if (sender === "human") return binding.humanGhostUserId ?? serviceBotUserId(config);
+  if (sender === "human") return login.userId ?? binding.humanGhostUserId ?? serviceBotUserId(config);
   return serviceBotUserId(config);
 }
 

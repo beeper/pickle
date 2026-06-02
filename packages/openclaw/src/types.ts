@@ -38,7 +38,6 @@ export interface OpenClawSessionBinding {
 }
 
 export interface OpenClawBridgeConfig {
-  accessToken?: string;
   allowedRoomIds?: string[];
   allowedUserIds?: string[];
   asToken?: string;

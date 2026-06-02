@@ -567,7 +567,7 @@ export interface BridgeBeeperOptions {
 }
 
 export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "appservice" | "matrix"> {
-  account: MatrixAccount;
+  account?: MatrixAccount;
   address?: string;
   baseDomain?: string;
   bridge: string;
@@ -577,6 +577,7 @@ export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "ap
   getOnly?: boolean;
   homeserverDomain?: string;
   matrix?: Partial<Omit<BridgeMatrixConfig, "account">>;
+  ownerUserId?: UserID;
   store?: MatrixStore;
 }
 

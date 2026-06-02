@@ -24,6 +24,14 @@
       "types": "./dist/beeper.d.ts",
       "import": "./dist/beeper.js"
     },
+    "./beeper-stream": {
+      "types": "./dist/beeper-stream.d.ts",
+      "import": "./dist/beeper-stream.js"
+    },
+    "./media-message": {
+      "types": "./dist/media-message.d.ts",
+      "import": "./dist/media-message.js"
+    },
     "./store": {
       "types": "./dist/store.d.ts",
       "import": "./dist/store.js"

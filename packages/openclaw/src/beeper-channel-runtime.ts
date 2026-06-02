@@ -15,7 +15,8 @@ import {
   type RemoteTyping,
   type UserLogin,
 } from "@beeper/pickle-bridge";
-import { BeeperTurnStreamCoordinator } from "./beeper-stream";
+import { BeeperTurnStream } from "@beeper/pickle-bridge/beeper-stream";
+import { uploadBridgeMediaMessage, type BridgeMediaKind } from "@beeper/pickle-bridge/media-message";
 import { AGUIEventType } from "./beeper-turn-events";
 import type { OpenClawAgentContact, OpenClawSessionBinding } from "./types";
 
@@ -29,6 +30,7 @@ export interface BeeperChannelRuntimeOptions {
   getBindingBySessionKey?: (sessionKey: string) => OpenClawSessionBinding | undefined;
   login?: UserLogin;
   log?: (level: "debug" | "info" | "warn" | "error", message: string, data?: unknown) => void;
+  onActivity?: (patch: { lastEventAt?: number; lastOutboundAt?: number; lastTransportActivityAt?: number }) => void;
   userId?: string;
 }
 
@@ -36,7 +38,7 @@ export interface BeeperOutboundMedia {
   bytes?: Uint8Array;
   caption?: string;
   filename?: string;
-  kind?: "image" | "video" | "audio" | "file";
+  kind?: BridgeMediaKind;
   path?: string;
   threadRoot?: string;
 }
@@ -50,7 +52,8 @@ export class BeeperChannelRuntime {
   #getBindingBySessionKey: (sessionKey: string) => OpenClawSessionBinding | undefined;
   #login: UserLogin | undefined;
   #log: BeeperChannelRuntimeOptions["log"];
-  #activeStreams = new Map<string, BeeperTurnStreamCoordinator>();
+  #onActivity: BeeperChannelRuntimeOptions["onActivity"];
+  #activeStreams = new Map<string, BeeperTurnStream>();
 
   constructor(options: BeeperChannelRuntimeOptions) {
     this.#bridge = options.bridge;
@@ -60,6 +63,7 @@ export class BeeperChannelRuntime {
     this.#getBindingBySessionKey = options.getBindingBySessionKey ?? (() => undefined);
     this.#login = options.login;
     this.#log = options.log;
+    this.#onActivity = options.onActivity;
     this.userId = options.userId;
   }
 
@@ -142,17 +146,18 @@ export class BeeperChannelRuntime {
     runId: string;
     sessionKey: string;
     threadRoot?: string;
-  }): BeeperTurnStreamCoordinator {
+  }): BeeperTurnStream {
     const binding = this.#resolveBinding(options.roomId) ?? this.#getBindingBySessionKey(options.sessionKey);
     const agent = options.agentId ? this.#getAgents().find((candidate) => candidate.agentId === options.agentId) : undefined;
     const userId = binding?.ghostUserId ?? agent?.ghostUserId ?? this.userId;
-    const publisher = new BeeperTurnStreamCoordinator({
+    const publisher = new BeeperTurnStream({
       client: this.client,
       initialMessageMetadata: {
         agent_id: options.agentId,
         ...(agent?.displayName ? { agent_name: agent.displayName } : {}),
         session_key: options.sessionKey,
       },
+      model: "openclaw/plugin",
       roomId: options.roomId,
       turnId: options.runId,
       ...(options.agentId ? { agentId: options.agentId } : {}),
@@ -164,7 +169,7 @@ export class BeeperChannelRuntime {
     return publisher;
   }
 
-  clearActiveStream(sessionKey: string, publisher: BeeperTurnStreamCoordinator): void {
+  clearActiveStream(sessionKey: string, publisher: BeeperTurnStream): void {
     if (this.#activeStreams.get(sessionKey) === publisher) this.#activeStreams.delete(sessionKey);
   }
 
@@ -181,6 +186,7 @@ export class BeeperChannelRuntime {
       messageId: publisher.turnId,
       type: AGUIEventType.TEXT_MESSAGE_CONTENT,
     });
+    this.recordOutboundActivity();
     return {
       eventId: publisher.targetEventId ?? publisher.turnId,
       raw: { nativeStream: true, turnId: publisher.turnId },
@@ -190,6 +196,14 @@ export class BeeperChannelRuntime {
 
   debug(message: string, data?: unknown): void {
     this.#log?.("debug", message, data);
+  }
+
+  recordOutboundActivity(now = Date.now()): void {
+    this.#onActivity?.({
+      lastEventAt: now,
+      lastOutboundAt: now,
+      lastTransportActivityAt: now,
+    });
   }
 
   async #queueRemoteText(roomId: string, content: Record<string, unknown>): Promise<SentEvent> {
@@ -208,22 +222,17 @@ export class BeeperChannelRuntime {
       sender: this.#eventSender(roomId),
     }));
     await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
     return { eventId: messageId, raw: { bridgeQueued: true }, roomId };
   }
 
   async #queueRemoteMedia(roomId: string, options: { bytes: Uint8Array; caption?: string; filename?: string; kind: NonNullable<BeeperOutboundMedia["kind"]> }): Promise<SentEvent> {
     const route = this.#bridgeRoute(roomId);
-    const uploaded = await this.client.media.upload({
-      bytes: options.bytes,
-      ...(options.filename !== undefined ? { filename: options.filename } : {}),
-    });
+    const media = await uploadBridgeMediaMessage(this.client, options);
     const messageId = openClawRemoteId();
     route.bridge.queueRemoteEvent(route.login, createRemoteMessage({
       convert: () => ({
-        parts: [{
-          content: mediaMessageContent(options.kind, uploaded.contentUri, options.filename, options.caption),
-          type: "m.room.message",
-        }],
+        parts: [media.part],
       }),
       data: {},
       id: messageId,
@@ -231,6 +240,7 @@ export class BeeperChannelRuntime {
       sender: this.#eventSender(roomId),
     }));
     await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
     return { eventId: messageId, raw: { bridgeQueued: true }, roomId };
   }
 
@@ -252,6 +262,7 @@ export class BeeperChannelRuntime {
     };
     route.bridge.queueRemoteEvent(route.login, event);
     await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
     return { eventId: messageId, raw: { bridgeQueued: true, targetMessageId: targetId }, roomId };
   }
 
@@ -266,6 +277,7 @@ export class BeeperChannelRuntime {
     };
     route.bridge.queueRemoteEvent(route.login, event);
     await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
   }
 
   async #queueRemoteReaction(roomId: string, targetMessageId: string, emoji: string, remove: boolean): Promise<SentEvent> {
@@ -282,6 +294,7 @@ export class BeeperChannelRuntime {
     };
     route.bridge.queueRemoteEvent(route.login, event);
     await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
     return { eventId: reactionId, raw: { bridgeQueued: true, targetMessageId: targetId }, roomId };
   }
 
@@ -296,6 +309,7 @@ export class BeeperChannelRuntime {
     };
     route.bridge.queueRemoteEvent(route.login, event);
     await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
   }
 
   async #queueRemoteReceipt(roomId: string, targetMessageId: string, type: "read_receipt" | "delivery_receipt"): Promise<void> {
@@ -309,6 +323,7 @@ export class BeeperChannelRuntime {
     };
     route.bridge.queueRemoteEvent(route.login, event);
     await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
   }
 
   async #queueRemoteMarkUnread(roomId: string, targetMessageId: string, unread: boolean): Promise<void> {
@@ -323,6 +338,7 @@ export class BeeperChannelRuntime {
     };
     route.bridge.queueRemoteEvent(route.login, event);
     await route.bridge.flushRemoteEvents();
+    this.recordOutboundActivity();
   }
 
   #bridgeRoute(roomId: string): { bridge: PickleBridge; login: UserLogin; portalKey: PortalKey; targetRoomId: string } {
@@ -404,20 +420,4 @@ function beeperSessionKeyCandidates(target: string): string[] {
     candidates.add(["agent", ...parts].join(":"));
   }
   return [...candidates];
-}
-
-function mediaMessageContent(kind: NonNullable<BeeperOutboundMedia["kind"]>, contentUri: string, filename: string | undefined, caption: string | undefined): Record<string, unknown> {
-  const msgtype = kind === "image"
-    ? "m.image"
-    : kind === "video"
-      ? "m.video"
-      : kind === "audio"
-        ? "m.audio"
-        : "m.file";
-  return {
-    body: caption ?? filename ?? "attachment",
-    msgtype,
-    url: contentUri,
-    ...(filename ? { filename } : {}),
-  };
 }
