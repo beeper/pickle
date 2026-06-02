@@ -133,6 +133,7 @@ export interface OpenClawMatrixAttachmentMetadata {
 }
 
 export interface OpenClawMatrixMessageMetadata {
+  accountId?: string;
   attachments?: OpenClawMatrixAttachmentMetadata[];
   command?: {
     args?: string;
@@ -813,6 +814,8 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
 
   const sender = recordValue(recordValue(params.record.matrix)?.sender) ?? {};
   const matrix = recordValue(params.record.matrix) ?? {};
+  const accountId = stringValue(matrix.accountId);
+  if (!accountId) throw new Error("OpenClaw Beeper inbound turns require matrix.accountId.");
   const senderId = stringValue(matrix.sender) ?? stringValue(sender.id) ?? "beeper";
   const command = recordValue(matrix.command);
   const commandName = stringValue(command?.name);
@@ -825,7 +828,7 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
     ?? path.dirname(params.sessionFile);
   const ctxPayload = inbound.buildContext({
     channel: "beeper",
-    accountId: "beeper",
+    accountId,
     provider: "beeper",
     surface: "beeper",
     messageId: eventId,
@@ -847,7 +850,7 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
     },
     route: {
       agentId: params.agentId,
-      accountId: "beeper",
+      accountId,
       routeSessionKey: params.sessionKey,
       dispatchSessionKey: params.sessionKey,
       createIfMissing: true,
@@ -938,7 +941,7 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
     await inbound.dispatchReply({
       cfg: params.cfg,
       channel: "beeper",
-      accountId: "beeper",
+      accountId,
       agentId: params.agentId,
       routeSessionKey: params.sessionKey,
       storePath,
@@ -991,7 +994,7 @@ async function runBeeperChannelTurnInPluginRuntime(params: {
           sessionKey: params.sessionKey,
           channel: "beeper",
           to: roomId,
-          accountId: "beeper",
+          accountId,
         },
       },
       messageId: eventId,
@@ -1547,6 +1550,10 @@ function isCompletePhase(value: string | undefined): boolean {
   return value === "complete" || value === "completed" || value === "end" || value === "ended" || value === "finish" || value === "finished" || value === "done";
 }
 
+function emptyToolResultContent(output: unknown, error: unknown): string | undefined {
+  return output === undefined && error === undefined ? "{}" : undefined;
+}
+
 function createBeeperReplyStreamEmitter(base: {
   agentId: string;
   hostRuntime?: OpenClawHostRuntime;
@@ -1810,6 +1817,7 @@ function createBeeperReplyStreamEmitter(base: {
       await publishPart({
         kind: "tool_result",
         state: "complete",
+        text: "{}",
         toolCallId,
         toolName,
       });
@@ -1820,7 +1828,6 @@ function createBeeperReplyStreamEmitter(base: {
     start: ensureStarted,
     trackExternal,
     assistantMessageStart: () => {
-      lastVisibleText = "";
       emit("assistant.message.start", {});
     },
     reasoningEnd: async () => {
@@ -2032,6 +2039,7 @@ function createBeeperReplyStreamEmitter(base: {
           metadata,
           output: error === undefined ? output : undefined,
           preliminary,
+          text: emptyToolResultContent(output, error),
           completedAtMs: numberValue(data.completedAt) ?? numberValue(data.completedAtMs),
           providerExecuted: booleanValue(data.providerExecuted),
           ...(commandTool ? commandPartFields(data) : {}),
@@ -2186,6 +2194,7 @@ function createBeeperReplyStreamEmitter(base: {
           metadata,
           output,
           preliminary: !complete,
+          text: emptyToolResultContent(output, undefined),
           ...(isCommandToolName(toolName) ? commandPartFields(data) : {}),
           title,
           toolCallId,

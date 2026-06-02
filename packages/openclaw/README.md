@@ -53,14 +53,12 @@ import {
   readConfig,
 } from "@beeper/openclaw/config";
 import {
-  accountFromOpenClawConfig,
   createOpenClawBeeperBridge,
 } from "@beeper/openclaw/appservice";
 
 const config = await readConfig();
 
 const bridge = await createOpenClawBeeperBridge({
-  account: accountFromOpenClawConfig(config),
   config,
 });
 

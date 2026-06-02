@@ -189,7 +189,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
 
     const sent = await runtime.sendMessage({
       idempotencyKey: "$event",
-      matrix: { roomId: "!room:example", sender: "@alice:example" },
+      matrix: { accountId: "@batuhan:beeper.com", roomId: "!room:example", sender: "@alice:example" },
       message: "hello",
       sessionKey: "agent:main:beeper:default:direct:!room:example",
     });
@@ -343,13 +343,13 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       sessionKey: "agent:main:beeper:room",
       message: "from Beeper",
       idempotencyKey: "$event",
-      matrix: { roomId: "!room:example", sender: "@alice:example" },
+      matrix: { accountId: "@batuhan:beeper.com", roomId: "!room:example", sender: "@alice:example" },
     });
     observedRunId = (sent as { runId?: string }).runId;
     await done;
 
     expect(dispatchReply).toHaveBeenCalledWith(expect.objectContaining({
-      accountId: "beeper",
+      accountId: "@batuhan:beeper.com",
       agentId: "main",
       channel: "beeper",
       routeSessionKey: "agent:main:beeper:room",
@@ -454,7 +454,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     await transport.sendMessage({
       sessionKey: "agent:main:beeper:room",
       message: "from Beeper",
-      matrix: { roomId: "!room:example", sender: "@alice:example" },
+      matrix: { accountId: "@batuhan:beeper.com", roomId: "!room:example", sender: "@alice:example" },
     });
     await done;
 
@@ -482,6 +482,62 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       expect.objectContaining({ output: expect.objectContaining({ query: "docs" }), toolCallId: "web-1", kind: "tool_result" }),
       expect.objectContaining({ output: expect.objectContaining({ query: "blog" }), toolCallId: "web-2", kind: "tool_result" }),
     ]));
+    setBeeperChannelRuntimeForHost(hostRuntime, undefined);
+  });
+
+  it("does not replay visible text when OpenClaw emits duplicate assistant starts", async () => {
+    const aiRunStreams = createTestBeeperAIRunStreams();
+    const dispatchReply = vi.fn(async (params: Record<string, unknown>) => {
+      const replyOptions = params.replyOptions as Record<string, (payload?: unknown) => void | Promise<void>>;
+      await replyOptions.onAssistantMessageStart?.();
+      await replyOptions.onPartialReply?.({ text: "New session started" });
+      await replyOptions.onAssistantMessageStart?.();
+      await replyOptions.onBlockReply?.({ text: "New session started" });
+      const delivery = params.delivery as { deliver?: (payload: unknown, info?: unknown) => Promise<unknown> };
+      await delivery.deliver?.({ text: "New session started" }, { kind: "final" });
+      return { dispatchResult: { queuedFinal: true } };
+    });
+    const hostRuntime = {
+      channel: {
+        reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
+        session: { recordInboundSession: vi.fn(), resolveStorePath: () => "/tmp/sessions.json" },
+        inbound: {
+          buildContext: (params: Record<string, unknown>) => ({
+            Body: "/new",
+            BodyForAgent: "/new",
+            From: "beeper",
+            RawBody: "/new",
+            SessionKey: (params.route as { routeSessionKey?: string }).routeSessionKey,
+            To: "beeper",
+          }),
+          dispatchReply,
+        },
+      },
+      config: { current: () => ({ agents: { list: [{ id: "main" }] } }) },
+    };
+    setBeeperChannelRuntimeForHost(hostRuntime, createTestBeeperChannelRuntime(aiRunStreams));
+    const transport = createOpenClawHostRuntimeAdapter(hostRuntime);
+
+    const done = (async () => {
+      for await (const event of transport.events()) {
+        if (event.event === "run.completed") break;
+      }
+    })();
+    await transport.sendMessage({
+      sessionKey: "agent:main:beeper:room",
+      message: "/new",
+      matrix: {
+        accountId: "@batuhan:beeper.com",
+        command: { name: "new" },
+        roomId: "!room:example",
+        sender: "@alice:example",
+      },
+    });
+    await done;
+
+    expect(startedAndAppendedParts(aiRunStreams).filter((part) => part.kind === "text").map((part) => part.text)).toEqual([
+      "New session started",
+    ]);
     setBeeperChannelRuntimeForHost(hostRuntime, undefined);
   });
 
@@ -646,7 +702,7 @@ describe("OpenClawPluginRuntimeAdapter", () => {
     await transport.sendMessage({
       sessionKey: "agent:main:beeper:room",
       message: "from Beeper",
-      matrix: { roomId: "!room:example", sender: "@alice:example" },
+      matrix: { accountId: "@batuhan:beeper.com", roomId: "!room:example", sender: "@alice:example" },
     });
     await done;
 
@@ -720,9 +776,9 @@ describe("OpenClawPluginRuntimeAdapter", () => {
       expect.objectContaining({ kind: "tool_result", output: "loading", preliminary: true, toolCallId: "tool-c", toolName: "search" }),
       expect.objectContaining({ kind: "tool_result", output: "checking docs", preliminary: true, toolCallId: "plan", toolName: "plan" }),
       expect.objectContaining({ kind: "tool_result", output: "stdout", preliminary: true, toolCallId: "cmd-1", toolName: "shell" }),
-      expect.objectContaining({ kind: "tool_result", state: "complete", toolCallId: "tool-c", toolName: "search" }),
-      expect.objectContaining({ kind: "tool_result", state: "complete", toolCallId: "plan", toolName: "plan" }),
-      expect.objectContaining({ kind: "tool_result", state: "complete", toolCallId: "cmd-1", toolName: "shell" }),
+      expect.objectContaining({ kind: "tool_result", state: "complete", text: "{}", toolCallId: "tool-c", toolName: "search" }),
+      expect.objectContaining({ kind: "tool_result", state: "complete", text: "{}", toolCallId: "plan", toolName: "plan" }),
+      expect.objectContaining({ kind: "tool_result", state: "complete", text: "{}", toolCallId: "cmd-1", toolName: "shell" }),
       expect.objectContaining({
         input: {
           command: "/bin/zsh -lc \"date '+%Y-%m-%d %H:%M:%S %Z'\"",

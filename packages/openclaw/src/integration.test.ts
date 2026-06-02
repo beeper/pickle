@@ -67,7 +67,7 @@ describe("OpenClaw bridge integration", () => {
     });
     expect(runtime.sendMessage).toHaveBeenCalledWith({
       idempotencyKey: "$hello",
-      matrix: { roomId: "!codex:example", sender: "@alice:example" },
+      matrix: { accountId: "@sh-openclawbot:example", roomId: "!codex:example", sender: "@alice:example" },
       message: "hello",
       sessionKey: "session_1",
     });

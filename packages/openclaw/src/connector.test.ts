@@ -58,7 +58,7 @@ describe("OpenClawBridgeConnector", () => {
   it("registers the live Beeper runtime in OpenClaw channel runtime contexts", async () => {
     const register = vi.fn();
     const connector = createOpenClawConnector({
-      config: createDefaultConfig({ dataDir: "/tmp/openclaw" }),
+      config: createDefaultConfig({ dataDir: "/tmp/openclaw", matrixUserId: "@batuhan:beeper.com" }),
       registry: new OpenClawBridgeRegistry("/tmp/openclaw-connector-runtime-context-test.json"),
       runtime: {
         channel: {
@@ -76,7 +76,7 @@ describe("OpenClawBridgeConnector", () => {
     } as never);
 
     expect(register).toHaveBeenCalledWith(expect.objectContaining({
-      accountId: "default",
+      accountId: "@batuhan:beeper.com",
       capability: "beeper.runtime",
       channelId: "beeper",
       context: connector.getChannelRuntime(),

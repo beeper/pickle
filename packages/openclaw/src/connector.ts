@@ -61,6 +61,7 @@ import {
   BeeperChannelRuntime,
   setBeeperChannelRuntimeForHost,
 } from "./beeper-channel-runtime";
+import { beeperAccountIdFromMatrixUserId } from "./account-id";
 import { OpenClawMatrixBridgeAgent } from "./bridge-agent";
 import { createDefaultConfig } from "./config";
 import { parseMatrixTextMessage, type ParsedMatrixTextMessage } from "./matrix-parser";
@@ -194,7 +195,7 @@ export class OpenClawBridgeConnector implements BridgeConnector<OpenClawBridgeCo
     });
     this.#channelRuntime = channelRuntime;
     if (this.#hostRuntime) setBeeperChannelRuntimeForHost(this.#hostRuntime, channelRuntime);
-    registerBeeperRuntimeContext(this.#hostRuntime, channelRuntime);
+    registerBeeperRuntimeContext(this.#hostRuntime, channelRuntime, this.config);
   }
 
   async start(ctx: BridgeContext): Promise<void> {
@@ -370,7 +371,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
       await this.#agent.handleMatrixText({
         ...(parsed.attachments.length > 0 ? { attachments: parsed.attachments } : {}),
         eventId: msg.event.eventId,
-        matrix: matrixMetadataFromParsed(parsed, msg.sender.userId, streamTargetRelationPatch(currentBinding, parsed.replyToEventId)),
+        matrix: matrixMetadataFromParsed(this.#config, parsed, msg.sender.userId, streamTargetRelationPatch(currentBinding, parsed.replyToEventId)),
         roomId: msg.portal.mxid,
         ...(parsed.replyToEventId ? { replyToEventId: parsed.replyToEventId } : {}),
         sender: msg.sender.userId,
@@ -398,7 +399,7 @@ export class OpenClawNetworkAPI implements NetworkAPI, IdentifierResolvingNetwor
       await this.#agent.handleMatrixText({
         ...(parsed.attachments.length > 0 ? { attachments: parsed.attachments } : {}),
         eventId: `${msg.event.eventId}:edit`,
-        matrix: matrixMetadataFromParsed(parsed, msg.sender.userId, {
+        matrix: matrixMetadataFromParsed(this.#config, parsed, msg.sender.userId, {
           kind: "edit",
           targetEventId: targetId,
           ...streamTargetRelationPatch(binding, targetId),
@@ -764,11 +765,14 @@ function streamTargetRelationPatch(
 }
 
 function matrixMetadataFromParsed(
+  config: OpenClawBridgeConfig,
   parsed: ParsedMatrixTextMessage,
   sender: string,
   relationPatch: NonNullable<OpenClawMatrixMessageMetadata["relation"]> = {},
 ): OpenClawMatrixMessageMetadata {
   const metadata: OpenClawMatrixMessageMetadata = { sender };
+  const accountId = beeperAccountIdFromMatrixUserId(config.matrixUserId);
+  if (accountId) metadata.accountId = accountId;
   if (parsed.attachments.length > 0) metadata.attachments = parsed.attachments as NonNullable<OpenClawMatrixMessageMetadata["attachments"]>;
   if (parsed.command) metadata.command = parsed.command;
   if (parsed.formattedBody) metadata.formattedBody = parsed.formattedBody;
@@ -908,13 +912,15 @@ export function userLoginFromOpenClawConfig(config: OpenClawBridgeConfig): UserL
   };
 }
 
-function registerBeeperRuntimeContext(hostRuntime: OpenClawHostRuntime | undefined, runtime: BeeperChannelRuntime): void {
+function registerBeeperRuntimeContext(hostRuntime: OpenClawHostRuntime | undefined, runtime: BeeperChannelRuntime, config: OpenClawBridgeConfig): void {
   const channel = recordValue(hostRuntime)?.channel;
   const runtimeContexts = recordValue(channel)?.runtimeContexts;
   const register = recordValue(runtimeContexts)?.register;
   if (typeof register !== "function") return;
+  const accountId = beeperAccountIdFromMatrixUserId(config.matrixUserId);
+  if (!accountId) return;
   register.call(runtimeContexts, {
-    accountId: "default",
+    accountId,
     capability: BEEPER_CHANNEL_RUNTIME_CONTEXT_CAPABILITY,
     channelId: "beeper",
     context: runtime,

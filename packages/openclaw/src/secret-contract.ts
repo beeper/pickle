@@ -8,30 +8,8 @@ import {
 
 export const secretTargetRegistryEntries: SecretTargetRegistryEntry[] = [
   {
-    id: "channels.beeper.asToken",
-    targetType: "channels.beeper.asToken",
-    configFile: "openclaw.json",
-    pathPattern: "channels.beeper.asToken",
-    secretShape: "secret_input",
-    expectedResolvedValue: "string",
-    includeInPlan: true,
-    includeInConfigure: true,
-    includeInAudit: true,
-  },
-  {
-    id: "channels.beeper.hsToken",
-    targetType: "channels.beeper.hsToken",
-    configFile: "openclaw.json",
-    pathPattern: "channels.beeper.hsToken",
-    secretShape: "secret_input",
-    expectedResolvedValue: "string",
-    includeInPlan: true,
-    includeInConfigure: true,
-    includeInAudit: true,
-  },
-  {
     id: "channels.beeper.accounts.*.asToken",
-    targetType: "channels.beeper.asToken",
+    targetType: "channels.beeper.accounts.*.asToken",
     configFile: "openclaw.json",
     pathPattern: "channels.beeper.accounts.*.asToken",
     secretShape: "secret_input",
@@ -42,7 +20,7 @@ export const secretTargetRegistryEntries: SecretTargetRegistryEntry[] = [
   },
   {
     id: "channels.beeper.accounts.*.hsToken",
-    targetType: "channels.beeper.hsToken",
+    targetType: "channels.beeper.accounts.*.hsToken",
     configFile: "openclaw.json",
     pathPattern: "channels.beeper.accounts.*.hsToken",
     secretShape: "secret_input",
@@ -61,20 +39,6 @@ export function collectRuntimeConfigAssignments(params: {
   const resolved = getChannelSurface(params.config, "beeper");
   if (!resolved) return;
   const { channel, surface } = resolved;
-  for (const field of ["asToken", "hsToken"] as const) {
-    collectSecretInputAssignment({
-      value: channel[field],
-      path: `channels.beeper.${field}`,
-      expected: "string",
-      defaults: params.defaults,
-      context: params.context,
-      active: surface.channelEnabled,
-      inactiveReason: "Beeper channel is disabled.",
-      apply: (value) => {
-        channel[field] = value;
-      },
-    });
-  }
   const accounts = recordValue(channel.accounts);
   if (!accounts) return;
   for (const [accountId, value] of Object.entries(accounts)) {

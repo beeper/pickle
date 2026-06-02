@@ -31,6 +31,10 @@
       "types": "./dist/appservice.d.mts",
       "import": "./dist/appservice.mjs"
     },
+    "./auth-presence": {
+      "types": "./dist/auth-presence.d.mts",
+      "import": "./dist/auth-presence.mjs"
+    },
     "./bridge-agent": {
       "types": "./dist/bridge-agent.d.mts",
       "import": "./dist/bridge-agent.mjs"
@@ -126,7 +130,21 @@
       "docsPath": "/channels/beeper",
       "docsLabel": "beeper",
       "blurb": "lets you chat with your OpenClaw agents on Beeper.",
-      "systemImage": "message"
+      "systemImage": "message",
+      "configuredState": {
+        "specifier": "./auth-presence",
+        "exportName": "hasAnyBeeperConfiguredState"
+      },
+      "persistedAuthState": {
+        "specifier": "./auth-presence",
+        "exportName": "hasAnyBeeperAuth"
+      },
+      "cliAddOptions": [
+        {
+          "flags": "--server-env <env>",
+          "description": "Beeper server environment: prod, staging, dev, or local"
+        }
+      ]
     },
     "install": {
       "clawhubSpec": "clawhub:@beeper/openclaw@0.1.0",

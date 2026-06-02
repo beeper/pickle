@@ -18,5 +18,12 @@ delete manifest.uiHints;
 manifest.channelConfigs ??= {};
 manifest.channelConfigs.beeper ??= {};
 manifest.channelConfigs.beeper.schema = schema;
+manifest.channelConfigs.beeper.uiHints = {
+  "accounts.*.asToken": { sensitive: true, tags: ["hidden"] },
+  "accounts.*.hsToken": { sensitive: true, tags: ["hidden"] },
+  "accounts.*.serverEnv": {
+    help: "Choose before Beeper login. To change it after connecting, log out and log back in.",
+  },
+};
 
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

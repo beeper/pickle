@@ -1,21 +1,17 @@
 {
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
-    "enabled": {
-      "type": "boolean",
-      "description": "Enable Beeper agent chat."
-    },
     "defaultAccount": {
       "type": "string",
-      "description": "Default Beeper account id for outbound agent DMs when no agent-specific default is set."
+      "description": "Default Beeper account Matrix user ID for outbound agent DMs when no agent-specific default is set."
     },
     "accounts": {
       "type": "object",
-      "description": "Named Beeper accounts. Each account is set up through the normal OpenClaw channel setup flow.",
+      "description": "Beeper accounts keyed by full Matrix user ID, for example @batuhan:beeper.com.",
       "additionalProperties": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "properties": {
           "enabled": {
             "type": "boolean",
@@ -24,6 +20,10 @@
           "name": {
             "type": "string",
             "description": "Display name for this Beeper account in settings and status."
+          },
+          "dataDir": {
+            "type": "string",
+            "description": "Beeper bridge state directory for this account."
           },
           "serverEnv": {
             "type": "string",
@@ -62,13 +62,25 @@
                 }
               }
             ]
+          },
+          "bridge": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "appserviceId": { "type": "string" },
+              "bridgeId": { "type": "string" },
+              "homeserver": { "type": "string" },
+              "homeserverDomain": { "type": "string" },
+              "matrixDeviceId": { "type": "string" },
+              "matrixUserId": { "type": "string" }
+            }
           }
         }
       }
     },
     "agents": {
       "type": "object",
-      "description": "Per-agent Beeper account assignments. Account ids are not mutually exclusive.",
+      "description": "Per-agent Beeper account assignments. Account IDs are full Matrix user IDs and are not mutually exclusive.",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
@@ -76,52 +88,14 @@
           "accountIds": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Beeper account ids this agent may use."
+            "description": "Beeper account Matrix user IDs this agent may use."
           },
           "defaultAccount": {
             "type": "string",
-            "description": "Preferred Beeper account for this agent when multiple assigned accounts are available."
+            "description": "Preferred Beeper account Matrix user ID for this agent when multiple assigned accounts are available."
           }
         }
       }
-    },
-    "serverEnv": {
-      "type": "string",
-      "enum": ["prod", "staging", "dev", "local"],
-      "default": "prod",
-      "description": "Beeper server environment to use before login. Changing it after login requires logging out and logging back in."
-    },
-    "asToken": {
-      "description": "OpenClaw-managed Beeper appservice token.",
-      "oneOf": [
-        { "type": "string" },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["source", "provider", "id"],
-          "properties": {
-            "source": { "type": "string", "enum": ["env", "file", "exec"] },
-            "provider": { "type": "string" },
-            "id": { "type": "string" }
-          }
-        }
-      ]
-    },
-    "hsToken": {
-      "description": "OpenClaw-managed Beeper homeserver token.",
-      "oneOf": [
-        { "type": "string" },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["source", "provider", "id"],
-          "properties": {
-            "source": { "type": "string", "enum": ["env", "file", "exec"] },
-            "provider": { "type": "string" },
-            "id": { "type": "string" }
-          }
-        }
-      ]
     }
   }
 }

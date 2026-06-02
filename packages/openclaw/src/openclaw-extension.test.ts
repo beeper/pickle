@@ -20,10 +20,10 @@ describe("OpenClaw plugin package metadata", () => {
     expect(extension.kind).toBe("bundled-channel-entry");
     expect(extension.loadChannelPlugin()).toMatchObject({ id: "beeper" });
     expect(extension.loadChannelSecrets()).toMatchObject({
-      secretTargetRegistryEntries: [
-        expect.objectContaining({ pathPattern: "channels.beeper.asToken" }),
-        expect.objectContaining({ pathPattern: "channels.beeper.hsToken" }),
-      ],
+      secretTargetRegistryEntries: expect.arrayContaining([
+        expect.objectContaining({ pathPattern: "channels.beeper.accounts.*.asToken" }),
+        expect.objectContaining({ pathPattern: "channels.beeper.accounts.*.hsToken" }),
+      ]),
     });
     expect(resolveBundledRuntimeChannelRegistration(extension)).toMatchObject({
       id: "beeper",
@@ -79,7 +79,12 @@ describe("OpenClaw plugin package metadata", () => {
         runtimeExtensions?: string[];
         setupEntry?: string;
         runtimeSetupEntry?: string;
-        channel?: { id?: string };
+        channel?: {
+          cliAddOptions?: Array<{ flags?: string; description?: string }>;
+          configuredState?: { specifier?: string; exportName?: string };
+          id?: string;
+          persistedAuthState?: { specifier?: string; exportName?: string };
+        };
         install?: { clawhubSpec?: string; defaultChoice?: string; npmSpec?: string };
         compat?: { pluginApi?: string };
       };
@@ -111,6 +116,20 @@ describe("OpenClaw plugin package metadata", () => {
     expect(packageJson.openclaw?.setupEntry).toBe("./src/setup-entry.ts");
     expect(packageJson.openclaw?.runtimeSetupEntry).toBe("./dist/setup-entry.mjs");
     expect(packageJson.openclaw?.channel?.id).toBe("beeper");
+    expect(packageJson.openclaw?.channel?.configuredState).toEqual({
+      specifier: "./auth-presence",
+      exportName: "hasAnyBeeperConfiguredState",
+    });
+    expect(packageJson.openclaw?.channel?.persistedAuthState).toEqual({
+      specifier: "./auth-presence",
+      exportName: "hasAnyBeeperAuth",
+    });
+    expect(packageJson.openclaw?.channel?.cliAddOptions).toEqual([
+      {
+        flags: "--server-env <env>",
+        description: "Beeper server environment: prod, staging, dev, or local",
+      },
+    ]);
     expect(packageJson.openclaw?.install?.defaultChoice).toBe("clawhub");
     expect(packageJson.openclaw?.install?.clawhubSpec).toBe(
       `clawhub:@beeper/openclaw@${packageJson.version}`,
@@ -146,30 +165,34 @@ describe("OpenClaw plugin package metadata", () => {
         nativeSkillsAutoEnabled: true,
       },
       schema: {
-        properties: expect.not.objectContaining({
-          appserviceId: expect.anything(),
-          backfillLimit: expect.anything(),
-          bridgeId: expect.anything(),
-          homeserver: expect.anything(),
-          homeserverDomain: expect.anything(),
-          importSources: expect.anything(),
-          matrixDeviceId: expect.anything(),
-          matrixUserId: expect.anything(),
+        additionalProperties: false,
+        properties: expect.objectContaining({
+          accounts: expect.any(Object),
+          agents: expect.any(Object),
+          defaultAccount: expect.any(Object),
         }),
       },
       uiHints: expect.objectContaining({
-        asToken: expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
-        hsToken: expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
-        serverEnv: expect.objectContaining({
+        "accounts.*.asToken": expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
+        "accounts.*.hsToken": expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
+        "accounts.*.serverEnv": expect.objectContaining({
           help: expect.stringContaining("Choose before Beeper login"),
         }),
       }),
     });
-    expect(manifest.channelConfigs?.beeper?.schema?.properties).toEqual(expect.objectContaining({
-      asToken: expect.any(Object),
-      hsToken: expect.any(Object),
-      serverEnv: expect.objectContaining({ enum: ["prod", "staging", "dev", "local"] }),
-    }));
+    expect(manifest.channelConfigs?.beeper?.schema?.properties).not.toHaveProperty("asToken");
+    expect(manifest.channelConfigs?.beeper?.schema?.properties).not.toHaveProperty("hsToken");
+    expect(manifest.channelConfigs?.beeper?.schema?.properties).not.toHaveProperty("serverEnv");
+    expect(manifest.channelConfigs?.beeper?.schema?.properties?.accounts).toMatchObject({
+      additionalProperties: {
+        properties: {
+          asToken: expect.any(Object),
+          bridge: expect.any(Object),
+          hsToken: expect.any(Object),
+          serverEnv: expect.objectContaining({ enum: ["prod", "staging", "dev", "local"] }),
+        },
+      },
+    });
   });
 
   it("keeps the public package manifest publishable and installable from built files", async () => {

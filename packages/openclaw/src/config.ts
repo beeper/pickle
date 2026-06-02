@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { getBeeperAccountSettings, getBeeperChannelSettings, type OpenClawSetupConfig } from "./setup";
+import { getBeeperAccountSettings, getBeeperChannelSettings, resolveDefaultBeeperAccountId, type OpenClawSetupConfig } from "./setup";
+import { requireBeeperAccountId } from "./account-id";
 import { openClawBeeperBridgeId } from "./ids";
 import type { OpenClawBridgeConfig } from "./types";
 import { resolveConfiguredSecretInputString } from "openclaw/plugin-sdk/secret-input-runtime";
@@ -56,15 +57,22 @@ function configInput(input: unknown): Partial<OpenClawBridgeConfig> {
   const record = recordValue(input);
   const beeper = recordValue(recordValue(record?.channels)?.beeper);
   if (beeper) {
-    const serverEnv = normalizeServerEnv(stringValue(beeper.serverEnv));
-    const bridge = recordValue(beeper.bridge) as Partial<OpenClawBridgeConfig> | undefined;
+    const accounts = recordValue(beeper.accounts);
+    const defaultAccount = stringValue(beeper.defaultAccount);
+    const account = recordValue(
+      defaultAccount && accounts?.[defaultAccount]
+        ? accounts[defaultAccount]
+        : Object.values(accounts ?? {})[0],
+    );
+    const serverEnv = normalizeServerEnv(stringValue(account?.serverEnv));
+    const bridge = recordValue(account?.bridge) as Partial<OpenClawBridgeConfig> | undefined;
     const config: Partial<OpenClawBridgeConfig> = { ...(bridge ?? {}) };
-    const asToken = stringValue(beeper.asToken);
-    const hsToken = stringValue(beeper.hsToken);
+    const asToken = stringValue(account?.asToken);
+    const hsToken = stringValue(account?.hsToken);
     if (serverEnv) config.serverEnv = serverEnv;
     if (asToken) config.asToken = asToken;
     if (hsToken) config.hsToken = hsToken;
-    const dataDir = stringValue(beeper.dataDir);
+    const dataDir = stringValue(account?.dataDir);
     if (dataDir) config.dataDir = dataDir;
     return config;
   }
@@ -93,7 +101,8 @@ export async function createRuntimeConfigFromOpenClawSetup(
   accountId?: string | null,
 ): Promise<OpenClawBridgeConfig> {
   const settings = getBeeperAccountSettings(cfg, accountId);
-  const accountPrefix = accountId && accountId !== "default" ? `channels.beeper.accounts.${accountId}` : "channels.beeper";
+  const resolvedAccountId = requireBeeperAccountId(accountId ?? resolveDefaultBeeperAccountId(cfg));
+  const accountPrefix = `channels.beeper.accounts.${resolvedAccountId}`;
   const config = createConfigFromOpenClawSetup(cfg, overrides, accountId);
   const asToken = await resolveConfiguredSecretInputString({
     config: cfg,
