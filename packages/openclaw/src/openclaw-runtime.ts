@@ -98,7 +98,6 @@ export interface OpenClawSessionCreateOptions {
   parentSessionKey?: string;
   reasoningLevel?: string;
   task?: string;
-  thinkingLevel?: string;
   verboseLevel?: string;
 }
 
@@ -107,7 +106,6 @@ export interface OpenClawSessionPatchOptions {
   key: string;
   label?: string;
   reasoningLevel?: string;
-  thinkingLevel?: string;
   verboseLevel?: string;
 }
 
@@ -258,13 +256,12 @@ export class OpenClawPluginRuntimeAdapter {
     const record = recordValue(raw) ?? {};
     const key = stringValue(record.key) ?? stringValue(record.sessionKey) ?? options.key;
     if (!key) throw new Error("OpenClaw sessions.create did not return a session key");
-    if (options.reasoningLevel || options.thinkingLevel || options.verboseLevel) {
+    if (options.reasoningLevel || options.verboseLevel) {
       const patch: OpenClawSessionPatchOptions = {
         agentId: options.agentId,
         key,
       };
       if (options.reasoningLevel) patch.reasoningLevel = options.reasoningLevel;
-      if (options.thinkingLevel) patch.thinkingLevel = options.thinkingLevel;
       if (options.verboseLevel) patch.verboseLevel = options.verboseLevel;
       await this.patchSession(patch);
     }
@@ -283,7 +280,6 @@ export class OpenClawPluginRuntimeAdapter {
       key: options.key,
       label: options.label,
       reasoningLevel: options.reasoningLevel,
-      thinkingLevel: options.thinkingLevel,
       verboseLevel: options.verboseLevel,
     }));
   }
@@ -697,7 +693,6 @@ async function createSessionInPluginRuntime(runtime: OpenClawHostRuntime, params
     origin: recordValue(entry.origin) ?? { provider: "beeper", surface: "beeper", chatType: "direct" },
     provider: stringValue(entry.provider) ?? "beeper",
     reasoningLevel: stringValue(record.reasoningLevel) ?? stringValue(entry.reasoningLevel),
-    thinkingLevel: stringValue(record.thinkingLevel) ?? stringValue(entry.thinkingLevel),
     sessionFile: stringValue(entry.sessionFile) ?? resolvePluginSessionFile(runtime, agentId, sessionId, entry),
     sessionId,
     updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : now,
@@ -718,7 +713,6 @@ async function patchSessionInPluginRuntime(runtime: OpenClawHostRuntime, params:
     ...entry,
     ...(record.label !== undefined ? { label: stringValue(record.label) } : {}),
     ...(record.reasoningLevel !== undefined ? { reasoningLevel: stringValue(record.reasoningLevel) } : {}),
-    ...(record.thinkingLevel !== undefined ? { thinkingLevel: stringValue(record.thinkingLevel) } : {}),
     ...(record.verboseLevel !== undefined ? { verboseLevel: stringValue(record.verboseLevel) } : {}),
     updatedAt: Date.now(),
   });
