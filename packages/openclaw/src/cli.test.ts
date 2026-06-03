@@ -11,6 +11,7 @@ describe("pickle-openclaw CLI", () => {
     await expect(runCli(["--help"], helpIO)).resolves.toBe(0);
     expect(helpIO.stdoutText).toContain("login");
     expect(helpIO.stdoutText).toContain("whoami");
+    expect(helpIO.stdoutText).toContain("--server-env <prod|staging|dev|local>");
     expect(helpIO.stdoutText).not.toContain("beeper-login");
     expect(helpIO.stdoutText).not.toContain("beeper-register");
     expect(helpIO.stdoutText).not.toContain("rpc");
@@ -209,9 +210,10 @@ describe("pickle-openclaw CLI", () => {
   });
 
   it("reports incomplete identity when no Beeper login is saved", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pickle-openclaw-empty-"));
     const io = captureIO();
 
-    await expect(runCli(["whoami", "--data-dir", "/tmp/pickle-openclaw-empty"], io)).resolves.toBe(0);
+    await expect(runCli(["whoami", "--data-dir", dir], io)).resolves.toBe(0);
 
     expect(JSON.parse(io.stdoutText)).toMatchObject({
       canConnect: false,

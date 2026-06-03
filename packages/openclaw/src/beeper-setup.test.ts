@@ -145,6 +145,7 @@ describe("OpenClaw Beeper setup", () => {
           bridge: "sh-openclaw-openclaw-device",
           token: "mx-token",
         });
+        expect(options).not.toHaveProperty("address");
         expect(options.homeserver).toBeUndefined();
         return {
           homeserver: "https://matrix.beeper-staging.com/_hungryserv/batuhan",

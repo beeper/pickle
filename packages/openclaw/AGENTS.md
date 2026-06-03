@@ -26,21 +26,21 @@ locally linked plugin.
 For a published install:
 
 ```sh
-openclaw plugins install clawhub:@beeper/openclaw@0.1.0
+openclaw plugins install clawhub:@beeper/openclaw
 ```
 
 For local development from this package directory:
 
 ```sh
 pnpm build
-openclaw plugins install --force --link .
+openclaw plugins install --link .
 ```
 
 If working from the Pickle repo root, pass the package path instead:
 
 ```sh
 pnpm --filter @beeper/openclaw build
-openclaw plugins install --force --link packages/openclaw
+openclaw plugins install --link packages/openclaw
 ```
 
 Check that OpenClaw discovered the plugin:

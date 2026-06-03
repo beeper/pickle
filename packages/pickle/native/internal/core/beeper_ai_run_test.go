@@ -138,9 +138,42 @@ func TestBeeperAIRunErrorAbortAndDelete(t *testing.T) {
 	}
 }
 
+func TestBeeperAIRunBeginRejectsMissingAndDuplicateRunIDs(t *testing.T) {
+	core := New(nil)
+	if _, err := core.handleBeginBeeperAIRun([]byte(`{"runId":" "}`)); err == nil {
+		t.Fatal("expected missing run ID to fail")
+	}
+	payload, err := json.Marshal(MatrixBeginBeeperAIRunOptions{RunID: "run-duplicate", ThreadID: "thread-duplicate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.handleBeginBeeperAIRun(payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.handleBeginBeeperAIRun(payload); err == nil {
+		t.Fatal("expected duplicate run ID to fail")
+	}
+}
+
+func TestBeeperAIRunCloseClearsRunState(t *testing.T) {
+	core := New(func(OutboundEvent) {})
+	if _, err := core.handleBeginBeeperAIRun([]byte(`{"runId":"run-close","threadId":"thread-close"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(core.beeperAIRuns) != 1 {
+		t.Fatalf("expected one active run before close, got %d", len(core.beeperAIRuns))
+	}
+	if _, err := core.handleClose(); err != nil {
+		t.Fatal(err)
+	}
+	if len(core.beeperAIRuns) != 0 {
+		t.Fatalf("expected close to clear active runs, got %d", len(core.beeperAIRuns))
+	}
+}
+
 func TestBeeperAIRunSemanticPartsUseAIBridgeWriter(t *testing.T) {
 	core := New(nil)
-	state := core.beginBeeperAIRun(MatrixBeginBeeperAIRunOptions{RunID: "run-parts", ThreadID: "thread-parts"})
+	state := mustBeginBeeperAIRun(t, core, MatrixBeginBeeperAIRunOptions{RunID: "run-parts", ThreadID: "thread-parts"})
 	providerExecuted := true
 	startedAtMs := int64(123)
 	completedAtMs := int64(456)
@@ -199,7 +232,7 @@ func TestBeeperAIRunSemanticPartsUseAIBridgeWriter(t *testing.T) {
 
 func TestBeeperAIRunEmptyToolResultCompletesToolCall(t *testing.T) {
 	core := New(nil)
-	state := core.beginBeeperAIRun(MatrixBeginBeeperAIRunOptions{RunID: "run-empty-tool-result", ThreadID: "thread-empty-tool-result"})
+	state := mustBeginBeeperAIRun(t, core, MatrixBeginBeeperAIRunOptions{RunID: "run-empty-tool-result", ThreadID: "thread-empty-tool-result"})
 	parts := []MatrixBeeperAIRunPartOptions{
 		{Input: map[string]any{"command": "gog auth list --json --no-input"}, Kind: "tool_start", ToolCallID: "cmd-1", ToolName: "bash"},
 		{Kind: "tool_result", State: "complete", ToolCallID: "cmd-1", ToolName: "bash"},
@@ -228,7 +261,7 @@ func TestBeeperAIRunEmptyToolResultCompletesToolCall(t *testing.T) {
 
 func TestBeeperAIRunCommandPartUsesCommandAsTitleAndActualOutput(t *testing.T) {
 	core := New(nil)
-	state := core.beginBeeperAIRun(MatrixBeginBeeperAIRunOptions{RunID: "run-command", ThreadID: "thread-command"})
+	state := mustBeginBeeperAIRun(t, core, MatrixBeginBeeperAIRunOptions{RunID: "run-command", ThreadID: "thread-command"})
 	err := state.appendPart(MatrixBeeperAIRunPartOptions{
 		Input: map[string]any{
 			"command": `/bin/zsh -lc "date '+%Y-%m-%d %H:%M:%S %Z'"`,
@@ -264,7 +297,7 @@ func TestBeeperAIRunCommandPartUsesCommandAsTitleAndActualOutput(t *testing.T) {
 
 func TestBeeperAIEmptyStreamProjectionDoesNotExposeWorkingFallback(t *testing.T) {
 	core := New(nil)
-	state := core.beginBeeperAIRun(MatrixBeginBeeperAIRunOptions{RunID: "run-empty", ThreadID: "thread-empty"})
+	state := mustBeginBeeperAIRun(t, core, MatrixBeginBeeperAIRunOptions{RunID: "run-empty", ThreadID: "thread-empty"})
 
 	anchorContent, _ := aimatrix.AnchorContent(*state.run)
 	clearBeeperAIWorkingFallback(anchorContent, *state.run)
@@ -322,6 +355,15 @@ func decodeBeeperAIRunSnapshot(t *testing.T, raw []byte) MatrixBeeperAIRunSnapsh
 		t.Fatal(err)
 	}
 	return snapshot
+}
+
+func mustBeginBeeperAIRun(t *testing.T, core *Core, req MatrixBeginBeeperAIRunOptions) *beeperAIRunState {
+	t.Helper()
+	state, err := core.beginBeeperAIRun(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
 }
 
 func eventTypes(events []OutboundEvent) []string {

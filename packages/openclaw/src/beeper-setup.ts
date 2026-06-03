@@ -8,7 +8,6 @@ import {
   type MatrixAppserviceInitOptions,
   type MatrixPasswordAuthOptions,
 } from "@beeper/pickle-bridge/beeper";
-import { DEFAULT_REGISTRATION_URL } from "./config";
 import { DEFAULT_BEEPER_BRIDGE_TYPE, openClawBeeperBridgeId } from "./ids";
 import { resolveOpenClawDeviceId } from "./openclaw-identity";
 import type { BeeperServerEnv, OpenClawBridgeConfig } from "./types";
@@ -135,7 +134,6 @@ export async function createOpenClawBeeperAppService(
     selfHosted: true,
     token: options.accessToken,
   };
-  request.address = DEFAULT_REGISTRATION_URL;
   if (options.baseDomain !== undefined) request.baseDomain = options.baseDomain;
   if (options.fetch !== undefined) request.fetch = options.fetch;
   request.postState = true;

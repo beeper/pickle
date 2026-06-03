@@ -3,6 +3,7 @@ import { loginWithMatrixToken, type MatrixAuthenticatedAccount } from "../auth";
 export type BeeperEnvironment = "production" | "staging" | "dev" | "local";
 
 export interface BeeperAuthOptions {
+  acceptTerms?: boolean;
   email: string;
   env?: BeeperEnvironment;
   fetch?: typeof fetch;
@@ -10,6 +11,7 @@ export interface BeeperAuthOptions {
   initialDeviceDisplayName?: string;
   metadata?: Record<string, unknown>;
   onlyExistingAccounts?: boolean;
+  username?: string;
 }
 
 export interface BeeperAuthStartResult {
@@ -40,7 +42,12 @@ export async function createBeeperLogin(options: BeeperAuthOptions): Promise<Mat
   const onlyExistingAccounts = options.onlyExistingAccounts ?? true;
   await sendBeeperLoginEmail(fetchImpl, domain, start.requestId, options.email, { onlyExistingAccounts });
   const code = await getLoginCode(options);
-  const token = await sendBeeperLoginCode(fetchImpl, domain, start.requestId, code, { onlyExistingAccounts });
+  const token = await sendBeeperLoginCode(fetchImpl, domain, start.requestId, code, {
+    acceptTerms: options.acceptTerms,
+    email: options.email,
+    onlyExistingAccounts,
+    username: options.username,
+  });
   return loginWithMatrixToken({
     fetch: fetchImpl,
     homeserver: `https://matrix.${domain}`,
@@ -100,7 +107,12 @@ export async function sendBeeperLoginCode(
   domain: string,
   requestId: string,
   code: string,
-  options: { onlyExistingAccounts?: boolean } = {}
+  options: {
+    acceptTerms?: boolean | undefined;
+    email?: string | undefined;
+    onlyExistingAccounts?: boolean;
+    username?: string | undefined;
+  } = {}
 ): Promise<BeeperAuthCodeResult> {
   const raw = await beeperRequest(fetchImpl, domain, "/user/login/response", {
     appType: "pickle",
@@ -108,10 +120,44 @@ export async function sendBeeperLoginCode(
     request: requestId,
     response: code,
   });
+  const loginToken = readOptionalString(raw, "token");
+  if (loginToken) {
+    return {
+      loginToken,
+      raw,
+    };
+  }
+  const leadToken = readOptionalString(raw, "leadToken");
+  if (leadToken && options.onlyExistingAccounts === false) {
+    const registered = await registerBeeperUser(fetchImpl, domain, {
+      acceptTerms: options.acceptTerms ?? true,
+      leadToken,
+      requestId,
+      username: options.username ?? firstString(readArray(raw, "usernameSuggestions")) ?? usernameFromEmail(options.email),
+    });
+    return {
+      loginToken: readRequiredString(registered, "token"),
+      raw: registered,
+    };
+  }
   return {
     loginToken: readRequiredString(raw, "token"),
     raw,
   };
+}
+
+async function registerBeeperUser(
+  fetchImpl: typeof fetch,
+  domain: string,
+  options: { acceptTerms: boolean; leadToken: string; requestId: string; username: string }
+): Promise<unknown> {
+  return beeperRequest(fetchImpl, domain, "/user/register", {
+    acceptTerms: options.acceptTerms,
+    appType: "pickle",
+    leadToken: options.leadToken,
+    userLoginRequestId: options.requestId,
+    username: options.username,
+  });
 }
 
 async function beeperRequest(
@@ -157,9 +203,22 @@ function readOptionalString(value: unknown, key: string): string | undefined {
 }
 
 function readStringArray(value: unknown, key: string): string[] {
+  return readArray(value, key).filter((item): item is string => typeof item === "string");
+}
+
+function readArray(value: unknown, key: string): unknown[] {
   if (!value || typeof value !== "object") {
     return [];
   }
   const field = (value as Record<string, unknown>)[key];
-  return Array.isArray(field) ? field.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(field) ? field : [];
+}
+
+function firstString(values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
+}
+
+function usernameFromEmail(email: string | undefined): string {
+  const local = email?.split("@")[0]?.replace(/\+/gu, "") ?? `pickle${Date.now()}`;
+  return local.toLowerCase().replace(/[^a-z0-9._=-]+/gu, "").slice(0, 30) || `pickle${Date.now()}`;
 }

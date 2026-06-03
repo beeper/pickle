@@ -7,6 +7,12 @@ Pickle bridge package for exposing OpenClaw sessions in Beeper/Matrix as an Open
 Install the Beeper channel plugin from ClawHub:
 
 ```sh
+openclaw plugins install clawhub:@beeper/openclaw
+```
+
+For a pinned install:
+
+```sh
 openclaw plugins install clawhub:@beeper/openclaw@0.1.0
 ```
 

@@ -184,7 +184,16 @@ describe("BeeperChannelRuntime", () => {
     expect(messageEvent.getSender()).toEqual({ isFromMe: true, sender: "@codex:example" });
     expect((await messageEvent.convertMessage()).parts[0]?.content).toEqual({ body: "from agent", msgtype: "m.text" });
 
-    await runtime.sendMedia({ bytes: new Uint8Array([1]), caption: "cap", filename: "a.txt", roomId: "!room" });
+    await runtime.sendText({ replyToId: "$reply", roomId: "!room", text: "threaded", threadRoot: "$thread" });
+    const threadedTextEvent = queued[1] as {
+      convertMessage: () => Promise<{ parts: Array<{ content: Record<string, unknown> }> }>;
+    };
+    expect((await threadedTextEvent.convertMessage()).parts[0]?.content["m.relates_to"]).toEqual({
+      "m.in_reply_to": { event_id: "$reply" },
+      "m.thread": { event_id: "$thread" },
+    });
+
+    await runtime.sendMedia({ bytes: new Uint8Array([1]), caption: "cap", filename: "a.txt", replyToId: "$reply", roomId: "!room", threadRoot: "$thread" });
     expect(bridge.uploadMedia).toHaveBeenCalledWith({
       bytes: new Uint8Array([1]),
       filename: "a.txt",
@@ -192,6 +201,13 @@ describe("BeeperChannelRuntime", () => {
     expect(client.media.upload).toHaveBeenCalledWith({
       bytes: new Uint8Array([1]),
       filename: "a.txt",
+    });
+    const mediaEvent = queued[2] as {
+      convertMessage: () => Promise<{ parts: Array<{ content: Record<string, unknown> }> }>;
+    };
+    expect((await mediaEvent.convertMessage()).parts[0]?.content["m.relates_to"]).toEqual({
+      "m.in_reply_to": { event_id: "$reply" },
+      "m.thread": { event_id: "$thread" },
     });
 
     await runtime.edit({ eventId: sent.eventId, roomId: "!room", text: "edited" });
@@ -204,6 +220,7 @@ describe("BeeperChannelRuntime", () => {
     await runtime.markUnread({ eventId: sent.eventId, roomId: "!room", unread: true });
 
     expect(queued.slice(1).map((event) => (event as { getType: () => string }).getType())).toEqual([
+      "message",
       "message",
       "edit",
       "reaction",

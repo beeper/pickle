@@ -110,9 +110,9 @@ describe("OpenClaw plugin package metadata", () => {
     const schema = JSON.parse(await readFile(resolve("src/beeper-channel-config.schema.json"), "utf8"));
 
     expect(packageJson.files).toContain("openclaw.plugin.json");
-    expect(packageJson.files).toContain("skills");
-    expect(packageJson.openclaw?.extensions).toEqual(["./src/plugin-entry.ts", "./src/function-entry.ts"]);
-    expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs", "./dist/function-entry.mjs"]);
+    expect(packageJson.files).not.toContain("skills");
+    expect(packageJson.openclaw?.extensions).toEqual(["./src/plugin-entry.ts"]);
+    expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs"]);
     expect(packageJson.openclaw?.setupEntry).toBe("./src/setup-entry.ts");
     expect(packageJson.openclaw?.runtimeSetupEntry).toBe("./dist/setup-entry.mjs");
     expect(packageJson.openclaw?.channel?.id).toBe("beeper");
@@ -131,23 +131,15 @@ describe("OpenClaw plugin package metadata", () => {
       },
     ]);
     expect(packageJson.openclaw?.install?.defaultChoice).toBe("clawhub");
-    expect(packageJson.openclaw?.install?.clawhubSpec).toBe(
-      `clawhub:@beeper/openclaw@${packageJson.version}`,
-    );
-    expect(packageJson.openclaw?.install?.npmSpec).toBe(
-      `@beeper/openclaw@${packageJson.version}`,
-    );
+    expect(packageJson.openclaw?.install?.clawhubSpec).toBe("clawhub:@beeper/openclaw");
+    expect(packageJson.openclaw?.install?.npmSpec).toBe("@beeper/openclaw");
     expect(packageJson.openclaw?.compat?.pluginApi).toBe(">=2026.6.2");
     expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.6.2");
     expect(packageJson.scripts?.prepublishOnly).toBe("node ../../scripts/guard-pnpm-publish.mjs");
     expect(packageJson.files).toContain("dist");
     expect(manifest).toEqual(expect.objectContaining({
-      commandAliases: [{ name: "beeper" }],
-      contracts: { tools: ["beeper_cli"] },
       id: "beeper",
       channels: ["beeper"],
-      skills: ["./skills"],
-      toolMetadata: { beeper_cli: { optional: true } },
     }));
     expect(manifest.activation?.onStartup).toBe(false);
     expect(manifest.channelEnvVars).toBeUndefined();
@@ -219,9 +211,9 @@ describe("OpenClaw plugin package metadata", () => {
     ]));
     expect(packageJson.main).toBe("./dist/plugin-entry.mjs");
     expect(packageJson.bin?.["pickle-openclaw"]).toBe("./dist/cli.mjs");
-    expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs", "./dist/function-entry.mjs"]);
+    expect(packageJson.openclaw?.runtimeExtensions).toEqual(["./dist/plugin-entry.mjs"]);
     expect(packageJson.openclaw?.runtimeSetupEntry).toBe("./dist/setup-entry.mjs");
-    expect(dependencies).toEqual([["beeper-cli", "^0.6.2"]]);
+    expect(dependencies).toEqual([]);
     expect(devDependencies).toEqual(expect.arrayContaining([
       ["@beeper/pickle-ag-ui", "workspace:^"],
       ["@beeper/pickle-bridge", "workspace:^"],

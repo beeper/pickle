@@ -282,6 +282,7 @@ func (c *Core) handleClose() ([]byte, error) {
 		_ = c.beeperStream.Close()
 	}
 	c.beeperStream = nil
+	c.beeperAIRuns = make(map[string]*beeperAIRunState)
 	c.appserviceProcessor = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil

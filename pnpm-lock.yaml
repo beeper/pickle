@@ -218,10 +218,6 @@ importers:
         version: 4.1.5(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(@vitest/coverage-v8@4.1.5)(vite@8.0.10(@types/node@20.19.39)(esbuild@0.27.7)(jiti@2.7.0)(yaml@2.9.0))
 
   packages/openclaw:
-    dependencies:
-      beeper-cli:
-        specifier: ^0.6.2
-        version: 0.6.2
     devDependencies:
       '@beeper/pickle-ag-ui':
         specifier: workspace:^
@@ -1547,10 +1543,6 @@ packages:
 
   base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
-
-  beeper-cli@0.6.2:
-    resolution: {integrity: sha512-yVhaKTzO2ZuMfatwSfHaa/v8zfp4IthuEkah2zbUGeBPjPHW/L0rVP/6dFzxYUFE/hLMJ9u8X6yj38Nh3KmzkQ==}
-    hasBin: true
 
   better-path-resolve@1.0.0:
     resolution: {integrity: sha512-pbnl5XzGBdrFU/wT4jqmJVPn2B6UHPBOhzMQkY/SPUPB6QtUXtmBHBIwCbXJol93mOpGMnQyP/+BB19q04xj7g==}
@@ -4485,8 +4477,6 @@ snapshots:
   balanced-match@4.0.4: {}
 
   base64-js@1.5.1: {}
-
-  beeper-cli@0.6.2: {}
 
   better-path-resolve@1.0.0:
     dependencies:

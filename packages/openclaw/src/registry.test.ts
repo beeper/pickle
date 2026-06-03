@@ -1,12 +1,19 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { OpenClawBridgeRegistry } from "./registry";
 
 describe("OpenClawBridgeRegistry", () => {
+  const cleanup: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(cleanup.splice(0).map((dir) => rm(dir, { force: true, recursive: true })));
+  });
+
   it("persists agent contacts, session bindings, and dedupe keys", async () => {
     const dir = await mkdtemp(resolve(tmpdir(), "pickle-openclaw-"));
+    cleanup.push(dir);
     const path = resolve(dir, "registry.json");
     const registry = new OpenClawBridgeRegistry(path);
     await registry.load();

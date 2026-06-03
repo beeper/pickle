@@ -51,10 +51,6 @@
       "types": "./dist/cli.d.mts",
       "import": "./dist/cli.mjs"
     },
-    "./function-entry": {
-      "types": "./dist/function-entry.d.mts",
-      "import": "./dist/function-entry.mjs"
-    },
     "./config": {
       "types": "./dist/config.d.mts",
       "import": "./dist/config.mjs"
@@ -106,19 +102,16 @@
   },
   "files": [
     "dist",
-    "skills",
     "openclaw.plugin.json",
     "README.md",
     "LICENSE"
   ],
   "openclaw": {
     "extensions": [
-      "./src/plugin-entry.ts",
-      "./src/function-entry.ts"
+      "./src/plugin-entry.ts"
     ],
     "runtimeExtensions": [
-      "./dist/plugin-entry.mjs",
-      "./dist/function-entry.mjs"
+      "./dist/plugin-entry.mjs"
     ],
     "setupEntry": "./src/setup-entry.ts",
     "runtimeSetupEntry": "./dist/setup-entry.mjs",
@@ -147,8 +140,8 @@
       ]
     },
     "install": {
-      "clawhubSpec": "clawhub:@beeper/openclaw@0.1.0",
-      "npmSpec": "@beeper/openclaw@0.1.0",
+      "clawhubSpec": "clawhub:@beeper/openclaw",
+      "npmSpec": "@beeper/openclaw",
       "defaultChoice": "clawhub",
       "minHostVersion": ">=2026.6.2"
     },
@@ -184,9 +177,6 @@
     "tsdown": "^0.21.10",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
-  },
-  "dependencies": {
-    "beeper-cli": "^0.6.2"
   },
   "peerDependencies": {
     "openclaw": ">=2026.6.2"

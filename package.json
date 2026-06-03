@@ -1,5 +1,5 @@
 {
-  "name": "@beeper/openclaw",
+  "name": "@beeper/pickle-workspace",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.25.0",
@@ -7,7 +7,7 @@
     "build": "pnpm -r build",
     "build:wasm": "pnpm --filter @beeper/pickle build:wasm",
     "audit:surface": "node scripts/audit-package-surface.mjs",
-    "check": "pnpm audit:surface && pnpm typecheck && pnpm test && pnpm test:go && pnpm build && pnpm pack:packages && pnpm smoke:consumer && pnpm smoke:cloudflare",
+    "check": "pnpm audit:surface && pnpm typecheck && pnpm build && pnpm test && pnpm test:go && pnpm pack:packages && pnpm smoke:consumer && pnpm smoke:cloudflare",
     "clean": "pnpm -r clean",
     "changeset": "changeset",
     "full-test": "pnpm check && pnpm test:openclaw:plugins",

@@ -76,6 +76,7 @@ function helpText(): string {
     "  --email <address>",
     "  --username <user>",
     "  --password <password>",
+    "  --server-env <prod|staging|dev|local>",
     "",
   ].join("\n");
 }

@@ -42,6 +42,7 @@ export interface BeeperOutboundMedia {
   filename?: string;
   kind?: BridgeMediaKind;
   path?: string;
+  replyToId?: string | null;
   threadRoot?: string;
 }
 
@@ -95,7 +96,10 @@ export class BeeperChannelRuntime {
       msgtype: "m.text",
       ...options.content,
     };
-    return await this.#queueRemoteText(options.roomId, withReplyRelation(content, options.replyToId));
+    return await this.#queueRemoteText(options.roomId, withMessageRelations(content, {
+      replyToId: options.replyToId,
+      threadRoot: options.threadRoot,
+    }));
   }
 
   async sendMedia(options: BeeperOutboundMedia & { roomId: string }): Promise<SentEvent> {
@@ -108,6 +112,8 @@ export class BeeperChannelRuntime {
       kind: options.kind ?? "file",
       ...(options.caption !== undefined ? { caption: options.caption } : {}),
       ...(options.filename !== undefined ? { filename: options.filename } : {}),
+      ...(options.replyToId !== undefined ? { replyToId: options.replyToId } : {}),
+      ...(options.threadRoot !== undefined ? { threadRoot: options.threadRoot } : {}),
     });
   }
 
@@ -250,17 +256,27 @@ export class BeeperChannelRuntime {
     return { eventId: messageId, raw: { bridgeQueued: true }, roomId };
   }
 
-  async #queueRemoteMedia(roomId: string, options: { bytes: Uint8Array; caption?: string; filename?: string; kind: NonNullable<BeeperOutboundMedia["kind"]> }): Promise<SentEvent> {
+  async #queueRemoteMedia(roomId: string, options: {
+    bytes: Uint8Array;
+    caption?: string;
+    filename?: string;
+    kind: NonNullable<BeeperOutboundMedia["kind"]>;
+    replyToId?: string | null;
+    threadRoot?: string;
+  }): Promise<SentEvent> {
     const route = this.#bridgeRoute(roomId);
     const upload = await route.bridge.uploadMedia({
       bytes: options.bytes,
       ...(options.filename !== undefined ? { filename: options.filename } : {}),
     });
-    const content = bridgeMediaMessageContent({
+    const content = withMessageRelations(bridgeMediaMessageContent({
       contentUri: upload.contentUri,
       kind: options.kind,
       ...(options.caption !== undefined ? { caption: options.caption } : {}),
       ...(options.filename !== undefined ? { filename: options.filename } : {}),
+    }), {
+      replyToId: options.replyToId,
+      threadRoot: options.threadRoot,
     });
     const messageId = openClawRemoteId();
     route.bridge.queueRemoteEvent(route.login, createRemoteMessage({
@@ -438,16 +454,24 @@ export function requireBeeperChannelRuntimeForHost(hostRuntime: object | undefin
   return runtime;
 }
 
-function withReplyRelation(content: Record<string, unknown>, replyToId: string | null | undefined): Record<string, unknown> {
-  if (!replyToId) return content;
+function withMessageRelations(
+  content: Record<string, unknown>,
+  options: { replyToId?: string | number | null | undefined; threadRoot?: string | number | null | undefined },
+): Record<string, unknown> {
+  if (!options.replyToId && options.threadRoot == null) return content;
+  const relatesTo = recordValue(content["m.relates_to"]) ?? {};
   return {
     ...content,
     "m.relates_to": {
-      "m.in_reply_to": {
-        event_id: replyToId,
-      },
+      ...relatesTo,
+      ...(options.replyToId ? { "m.in_reply_to": { event_id: String(options.replyToId) } } : {}),
+      ...(options.threadRoot != null ? { "m.thread": { event_id: String(options.threadRoot) } } : {}),
     },
   };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
 function openClawRemoteId(prefix = "message"): string {

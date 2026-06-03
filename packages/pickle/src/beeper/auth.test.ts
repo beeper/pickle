@@ -72,7 +72,8 @@ describe("beeper auth", () => {
       const path = new URL(String(url)).pathname;
       if (path === "/user/login") return Response.json({ request: "request-id", type: ["email"] });
       if (path === "/user/login/email") return Response.json({});
-      if (path === "/user/login/response") return Response.json({ token: "beeper-jwt" });
+      if (path === "/user/login/response") return Response.json({ leadToken: "lead-token", usernameSuggestions: ["qatest123"] });
+      if (path === "/user/register") return Response.json({ token: "beeper-jwt" });
       if (path === "/_matrix/client/v3/login") {
         return Response.json({
           access_token: "access",
@@ -88,6 +89,7 @@ describe("beeper auth", () => {
       fetch: fetchImpl as typeof fetch,
       getLoginCode: () => "123456",
       onlyExistingAccounts: false,
+      username: "bot",
     })).resolves.toMatchObject({
       accessToken: "access",
       userId: "@bot:beeper.com",
@@ -98,6 +100,17 @@ describe("beeper auth", () => {
     });
     expect(await requestBody(fetchImpl, 2)).toMatchObject({
       onlyExistingAccounts: false,
+    });
+    expect(await requestBody(fetchImpl, 3)).toEqual({
+      acceptTerms: true,
+      appType: "pickle",
+      leadToken: "lead-token",
+      userLoginRequestId: "request-id",
+      username: "bot",
+    });
+    expect(await requestBody(fetchImpl, 4)).toMatchObject({
+      token: "beeper-jwt",
+      type: "org.matrix.login.jwt",
     });
   });
 

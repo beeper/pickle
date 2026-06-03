@@ -145,7 +145,10 @@ func (c *Core) handleBeginBeeperAIRun(payload []byte) ([]byte, error) {
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	state := c.beginBeeperAIRun(req)
+	state, err := c.beginBeeperAIRun(req)
+	if err != nil {
+		return nil, err
+	}
 	run := state.run
 	return c.marshalBeeperAIRunSnapshot(run, outboundEventsFromAGUI(run.Events))
 }
@@ -235,7 +238,10 @@ func (c *Core) handleStartBeeperAIRunStream(ctx context.Context, payload []byte)
 	if req.StreamType == "" {
 		req.StreamType = "com.beeper.llm"
 	}
-	state := c.beginBeeperAIRun(req.MatrixBeginBeeperAIRunOptions)
+	state, err := c.beginBeeperAIRun(req.MatrixBeginBeeperAIRunOptions)
+	if err != nil {
+		return nil, err
+	}
 	run := state.run
 	for _, eventData := range req.InitialEvents {
 		if err := state.appendEvent(eventData); err != nil {
@@ -395,8 +401,15 @@ func (c *Core) handleErrorBeeperAIRunStream(ctx context.Context, payload []byte)
 	return c.finalizeBeeperAIRunStream(ctx, state, events)
 }
 
-func (c *Core) beginBeeperAIRun(req MatrixBeginBeeperAIRunOptions) *beeperAIRunState {
-	run := aistream.NewRun(req.RunID, req.ThreadID, req.Model, req.AgentID, req.AgentName, time.Now())
+func (c *Core) beginBeeperAIRun(req MatrixBeginBeeperAIRunOptions) (*beeperAIRunState, error) {
+	runID := strings.TrimSpace(req.RunID)
+	if runID == "" {
+		return nil, errors.New("missing Beeper AI run ID")
+	}
+	if c.beeperAIRuns[runID] != nil {
+		return nil, errors.New("Beeper AI run is already registered")
+	}
+	run := aistream.NewRun(runID, req.ThreadID, req.Model, req.AgentID, req.AgentName, time.Now())
 	if strings.TrimSpace(req.MessageID) != "" {
 		run.MessageID = strings.TrimSpace(req.MessageID)
 	}
@@ -414,7 +427,7 @@ func (c *Core) beginBeeperAIRun(req MatrixBeginBeeperAIRunOptions) *beeperAIRunS
 		writer:           writer,
 	}
 	c.beeperAIRuns[run.RunID] = state
-	return state
+	return state, nil
 }
 
 func (s *beeperAIRunState) appendEvent(eventData OutboundEvent) error {

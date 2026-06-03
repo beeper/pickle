@@ -12,7 +12,6 @@ import (
 
 	agui "github.com/beeper/ai-bridge/pkg/ag-ui"
 	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
-	aibridgev2 "github.com/beeper/ai-bridge/pkg/ai-stream/bridgev2"
 	"maunium.net/go/mautrix"
 	mautrixbeeperstream "maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
@@ -331,8 +330,8 @@ func (c *Core) finalizeBeeperStreamMessage(ctx context.Context, req MatrixFinali
 	if content["msgtype"] == nil {
 		content["msgtype"] = "m.text"
 	}
-	content = OutboundEvent(aibridgev2.FinalEditExtra(content))
-	topLevel := mergeOutboundEvent(req.TopLevelContent, OutboundEvent(aibridgev2.FinalEditTopLevelExtra()))
+	content = beeperStreamFinalEditExtra(content)
+	topLevel := mergeOutboundEvent(req.TopLevelContent, beeperStreamFinalEditTopLevelExtra())
 	replacement, err := c.sendBeeperStreamReplacementEvent(ctx, req.RoomID, req.EventID, req.UserID, content, topLevel)
 	if err != nil {
 		return MatrixFinalizeBeeperStreamMessageResult{}, err
@@ -349,6 +348,22 @@ func (c *Core) finalizeBeeperStreamMessage(ctx context.Context, req MatrixFinali
 		RoomID:             req.RoomID,
 		Raw:                replacement,
 	}, nil
+}
+
+func beeperStreamFinalEditExtra(extra OutboundEvent) OutboundEvent {
+	out := make(OutboundEvent, len(extra)+1)
+	for key, value := range extra {
+		out[key] = value
+	}
+	out["com.beeper.stream"] = nil
+	return out
+}
+
+func beeperStreamFinalEditTopLevelExtra() OutboundEvent {
+	return OutboundEvent{
+		"com.beeper.dont_render_edited": true,
+		"com.beeper.stream":             nil,
+	}
 }
 
 func (c *Core) sendBeeperStreamReplacementEvent(ctx context.Context, roomID, eventID, userID string, newContent, topLevel OutboundEvent) (*mautrix.RespSendEvent, error) {

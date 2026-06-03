@@ -113,8 +113,7 @@ describe("OpenClaw approval response parsing", () => {
           approval: {
             actions: [
               { decision: "allow-once", id: "allow-once", reactionKey: "approval.allow_once", title: "Allow Once", variant: "secondary" },
-              { decision: "allow-session", id: "allow-session", reactionKey: "approval.allow_session", title: "Allow This Session", variant: "secondary" },
-              { decision: "allow-room", id: "allow-room", reactionKey: "approval.allow_room", title: "Allow This Room", variant: "secondary" },
+              { decision: "allow-always", id: "allow-always", reactionKey: "approval.allow_always", title: "Allow Always", variant: "secondary" },
               { decision: "deny", id: "deny", reactionKey: "approval.deny", title: "Cancel", variant: "destructive" },
             ],
             id: "approval_1",

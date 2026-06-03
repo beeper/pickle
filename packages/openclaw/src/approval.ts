@@ -57,7 +57,7 @@ export function defaultBeeperApprovalChoices(): BeeperApprovalChoice[] {
   ];
 }
 
-export function defaultBeeperApprovalActions(decisions: readonly ApprovalDecision[] = ["allow_once", "allow_session", "allow_room", "deny"]): Record<string, unknown>[] {
+export function defaultBeeperApprovalActions(decisions: readonly ApprovalDecision[] = ["allow_once", "allow_always", "deny"]): Record<string, unknown>[] {
   return decisions.map((decision) => ({
     decision: decision.replace(/_/gu, "-"),
     id: decision.replace(/_/gu, "-"),

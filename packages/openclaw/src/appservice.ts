@@ -31,7 +31,6 @@ export async function createOpenClawBeeperBridge(options: CreateOpenClawBeeperBr
     connector,
   };
   if (config?.matrixUserId !== undefined) bridgeOptions.ownerUserId = config.matrixUserId;
-  bridgeOptions.address = "websocket";
   const baseDomain = beeperBaseDomain(config?.serverEnv === "prod" ? "production" : config?.serverEnv);
   if (baseDomain !== undefined) bridgeOptions.baseDomain = baseDomain;
   bridgeOptions.bridgeManagerPostState = true;

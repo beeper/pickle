@@ -8,24 +8,6 @@
   "channels": [
     "beeper"
   ],
-  "contracts": {
-    "tools": [
-      "beeper_cli"
-    ]
-  },
-  "toolMetadata": {
-    "beeper_cli": {
-      "optional": true
-    }
-  },
-  "commandAliases": [
-    {
-      "name": "beeper"
-    }
-  ],
-  "skills": [
-    "./skills"
-  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

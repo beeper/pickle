@@ -26,7 +26,6 @@ describe("OpenClaw Beeper appservice runtime", () => {
     })).resolves.toBe(bridge);
 
     expect(bridgeFactory).toHaveBeenCalledWith(expect.objectContaining({
-      address: "websocket",
       baseDomain: "beeper-staging.com",
       bridge: "sh-openclaw",
       bridgeManagerPostState: true,
@@ -39,6 +38,7 @@ describe("OpenClaw Beeper appservice runtime", () => {
       homeserverDomain: "beeper.local",
       ownerUserId: "@batuhan:beeper-staging.com",
     }));
+    expect(bridgeFactory.mock.calls[0]?.[0]).not.toHaveProperty("address");
   });
 
   it("starts the created bridge", async () => {
