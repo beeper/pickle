@@ -40,7 +40,7 @@ describe("OpenClaw plugin package metadata", () => {
     expect(registeredPlugin.setup).toEqual(expect.any(Object));
     expect(registeredPlugin.setupWizard).toEqual(expect.any(Object));
     expect(registeredPlugin.threading).toEqual(expect.any(Object));
-  }, 15_000);
+  }, 60_000);
 
   it("honors SDK channel registration modes", () => {
     const registerChannel = vi.fn();

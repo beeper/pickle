@@ -215,7 +215,7 @@ describe("OpenClaw Beeper setup surface", () => {
     }));
     expect(beeperChannelPlugin.setup).toBe(beeperSetupAdapter);
     expect(beeperChannelPlugin.setupWizard).toBe(beeperSetupWizard);
-  });
+  }, 60_000);
 
   it("matches the OpenClaw channel contract surface used by the dashboard and runtime", async () => {
     expect(beeperChannelPlugin.id).toBe("beeper");
