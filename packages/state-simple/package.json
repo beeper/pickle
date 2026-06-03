@@ -2,6 +2,12 @@
   "name": "@beeper/pickle-state-simple",
   "version": "0.1.0",
   "description": "Simple getter/setter Matrix state adapter for Pickle",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beeper/pickle.git",
+    "directory": "packages/state-simple"
+  },
+  "license": "MPL-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

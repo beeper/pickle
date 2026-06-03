@@ -11,7 +11,7 @@
     "clean": "pnpm -r clean",
     "changeset": "changeset",
     "full-test": "pnpm check && pnpm test:openclaw:plugins",
-    "pack:packages": "mkdir -p .packs && pnpm -r --filter './packages/*' pack --pack-destination ./.packs",
+    "pack:packages": "rm -rf .packs && mkdir -p .packs && pnpm -r --filter './packages/*' pack --pack-destination ./.packs",
     "release": "pnpm check && pnpm changeset publish",
     "smoke:cloudflare": "node scripts/smoke-cloudflare-worker.mjs",
     "smoke:consumer": "node scripts/package-consumer-smoke.mjs",

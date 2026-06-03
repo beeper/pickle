@@ -2,6 +2,12 @@
   "name": "@beeper/pickle-state-file",
   "version": "0.1.0",
   "description": "Filesystem Matrix state adapter for Pickle",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beeper/pickle.git",
+    "directory": "packages/state-file"
+  },
+  "license": "MPL-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
