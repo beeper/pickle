@@ -6,13 +6,7 @@ import { RuntimeBridge } from "./bridge";
 import { createBridgeDataStore, getOrCreateAppserviceDeviceId } from "./store";
 import type { CreateNodeBeeperBridgeOptions, CreateNodeBridgeOptions, PickleBridge } from "./types";
 
-export { createBridgeDataStore, MatrixBridgeDataStore } from "./store";
-export { BeeperBridgeManagerClient, createBeeperAppService, createBeeperAppServiceInit, createBeeperBridgeManagerClient, fetchBeeperBridges } from "./beeper";
-export { createRemoteMessage } from "./events";
-export type * from "./beeper";
-export type * from "./store";
-export type * from "./types";
-export { RuntimeBridge } from "./bridge";
+export type { CreateNodeBeeperBridgeOptions, CreateNodeBridgeOptions, PickleBridge };
 
 export function createBridge(options: CreateNodeBridgeOptions): PickleBridge {
   return new RuntimeBridge(options, createMatrixClient(options.matrix));
@@ -22,7 +16,7 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
   const store = options.store ?? options.matrix?.store ?? createFileMatrixStore(defaultDataDir(options));
   const appservice = options.matrix?.appservice ?? await createBeeperAppServiceInit({
     bridge: options.bridge,
-    token: options.account.accessToken,
+    token: requiredAccount(options).accessToken,
     ...(options.address ? { address: options.address } : {}),
     ...(options.baseDomain ? { baseDomain: options.baseDomain } : {}),
     ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
@@ -44,16 +38,19 @@ export async function createBeeperBridge(options: CreateNodeBeeperBridgeOptions)
     appservice,
     beeper: {
       bridge: options.bridge,
-      ownerUserId: options.account.userId,
+      ...(options.account?.userId ?? options.ownerUserId ? { ownerUserId: options.account?.userId ?? options.ownerUserId } : {}),
       ...(options.bridgeType ? { bridgeType: options.bridgeType } : {}),
     },
     connector: options.connector,
     dataStore: options.dataStore ?? createBridgeDataStore(store),
     ...(options.log ? { log: options.log } : {}),
     matrix,
-  }, createMatrixClient({
-    ...matrix,
-  }));
+  }, createMatrixClient(matrix));
+}
+
+function requiredAccount(options: CreateNodeBeeperBridgeOptions) {
+  if (!options.account) throw new Error("createBeeperBridge requires account unless matrix.appservice is provided");
+  return options.account;
 }
 
 function defaultDataDir(options: { bridge: string; dataDir?: string }): string {

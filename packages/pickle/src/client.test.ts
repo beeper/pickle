@@ -915,7 +915,7 @@ describe("createMatrixClient", () => {
       content: {
         "com.beeper.ai": {
           id: expect.any(String),
-          parts: [{ text: "hello", type: "text" }],
+          parts: [{ content: "hello", type: "text" }],
           role: "assistant",
         },
       },
@@ -955,6 +955,74 @@ describe("createMatrixClient", () => {
 
     expect(calls.map((call) => call.operation)).toContain("start_beeper_stream_message");
     expect(calls.map((call) => call.operation)).toContain("publish_beeper_stream_message_part");
+  });
+
+  it("maps Beeper AI run helpers to the runtime contract", async () => {
+    const calls = installRuntime({
+      append_beeper_ai_run_event: { body: "hello", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, runId: "run", threadId: "thread" },
+      append_beeper_ai_run_stream_event: { body: "hello", descriptor: {}, eventId: "$stream", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, roomId: "!room", runId: "run", threadId: "thread" },
+      append_beeper_ai_run_stream_part: { body: "hello", descriptor: {}, eventId: "$stream", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, roomId: "!room", runId: "run", threadId: "thread" },
+      begin_beeper_ai_run: { body: "", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, runId: "run", threadId: "thread" },
+      delete_beeper_ai_run: {},
+      error_beeper_ai_run: { body: "failed", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, runId: "run", threadId: "thread" },
+      error_beeper_ai_run_stream: { body: "failed", descriptor: {}, eventId: "$stream", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, replacementEventId: "$replace", roomId: "!room", runId: "run", threadId: "thread" },
+      finish_beeper_ai_run: { body: "hello", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, runId: "run", threadId: "thread" },
+      finish_beeper_ai_run_stream: { body: "hello", descriptor: {}, eventId: "$stream", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, replacementEventId: "$replace", roomId: "!room", runId: "run", threadId: "thread" },
+      init: { deviceId: "DEVICE", userId: "@bot:example.com" },
+      start_beeper_ai_run_stream: { body: "", descriptor: {}, eventId: "$stream", events: [], finalAIMessage: {}, initialAIMessage: {}, messageId: "msg", metadata: {}, roomId: "!room", runId: "run", threadId: "thread" },
+    });
+    const client = createMatrixClient({
+      homeserver: "https://matrix.beeper.com",
+      token: "token",
+      wasmModule: {} as WebAssembly.Module,
+    });
+
+    await client.beeper.aiRuns.begin({ agentName: "OpenClaw", runId: "run", threadId: "thread" });
+    await client.beeper.aiRuns.appendEvent({
+      event: { delta: "hello", messageId: "msg", type: "TEXT_MESSAGE_CONTENT" },
+      runId: "run",
+    });
+    await client.beeper.aiRuns.finish({ finishReason: "stop", runId: "run" });
+    await client.beeper.aiRuns.error({ message: "failed", runId: "run", type: "error" });
+    await client.beeper.aiRuns.delete({ runId: "run" });
+    await client.beeper.aiRunStreams.start({ agentName: "OpenClaw", roomId: "!room", runId: "run", threadId: "thread" });
+    await client.beeper.aiRunStreams.appendEvent({
+      event: { delta: "hello", messageId: "msg", type: "TEXT_MESSAGE_CONTENT" },
+      runId: "run",
+    });
+    await client.beeper.aiRunStreams.appendPart({ kind: "text", runId: "run", text: "hello" });
+    await client.beeper.aiRunStreams.finish({ finishReason: "stop", runId: "run" });
+    await client.beeper.aiRunStreams.error({ message: "failed", runId: "run", type: "error" });
+
+    expect(calls.map((call) => call.operation)).toEqual([
+      "init",
+      "begin_beeper_ai_run",
+      "append_beeper_ai_run_event",
+      "finish_beeper_ai_run",
+      "error_beeper_ai_run",
+      "delete_beeper_ai_run",
+      "start_beeper_ai_run_stream",
+      "append_beeper_ai_run_stream_event",
+      "append_beeper_ai_run_stream_part",
+      "finish_beeper_ai_run_stream",
+      "error_beeper_ai_run_stream",
+    ]);
+    expect(calls[1]?.payload).toEqual({ agentName: "OpenClaw", runId: "run", threadId: "thread" });
+    expect(calls[2]?.payload).toEqual({
+      event: { delta: "hello", messageId: "msg", type: "TEXT_MESSAGE_CONTENT" },
+      runId: "run",
+    });
+    expect(calls[3]?.payload).toEqual({ finishReason: "stop", runId: "run" });
+    expect(calls[4]?.payload).toEqual({ message: "failed", runId: "run", type: "error" });
+    expect(calls[5]?.payload).toEqual({ runId: "run" });
+    expect(calls[6]?.payload).toEqual({ agentName: "OpenClaw", roomId: "!room", runId: "run", threadId: "thread" });
+    expect(calls[7]?.payload).toEqual({
+      event: { delta: "hello", messageId: "msg", type: "TEXT_MESSAGE_CONTENT" },
+      runId: "run",
+    });
+    expect(calls[8]?.payload).toEqual({ kind: "text", runId: "run", text: "hello" });
+    expect(calls[9]?.payload).toEqual({ finishReason: "stop", runId: "run" });
+    expect(calls[10]?.payload).toEqual({ message: "failed", runId: "run", type: "error" });
   });
 
   it("keeps accumulated UI message parts in the Beeper final edit", async () => {
@@ -998,10 +1066,10 @@ describe("createMatrixClient", () => {
       content: {
         "com.beeper.ai": {
           parts: [
-            { state: "done", text: "thinking", type: "reasoning" },
+            { content: "thinking", state: "done", type: "reasoning" },
             { data: { stage: 1 }, id: "status", type: "data-status" },
             { sourceId: "src-1", title: "Docs", type: "source-url", url: "https://example.com" },
-            { state: "done", text: "hello", type: "text" },
+            { content: "hello", state: "done", type: "text" },
           ],
           role: "assistant",
         },
@@ -1036,7 +1104,7 @@ describe("createMatrixClient", () => {
     await client.streams.send({
       finalAIMessage: {
         id: "final",
-        parts: [{ text: "override", type: "text" }],
+        parts: [{ content: "override", type: "text" }],
         role: "assistant",
       },
       finalText: "override",
@@ -1050,7 +1118,7 @@ describe("createMatrixClient", () => {
       content: {
         "com.beeper.ai": {
           id: "final",
-          parts: [{ text: "override", type: "text" }],
+          parts: [{ content: "override", type: "text" }],
           role: "assistant",
         },
       },

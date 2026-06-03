@@ -17,7 +17,7 @@ Requires Node 22+, pnpm 9+, and a Go toolchain.
 pnpm typecheck
 pnpm test
 pnpm build
-go test ./...   # run from packages/pickle/native
+pnpm test:go    # runs Pickle's Go tests with the goolm build tag
 ```
 
 ## Release
@@ -31,6 +31,11 @@ pnpm changeset
 When changes land on `main`, GitHub Actions opens or updates a release PR.
 Merging that release PR runs the full `pnpm check` gate, publishes changed
 packages with `pnpm changeset publish`, and creates GitHub Releases.
+
+For the initial public release, package manifests already start at `0.1.0`.
+Publish those unpublished `0.1.0` packages directly through the release
+workflow; after that first publish, every user-facing package change should
+carry a normal changeset.
 
 Publishing uses npm Trusted Publishing through GitHub Actions OIDC. Each npm
 package must configure this trusted publisher on npmjs.com:

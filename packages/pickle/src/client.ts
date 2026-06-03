@@ -84,8 +84,23 @@ class DefaultMatrixClient implements MatrixClient {
         const result = await core.appserviceSendMessage(stripUndefined(opts));
         return { eventId: result.eventId, raw: result.raw, roomId: result.roomId };
       }),
+      setProfile: (opts) => this.#withCore((core) => core.appserviceSetProfile(stripUndefined(opts))),
     };
     this.beeper = {
+      aiRuns: {
+        appendEvent: (opts) => this.#withCore((core) => core.appendBeeperAIRunEvent(stripUndefined(opts))),
+        begin: (opts) => this.#withCore((core) => core.beginBeeperAIRun(stripUndefined(opts))),
+        delete: (opts) => this.#withCore((core) => core.deleteBeeperAIRun(stripUndefined(opts))),
+        error: (opts) => this.#withCore((core) => core.errorBeeperAIRun(stripUndefined(opts))),
+        finish: (opts) => this.#withCore((core) => core.finishBeeperAIRun(stripUndefined(opts))),
+      },
+      aiRunStreams: {
+        appendEvent: (opts) => this.#withCore((core) => core.appendBeeperAIRunStreamEvent(stripUndefined(opts))),
+        appendPart: (opts) => this.#withCore((core) => core.appendBeeperAIRunStreamPart(stripUndefined(opts))),
+        error: (opts) => this.#withCore((core) => core.errorBeeperAIRunStream(stripUndefined(opts))),
+        finish: (opts) => this.#withCore((core) => core.finishBeeperAIRunStream(stripUndefined(opts))),
+        start: (opts) => this.#withCore((core) => core.startBeeperAIRunStream(stripUndefined(opts))),
+      },
       ephemeral: {
         send: (opts) =>
           this.#withCore((core) => core.sendEphemeralEvent(stripUndefined({
@@ -176,11 +191,7 @@ class DefaultMatrixClient implements MatrixClient {
       ban: (opts) => this.#withCore((core) => core.banUser(opts)),
       create: (opts) => this.#withCore((core) => core.createRoom(stripUndefined({
           creationContent: opts.creationContent,
-          initialState: opts.initialState?.map((state) => ({
-            content: state.content,
-            stateKey: state.stateKey ?? "",
-            type: state.type,
-          })),
+          initialState: opts.initialState,
           invite: opts.invite,
           isDirect: opts.isDirect,
           name: opts.name,
@@ -191,26 +202,7 @@ class DefaultMatrixClient implements MatrixClient {
           visibility: opts.visibility,
       }))),
       get: (opts) => this.#withCore((core) => core.fetchRoom(opts)),
-      getPowerLevels: async (opts) => {
-        const event = await this.#withCore((core) => core.fetchRoomStateEvent({
-          eventType: "m.room.power_levels",
-          roomId: opts.roomId,
-          stateKey: "",
-        }));
-        return stripUndefined({
-          ban: readNumber(event.content.ban),
-          events: readNumberRecord(event.content.events),
-          eventsDefault: readNumber(event.content.events_default),
-          invite: readNumber(event.content.invite),
-          kick: readNumber(event.content.kick),
-          notifications: readNumberRecord(event.content.notifications),
-          raw: event.content,
-          redact: readNumber(event.content.redact),
-          stateDefault: readNumber(event.content.state_default),
-          users: readNumberRecord(event.content.users),
-          usersDefault: readNumber(event.content.users_default),
-        });
-      },
+      getPowerLevels: (opts) => this.#withCore((core) => core.fetchRoomPowerLevels(opts)),
       getState: (opts) => this.#withCore((core) => core.fetchRoomState(opts)),
       getStateEvent: (opts) => this.#withCore((core) => core.fetchRoomStateEvent(stripUndefined({
         eventType: opts.eventType,
@@ -539,21 +531,4 @@ function eventRelationEventId(event: MatrixClientEvent): string | undefined {
   if ("relation" in event) return event.relation?.eventId;
   if ("relatesTo" in event) return event.relatesTo;
   return undefined;
-}
-
-function readNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function readNumberRecord(value: unknown): Record<string, number> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  const result: Record<string, number> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === "number" && Number.isFinite(entry)) {
-      result[key] = entry;
-    }
-  }
-  return Object.keys(result).length > 0 ? result : undefined;
 }

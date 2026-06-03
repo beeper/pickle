@@ -47,9 +47,9 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
     if (existing !== undefined) return existing;
     const index = state.message.parts.length;
     state.message.parts.push(stripUndefined({
+      content: "",
       providerMetadata,
       state: "streaming",
-      text: "",
       type: kind,
     }));
     indexById.set(partId, index);
@@ -71,19 +71,14 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
     const existing = state.toolIndexByCallId.get(toolCallId);
     if (existing !== undefined) return existing;
     const toolName = state.toolNameByCallId.get(toolCallId) ?? "tool";
-    const dynamic = state.toolDynamicByCallId.get(toolCallId) ?? false;
     const index = state.message.parts.length;
-    state.message.parts.push(stripUndefined(dynamic ? {
-      input: undefined,
-      state: "input-streaming",
+    state.message.parts.push(stripUndefined({
+      arguments: "",
+      id: toolCallId,
+      name: toolName,
+      state: "awaiting-input",
       toolCallId,
-      toolName,
-      type: "dynamic-tool",
-    } : {
-      input: undefined,
-      state: "input-streaming",
-      toolCallId,
-      type: `tool-${toolName}`,
+      type: "tool-call",
     }));
     state.toolIndexByCallId.set(toolCallId, index);
     return index;
@@ -91,11 +86,8 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
   const updateToolLabel = (toolPart: Record<string, unknown>) => {
     const toolName = toolCallId ? state.toolNameByCallId.get(toolCallId) : undefined;
     if (!toolName) return;
-    if (toolPart.type === "dynamic-tool" && (toolPart.toolName === undefined || toolPart.toolName === "tool")) {
-      toolPart.toolName = toolName;
-    }
-    if (toolPart.type === "tool-tool" || toolPart.type === "tool-") {
-      toolPart.type = `tool-${toolName}`;
+    if (toolPart.type === "tool-call" && (toolPart.name === undefined || toolPart.name === "tool")) {
+      toolPart.name = toolName;
     }
   };
 
@@ -113,7 +105,7 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
     case "text-delta": {
       if (!id || typeof part.delta !== "string") return;
       const textPart = getPart(ensureStreamingPart("text", state.textIndexById, id));
-      textPart.text = `${typeof textPart.text === "string" ? textPart.text : ""}${part.delta}`;
+      textPart.content = `${typeof textPart.content === "string" ? textPart.content : ""}${part.delta}`;
       textPart.state = "streaming";
       return;
     }
@@ -130,7 +122,7 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
     case "reasoning-delta": {
       if (!id || typeof part.delta !== "string") return;
       const reasoningPart = getPart(ensureStreamingPart("reasoning", state.reasoningIndexById, id));
-      reasoningPart.text = `${typeof reasoningPart.text === "string" ? reasoningPart.text : ""}${part.delta}`;
+      reasoningPart.content = `${typeof reasoningPart.content === "string" ? reasoningPart.content : ""}${part.delta}`;
       reasoningPart.state = "streaming";
       return;
     }
@@ -172,6 +164,7 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
       const toolPart = getPart(index);
       updateToolLabel(toolPart);
       toolPart.state = "input-streaming";
+      toolPart.arguments = next;
       toolPart.input = parsePartialJson(next);
       return;
     }
@@ -181,7 +174,7 @@ export function applyFinalMessagePart(state: BeeperFinalMessageAccumulator, part
       if (index === undefined) return;
       const toolPart = getPart(index);
       updateToolLabel(toolPart);
-      toolPart.state = type === "tool-input-error" ? "output-error" : "input-available";
+      toolPart.state = type === "tool-input-error" ? "output-error" : "input-complete";
       toolPart.input = part.input;
       toolPart.providerExecuted = part.providerExecuted;
       toolPart.callProviderMetadata = part.providerMetadata;
@@ -259,27 +252,27 @@ export function finalizeAccumulatedAIMessage(state: BeeperFinalMessageAccumulato
 export function getFinalMessageText(message: Record<string, unknown>): string {
   const parts = Array.isArray(message.parts) ? message.parts : [];
   return parts
-    .filter((part): part is Record<string, unknown> => isRecord(part) && part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text)
+    .filter((part): part is Record<string, unknown> => isRecord(part) && part.type === "text" && (typeof part.content === "string" || typeof part.text === "string"))
+    .map((part) => typeof part.content === "string" ? part.content : part.text)
     .join("");
 }
 
 export function compactFinalContent(options: { aiMessage: Record<string, unknown>; body: string }): { aiMessage: Record<string, unknown>; body: string } {
   if (eventContentBytes(options.aiMessage, options.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) return options;
 
-  const compact = compactAIMessage(options.aiMessage, { keepToolInput: true, textBudgetChars: Infinity });
+  const compact = compactAIMessage(options.aiMessage, { keepToolInput: true, keepToolOutput: true, textBudgetChars: Infinity });
   if (eventContentBytes(compact, options.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) return { aiMessage: compact, body: options.body };
 
-  const noToolInput = compactAIMessage(options.aiMessage, { keepToolInput: false, textBudgetChars: Infinity });
-  if (eventContentBytes(noToolInput, options.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) return { aiMessage: noToolInput, body: options.body };
+  const noToolPayloads = compactAIMessage(options.aiMessage, { keepToolInput: true, keepToolOutput: false, textBudgetChars: Infinity });
+  if (eventContentBytes(noToolPayloads, options.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) return { aiMessage: noToolPayloads, body: options.body };
 
-  const totalTextChars = options.body.length + messageTextChars(noToolInput);
+  const totalTextChars = options.body.length + messageTextChars(noToolPayloads);
   let low = 0;
   let high = totalTextChars;
-  let best = compactTextContent(noToolInput, options.body, 0);
+  let best = compactTextContent(noToolPayloads, options.body, 0);
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
-    const candidate = compactTextContent(noToolInput, options.body, mid);
+    const candidate = compactTextContent(noToolPayloads, options.body, mid);
     if (eventContentBytes(candidate.aiMessage, candidate.body) <= MAX_MATRIX_EVENT_CONTENT_BYTES) {
       best = candidate;
       low = mid + 1;
@@ -307,14 +300,14 @@ export function eventContentBytes(aiMessage: Record<string, unknown>, body: stri
 function compactTextContent(aiMessage: Record<string, unknown>, body: string, textBudgetChars: number): { aiMessage: Record<string, unknown>; body: string } {
   const budget = { remaining: textBudgetChars };
   return {
-    aiMessage: compactAIMessage(aiMessage, { budget, keepToolInput: false }),
+    aiMessage: compactAIMessage(aiMessage, { budget, keepToolInput: true, keepToolOutput: false }),
     body: takeText(body, budget),
   };
 }
 
 function compactAIMessage(
   message: Record<string, unknown>,
-  options: { budget?: { remaining: number }; keepToolInput: boolean; textBudgetChars?: number },
+  options: { budget?: { remaining: number }; keepToolInput: boolean; keepToolOutput: boolean; textBudgetChars?: number },
 ): Record<string, unknown> {
   const budget = options.budget ?? (
     options.textBudgetChars === Infinity ? undefined : { remaining: options.textBudgetChars ?? Infinity }
@@ -324,6 +317,7 @@ function compactAIMessage(
     metadata: compactMetadata(isRecord(message.metadata) ? message.metadata : {}),
     parts: compactParts(Array.isArray(message.parts) ? message.parts : [], {
       keepToolInput: options.keepToolInput,
+      keepToolOutput: options.keepToolOutput,
       ...(budget ? { budget } : {}),
     }),
     role: message.role,
@@ -342,20 +336,27 @@ function compactMetadata(metadata: Record<string, unknown>): Record<string, unkn
   });
 }
 
-function compactParts(parts: unknown[], options: { budget?: { remaining: number }; keepToolInput: boolean }): Record<string, unknown>[] {
+function compactParts(parts: unknown[], options: { budget?: { remaining: number }; keepToolInput: boolean; keepToolOutput: boolean }): Record<string, unknown>[] {
   return parts
     .filter(isRecord)
     .flatMap((part) => {
       if (part.type === "text" || part.type === "reasoning") {
+        const content = typeof part.content === "string" ? part.content : typeof part.text === "string" ? part.text : undefined;
         return [stripUndefined({
           state: part.state,
-          text: typeof part.text === "string" ? takeText(part.text, options.budget) : part.text,
+          ...(typeof part.text === "string"
+            ? { text: typeof content === "string" ? takeText(content, options.budget) : content }
+            : { content: typeof content === "string" ? takeText(content, options.budget) : content }),
           type: part.type,
         })];
       }
-      if (part.type === "dynamic-tool" || (typeof part.type === "string" && part.type.startsWith("tool-"))) {
+      if (part.type === "tool-call" || part.type === "dynamic-tool" || (typeof part.type === "string" && part.type.startsWith("tool-"))) {
         return [stripUndefined({
+          arguments: part.arguments,
+          id: part.id,
           input: options.keepToolInput ? part.input : undefined,
+          name: part.name,
+          output: options.keepToolOutput ? part.output : undefined,
           state: part.state,
           toolCallId: part.toolCallId,
           toolName: part.toolName,
@@ -389,8 +390,9 @@ function truncateWithNotice(value: string, maxChars: number): string {
 function messageTextChars(message: Record<string, unknown>): number {
   const parts = Array.isArray(message.parts) ? message.parts : [];
   return parts.reduce((total, part) => {
-    if (!isRecord(part) || typeof part.text !== "string") return total;
-    return total + part.text.length;
+    if (!isRecord(part)) return total;
+    const text = typeof part.content === "string" ? part.content : typeof part.text === "string" ? part.text : "";
+    return total + text.length;
   }, 0);
 }
 

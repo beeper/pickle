@@ -6,7 +6,7 @@ bridgev2-shaped connector interfaces and bridge runtime orchestration.
 
 ```ts
 import { loginWithPassword } from "@beeper/pickle/auth";
-import { createBeeperBridge } from "@beeper/pickle-bridge";
+import { createBeeperBridge } from "@beeper/pickle-bridge/node";
 import type { BridgeConnector } from "@beeper/pickle-bridge/types";
 
 const account = await loginWithPassword({
@@ -76,7 +76,7 @@ The bridge package is Node-only and uses the same Pickle WASM mechanism as
 
 ## Bridge-manager helpers
 
-`@beeper/pickle-bridge` also exposes bridge-manager-compatible helpers:
+`@beeper/pickle-bridge/beeper` exposes bridge-manager-compatible helpers:
 
 - `createBeeperBridgeManagerClient({ token })`
 - `fetchBeeperBridges({ token })`

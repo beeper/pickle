@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -17,9 +18,27 @@ type MatrixFetchRoomOptions struct {
 	RoomID string `json:"roomId"`
 }
 
+type MatrixFetchRoomPowerLevelsOptions struct {
+	RoomID string `json:"roomId"`
+}
+
+type MatrixRoomPowerLevels struct {
+	Ban           *float64           `json:"ban,omitempty"`
+	Events        map[string]float64 `json:"events,omitempty"`
+	EventsDefault *float64           `json:"eventsDefault,omitempty"`
+	Invite        *float64           `json:"invite,omitempty"`
+	Kick          *float64           `json:"kick,omitempty"`
+	Notifications map[string]float64 `json:"notifications,omitempty"`
+	Raw           map[string]any     `json:"raw"`
+	Redact        *float64           `json:"redact,omitempty"`
+	StateDefault  *float64           `json:"stateDefault,omitempty"`
+	Users         map[string]float64 `json:"users,omitempty"`
+	UsersDefault  *float64           `json:"usersDefault,omitempty"`
+}
+
 type MatrixRoomStateInput struct {
 	Content  OutboundEvent `json:"content" tstype:"{ [key: string]: unknown }"`
-	StateKey string        `json:"stateKey"`
+	StateKey *string       `json:"stateKey,omitempty"`
 	Type     string        `json:"type"`
 }
 
@@ -124,32 +143,8 @@ func (c *Core) handleCreateRoom(ctx context.Context, payload []byte) ([]byte, er
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
-	invitees := make([]id.UserID, 0, len(req.Invite))
-	for _, userID := range req.Invite {
-		invitees = append(invitees, id.UserID(userID))
-	}
-	initialState := make([]*event.Event, 0, len(req.InitialState))
-	for _, state := range req.InitialState {
-		stateKey := state.StateKey
-		initialState = append(initialState, &event.Event{
-			Type:     event.NewEventType(state.Type),
-			StateKey: &stateKey,
-			Content:  event.Content{Raw: state.Content},
-		})
-	}
 	resp, err := retryMatrix(ctx, func() (*mautrix.RespCreateRoom, error) {
-		return cli.CreateRoom(ctx, &mautrix.ReqCreateRoom{
-			CreationContent: req.CreationContent,
-			InitialState:    initialState,
-			Invite:          invitees,
-			IsDirect:        req.IsDirect,
-			Name:            req.Name,
-			Preset:          req.Preset,
-			RoomAliasName:   req.RoomAliasName,
-			RoomVersion:     id.RoomVersion(req.RoomVersion),
-			Topic:           req.Topic,
-			Visibility:      req.Visibility,
-		})
+		return cli.CreateRoom(ctx, makeCreateRoomRequest(req))
 	})
 	if err != nil {
 		return nil, err
@@ -275,6 +270,36 @@ func (c *Core) handleFetchRoomState(ctx context.Context, payload []byte) ([]byte
 		converted = append(converted, c.convertRoomStateEvent(req.RoomID, evt))
 	}
 	return json.Marshal(MatrixFetchRoomStateResult{Events: converted, Raw: events})
+}
+
+func (c *Core) handleFetchRoomPowerLevels(ctx context.Context, payload []byte) ([]byte, error) {
+	cli, err := c.requireClient()
+	if err != nil {
+		return nil, err
+	}
+	var req MatrixFetchRoomPowerLevelsOptions
+	if err := json.Unmarshal(payload, &req); err != nil {
+		return nil, err
+	}
+	var content map[string]any
+	if err := retryMatrixVoid(ctx, func() error {
+		return cli.StateEvent(ctx, id.RoomID(req.RoomID), event.StatePowerLevels, "", &content)
+	}); err != nil {
+		return nil, err
+	}
+	return json.Marshal(MatrixRoomPowerLevels{
+		Ban:           finiteNumber(content["ban"]),
+		Events:        finiteNumberRecord(content["events"]),
+		EventsDefault: finiteNumber(content["events_default"]),
+		Invite:        finiteNumber(content["invite"]),
+		Kick:          finiteNumber(content["kick"]),
+		Notifications: finiteNumberRecord(content["notifications"]),
+		Raw:           content,
+		Redact:        finiteNumber(content["redact"]),
+		StateDefault:  finiteNumber(content["state_default"]),
+		Users:         finiteNumberRecord(content["users"]),
+		UsersDefault:  finiteNumber(content["users_default"]),
+	})
 }
 
 func (c *Core) handleFetchRoomStateEvent(ctx context.Context, payload []byte) ([]byte, error) {
@@ -702,6 +727,31 @@ func (c *Core) convertRoomStateEvent(roomID string, evt *event.Event) MatrixRoom
 		StateKey:       stateKey,
 		Type:           evt.Type.Type,
 	}
+}
+
+func finiteNumber(value any) *float64 {
+	number, ok := value.(float64)
+	if !ok || math.IsNaN(number) || math.IsInf(number, 0) {
+		return nil
+	}
+	return &number
+}
+
+func finiteNumberRecord(value any) map[string]float64 {
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := map[string]float64{}
+	for key, entry := range raw {
+		if number := finiteNumber(entry); number != nil {
+			result[key] = *number
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func (c *Core) updateDirectChats(ctx context.Context, cli *mautrix.Client, userID id.UserID, roomID id.RoomID) {

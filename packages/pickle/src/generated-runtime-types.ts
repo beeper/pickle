@@ -53,6 +53,18 @@ export interface MatrixAppserviceRoomUserOptions {
   roomId: string;
   userId: string;
 }
+export interface MatrixAppserviceSetProfileOptions {
+  avatarUrl?: string;
+  displayName?: string;
+  extra?: { [key: string]: unknown };
+  identifiers?: string[];
+  isBridgeBot?: boolean;
+  isNetworkBot?: boolean;
+  network?: string;
+  remoteId?: string;
+  service?: string;
+  userId: string;
+}
 export interface MatrixAppserviceCreateRoomOptions extends MatrixCreateRoomOptions {
   userId?: string;
 }
@@ -74,6 +86,7 @@ export interface MatrixAppserviceCreatePortalRoomOptions {
   autoJoinInvites?: boolean;
   bridge: MatrixAppserviceBridgeName;
   bridgeName?: string;
+  creationContent?: { [key: string]: unknown };
   initialState?: MatrixRoomStateInput[];
   initialMembers?: string[];
   invite?: string[];
@@ -124,6 +137,101 @@ export interface MatrixAppserviceBatchSendResult {
 }
 export interface MatrixAppserviceTransactionOptions {
   transaction: { [key: string]: unknown };
+}
+export interface MatrixBeginBeeperAIRunOptions {
+  agentId?: string;
+  agentName?: string;
+  data?: { [key: string]: unknown };
+  messageId?: string;
+  model?: string;
+  runId?: string;
+  threadId?: string;
+}
+export interface MatrixAppendBeeperAIRunEventOptions {
+  event: { [key: string]: unknown };
+  runId: string;
+}
+export interface MatrixBeeperAIRunPartOptions {
+  activityType?: string;
+  aggregated?: string;
+  approval?: unknown;
+  command?: string;
+  completedAtMs?: number /* int64 */;
+  content?: { [key: string]: unknown };
+  cwd?: string;
+  description?: string;
+  delta?: unknown;
+  details?: unknown;
+  dynamic?: boolean;
+  error?: unknown;
+  exitCode?: number /* int */;
+  index?: number /* int */;
+  input?: unknown;
+  kind: "text" | "reasoning" | "reasoning_end" | "tool_start" | "tool_input" | "tool_end" | "tool_result" | "activity" | "activity_delta" | "state_delta" | "state_snapshot" | "raw" | "custom" | string;
+  metadata?: { [key: string]: unknown };
+  name?: string;
+  output?: unknown;
+  patch?: unknown;
+  preliminary?: boolean;
+  providerExecuted?: boolean;
+  replace?: boolean;
+  response?: unknown;
+  result?: unknown;
+  source?: string;
+  state?: string;
+  status?: string;
+  startedAtMs?: number /* int64 */;
+  stderr?: string;
+  stdout?: string;
+  text?: string;
+  title?: string;
+  toolCallId?: string;
+  toolName?: string;
+  value?: unknown;
+}
+export interface MatrixAppendBeeperAIRunPartOptions extends MatrixBeeperAIRunPartOptions {
+  runId: string;
+}
+export interface MatrixFinishBeeperAIRunOptions {
+  finishReason?: string;
+  runId: string;
+  terminal?: { [key: string]: unknown };
+  usage?: unknown /* agui.Usage */;
+}
+export interface MatrixErrorBeeperAIRunOptions {
+  message?: string;
+  runId: string;
+  terminal?: { [key: string]: unknown };
+  type?: "error" | "abort";
+}
+export interface MatrixDeleteBeeperAIRunOptions {
+  runId: string;
+}
+export interface MatrixBeeperAIRunSnapshot {
+  body: string;
+  events: Array<{ [key: string]: unknown }>;
+  initialAIMessage: { [key: string]: unknown };
+  finalAIMessage: { [key: string]: unknown };
+  metadata: { [key: string]: unknown };
+  messageId: string;
+  runId: string;
+  threadId: string;
+}
+export interface MatrixStartBeeperAIRunStreamOptions extends MatrixBeginBeeperAIRunOptions {
+  initialEvents?: Array<{ [key: string]: unknown }>;
+  initialParts?: MatrixBeeperAIRunPartOptions[];
+  roomId: string;
+  streamType?: string;
+  subscribers?: MatrixBeeperStreamSubscriber[];
+  threadRootEventId?: string;
+  userId?: string;
+}
+export interface MatrixBeeperAIRunStreamResult extends MatrixBeeperAIRunSnapshot {
+  descriptor?: { [key: string]: unknown };
+  eventId: string;
+  raw?: unknown;
+  replacementEventId?: string;
+  roomId: string;
 }
 export interface MatrixCryptoStatus {
   deviceId?: string;
@@ -289,9 +397,25 @@ export interface MatrixReactionOptions {
 export interface MatrixFetchRoomOptions {
   roomId: string;
 }
+export interface MatrixFetchRoomPowerLevelsOptions {
+  roomId: string;
+}
+export interface MatrixRoomPowerLevels {
+  ban?: number /* float64 */;
+  events?: { [key: string]: number /* float64 */};
+  eventsDefault?: number /* float64 */;
+  invite?: number /* float64 */;
+  kick?: number /* float64 */;
+  notifications?: { [key: string]: number /* float64 */};
+  raw: { [key: string]: unknown};
+  redact?: number /* float64 */;
+  stateDefault?: number /* float64 */;
+  users?: { [key: string]: number /* float64 */};
+  usersDefault?: number /* float64 */;
+}
 export interface MatrixRoomStateInput {
   content: { [key: string]: unknown };
-  stateKey: string;
+  stateKey?: string;
   type: string;
 }
 export interface MatrixCreateRoomOptions {

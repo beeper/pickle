@@ -1,0 +1,25 @@
+import { defineProject } from "vitest/config";
+
+export default defineProject({
+  resolve: {
+    alias: [
+      { find: "@beeper/pickle-bridge/beeper", replacement: new URL("../bridge/src/beeper.ts", import.meta.url).pathname },
+      { find: "@beeper/pickle-bridge/beeper-stream", replacement: new URL("../bridge/src/beeper-stream.ts", import.meta.url).pathname },
+      { find: "@beeper/pickle-bridge/bridge", replacement: new URL("../bridge/src/bridge.ts", import.meta.url).pathname },
+      { find: "@beeper/pickle-bridge/events", replacement: new URL("../bridge/src/events.ts", import.meta.url).pathname },
+      { find: "@beeper/pickle-bridge/media-message", replacement: new URL("../bridge/src/media-message.ts", import.meta.url).pathname },
+      { find: "@beeper/pickle-bridge/node", replacement: new URL("../bridge/src/node.ts", import.meta.url).pathname },
+      { find: "@beeper/pickle-bridge/types", replacement: new URL("../bridge/src/types.ts", import.meta.url).pathname },
+      { find: /^@beeper\/pickle-ag-ui$/, replacement: new URL("../ag-ui/src/index.ts", import.meta.url).pathname },
+      { find: /^@beeper\/pickle-state-file$/, replacement: new URL("../state-file/src/index.ts", import.meta.url).pathname },
+    ],
+  },
+  test: {
+    coverage: {
+      include: ["src/**/*.ts"],
+      provider: "v8",
+      reporter: ["text", "json-summary"],
+    },
+    environment: "node",
+  },
+});

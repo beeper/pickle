@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -13,17 +13,16 @@ const workerDir = join(temp, "worker");
 const srcDir = join(workerDir, "src");
 
 await mkdir(packDir, { recursive: true });
-await execFileAsync(
-  "pnpm",
-  ["-r", "--filter", "@beeper/pickle", "--filter", "@beeper/pickle-cloudflare", "pack", "--pack-destination", packDir],
-  { cwd: rootPath }
-);
+const picklePackage = await readPackage(join(rootPath, "packages/pickle/package.json"));
+const cloudflarePackage = await readPackage(join(rootPath, "packages/cloudflare/package.json"));
+const pickleTarball = await packPackage(picklePackage.name, packDir);
+const cloudflareTarball = await packPackage(cloudflarePackage.name, packDir);
 await mkdir(srcDir, { recursive: true });
 await execFileAsync("npm", ["init", "-y"], { cwd: workerDir });
 await execFileAsync("npm", [
   "install",
-  join(packDir, "beeper-pickle-0.1.0.tgz"),
-  join(packDir, "beeper-pickle-cloudflare-0.1.0.tgz"),
+  pickleTarball,
+  cloudflareTarball,
 ], { cwd: workerDir });
 
 await writeFile(
@@ -148,6 +147,20 @@ async function waitFor(predicate, timeoutMs) {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+}
+
+async function readPackage(path) {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function packPackage(packageName, destination) {
+  const { stdout } = await execFileAsync(
+    "pnpm",
+    ["--filter", packageName, "pack", "--pack-destination", destination, "--json"],
+    { cwd: rootPath }
+  );
+  const packResult = JSON.parse(stdout);
+  return packResult.filename;
 }
 
 async function waitForHttp(url, timeoutMs) {

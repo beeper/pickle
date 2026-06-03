@@ -16,13 +16,13 @@ afterEach(async () => {
 });
 
 describe("AppserviceWebsocket", () => {
-  it("connects to as_sync, dispatches transactions, and acknowledges them", async () => {
+  it("connects to as_sync, forwards transactions, and acknowledges them", async () => {
     const httpServer = createServer();
     const wsServer = new WebSocketServer({ server: httpServer });
     servers.push(wsServer, httpServer);
     await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
     const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
-    const dispatch = vi.fn(async () => {});
+    const handleTransaction = vi.fn(async () => {});
     const connected = new Promise<void>((resolve, reject) => {
       wsServer.on("connection", (socket, request) => {
         try {
@@ -55,7 +55,7 @@ describe("AppserviceWebsocket", () => {
       });
     });
     const websocket = createWebsocket(homeserver, {
-      dispatch,
+      handleTransaction,
       log: (() => {}) as BridgeLogger,
     });
     websockets.push(websocket);
@@ -63,11 +63,13 @@ describe("AppserviceWebsocket", () => {
     websocket.start();
     await connected;
 
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      eventId: "$event",
-      kind: "message",
-      roomId: "!room:example",
-      text: "hi",
+    expect(handleTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      events: [expect.objectContaining({
+        event_id: "$event",
+        room_id: "!room:example",
+        type: "m.room.message",
+      })],
+      txn_id: "txn-1",
     }));
   });
 
@@ -147,7 +149,6 @@ describe("AppserviceWebsocket", () => {
     servers.push(wsServer, httpServer);
     await new Promise<void>((resolve) => httpServer.listen(0, "127.0.0.1", resolve));
     const homeserver = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/_hungryserv/alice`;
-    const dispatch = vi.fn(async () => {});
     const handleTransaction = vi.fn(async () => {});
     const connected = new Promise<void>((resolve, reject) => {
       wsServer.on("connection", (socket) => {
@@ -183,7 +184,6 @@ describe("AppserviceWebsocket", () => {
       });
     });
     const websocket = createWebsocket(homeserver, {
-      dispatch,
       handleTransaction,
       log: (() => {}) as BridgeLogger,
     });
@@ -192,11 +192,6 @@ describe("AppserviceWebsocket", () => {
     websocket.start();
     await connected;
 
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      eventId: "$proxied",
-      kind: "message",
-      text: "proxied",
-    }));
     expect(handleTransaction).toHaveBeenCalledWith(expect.objectContaining({
       events: [expect.objectContaining({ event_id: "$proxied" })],
       txn_id: "txn-2",
@@ -327,7 +322,6 @@ function createWebsocket(
         url: "",
       },
     },
-    dispatch: vi.fn(async () => {}),
     log: (() => {}) as BridgeLogger,
     ...overrides,
   });

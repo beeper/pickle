@@ -23,6 +23,7 @@ type Core struct {
 	backupVersion        id.KeyBackupVersion
 	beeperStream         *beeperstream.Helper
 	beeperStreamMessages map[id.EventID]*beeperStreamMessage
+	beeperAIRuns         map[string]*beeperAIRunState
 	appserviceProcessor  *beeperStreamEventProcessor
 	emit                 func(OutboundEvent)
 	host                 RuntimeHost
@@ -54,6 +55,7 @@ func New(emit func(OutboundEvent), host ...RuntimeHost) *Core {
 	return &Core{
 		emit:                 emit,
 		host:                 runtimeHost,
+		beeperAIRuns:         make(map[string]*beeperAIRunState),
 		beeperStreamMessages: make(map[id.EventID]*beeperStreamMessage),
 		emittedTimelineIDs:   make(map[id.EventID]struct{}),
 		messageEdits:         make(map[id.EventID]*MatrixMessageEvent),
@@ -92,6 +94,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleAppserviceEnsureRegistered(ctx, payload)
 	case opAppserviceEnsureJoined:
 		return c.handleAppserviceEnsureJoined(ctx, payload)
+	case opAppserviceSetProfile:
+		return c.handleAppserviceSetProfile(ctx, payload)
 	case opAppserviceCreateRoom:
 		return c.handleAppserviceCreateRoom(ctx, payload)
 	case opAppserviceCreatePortalRoom:
@@ -138,6 +142,26 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handlePublishBeeperStreamMessagePart(ctx, payload)
 	case opFinalizeBeeperStreamMessage:
 		return c.handleFinalizeBeeperStreamMessage(ctx, payload)
+	case opBeginBeeperAIRun:
+		return c.handleBeginBeeperAIRun(payload)
+	case opAppendBeeperAIRunEvent:
+		return c.handleAppendBeeperAIRunEvent(payload)
+	case opFinishBeeperAIRun:
+		return c.handleFinishBeeperAIRun(payload)
+	case opErrorBeeperAIRun:
+		return c.handleErrorBeeperAIRun(payload)
+	case opDeleteBeeperAIRun:
+		return c.handleDeleteBeeperAIRun(payload)
+	case opStartBeeperAIRunStream:
+		return c.handleStartBeeperAIRunStream(ctx, payload)
+	case opAppendBeeperAIRunStreamEvent:
+		return c.handleAppendBeeperAIRunStreamEvent(ctx, payload)
+	case opAppendBeeperAIRunStreamPart:
+		return c.handleAppendBeeperAIRunStreamPart(ctx, payload)
+	case opFinishBeeperAIRunStream:
+		return c.handleFinishBeeperAIRunStream(ctx, payload)
+	case opErrorBeeperAIRunStream:
+		return c.handleErrorBeeperAIRunStream(ctx, payload)
 	case opSetTyping:
 		return c.handleSetTyping(ctx, payload)
 	case opFetchMessage:
@@ -160,6 +184,8 @@ func (c *Core) Handle(ctx context.Context, op string, payload []byte) ([]byte, e
 		return c.handleCreateRoom(ctx, payload)
 	case opFetchRoom:
 		return c.handleFetchRoom(ctx, payload)
+	case opFetchRoomPowerLevels:
+		return c.handleFetchRoomPowerLevels(ctx, payload)
 	case opFetchRoomState:
 		return c.handleFetchRoomState(ctx, payload)
 	case opFetchRoomStateEvent:
@@ -256,6 +282,7 @@ func (c *Core) handleClose() ([]byte, error) {
 		_ = c.beeperStream.Close()
 	}
 	c.beeperStream = nil
+	c.beeperAIRuns = make(map[string]*beeperAIRunState)
 	c.appserviceProcessor = nil
 	c.nextBatch = ""
 	c.pendingDecryptions = nil

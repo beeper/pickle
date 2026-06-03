@@ -77,10 +77,20 @@ import type {
   MatrixAppserviceInitOptions,
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceSetProfileOptions,
   MatrixAppserviceUserOptions,
+  MatrixAppendBeeperAIRunEventOptions,
+  MatrixAppendBeeperAIRunPartOptions,
+  MatrixBeginBeeperAIRunOptions,
+  MatrixBeeperAIRunSnapshot,
+  MatrixBeeperAIRunStreamResult,
+  MatrixDeleteBeeperAIRunOptions,
+  MatrixErrorBeeperAIRunOptions,
   MatrixFinalizeBeeperStreamMessageOptions,
   MatrixFinalizeBeeperStreamMessageResult,
+  MatrixFinishBeeperAIRunOptions,
   MatrixPublishBeeperStreamMessagePartOptions,
+  MatrixStartBeeperAIRunStreamOptions,
   MatrixStartBeeperStreamMessageOptions,
   MatrixStartBeeperStreamMessageResult,
 } from "./runtime-types";
@@ -122,6 +132,7 @@ export interface MatrixAppservice {
   init(options: MatrixAppserviceInitOptions): Promise<MatrixAppserviceInfo>;
   applyTransaction(options: { transaction: Record<string, unknown> }): Promise<void>;
   sendMessage(options: MatrixAppserviceSendMessageOptions): Promise<SentEvent>;
+  setProfile(options: MatrixAppserviceSetProfileOptions): Promise<void>;
 }
 
 export interface MatrixRaw {
@@ -144,6 +155,20 @@ export interface MatrixReceipts {
 }
 
 export interface MatrixBeeper {
+  aiRuns: {
+    appendEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunSnapshot>;
+    begin(options: MatrixBeginBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+    delete(options: MatrixDeleteBeeperAIRunOptions): Promise<void>;
+    error(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+    finish(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+  };
+  aiRunStreams: {
+    appendEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult>;
+    appendPart(options: MatrixAppendBeeperAIRunPartOptions): Promise<MatrixBeeperAIRunStreamResult>;
+    error(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
+    finish(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
+    start(options: MatrixStartBeeperAIRunStreamOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  };
   ephemeral: {
     send(options: SendBeeperEphemeralOptions): Promise<SentEvent>;
   };

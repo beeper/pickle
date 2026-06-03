@@ -82,7 +82,6 @@ type persistedOutboundUserState struct {
 
 type storedMessageIndexKey struct {
 	Index     uint
-	SenderKey id.SenderKey
 	SessionID id.SessionID
 }
 

@@ -2,6 +2,8 @@
 
 import type {
   MatrixAccountDataResult,
+  MatrixAppendBeeperAIRunEventOptions,
+  MatrixAppendBeeperAIRunPartOptions,
   MatrixApplySyncResponseOptions,
   MatrixAppserviceBatchSendOptions,
   MatrixAppserviceBatchSendResult,
@@ -12,30 +14,38 @@ import type {
   MatrixAppserviceInitOptions,
   MatrixAppserviceRoomUserOptions,
   MatrixAppserviceSendMessageOptions,
+  MatrixAppserviceSetProfileOptions,
   MatrixAppserviceTransactionOptions,
   MatrixAppserviceUserOptions,
   MatrixBanUserOptions,
+  MatrixBeeperAIRunSnapshot,
+  MatrixBeeperAIRunStreamResult,
+  MatrixBeginBeeperAIRunOptions,
   MatrixCoreInitOptions,
   MatrixCreateRoomOptions,
   MatrixCreateRoomResult,
   MatrixCryptoStatus,
+  MatrixDeleteBeeperAIRunOptions,
   MatrixDeleteMessageOptions,
   MatrixDownloadEncryptedMediaOptions,
   MatrixDownloadMediaOptions,
   MatrixDownloadMediaResult,
   MatrixDownloadMediaThumbnailOptions,
   MatrixEditMessageOptions,
+  MatrixErrorBeeperAIRunOptions,
   MatrixFetchMessageOptions,
   MatrixFetchMessageResult,
   MatrixFetchMessagesOptions,
   MatrixFetchMessagesResult,
   MatrixFetchRoomMembersOptions,
   MatrixFetchRoomOptions,
+  MatrixFetchRoomPowerLevelsOptions,
   MatrixFetchRoomStateEventOptions,
   MatrixFetchRoomStateOptions,
   MatrixFetchRoomStateResult,
   MatrixFinalizeBeeperStreamMessageOptions,
   MatrixFinalizeBeeperStreamMessageResult,
+  MatrixFinishBeeperAIRunOptions,
   MatrixGetAccountDataOptions,
   MatrixGetRoomAccountDataOptions,
   MatrixGetUserOptions,
@@ -63,6 +73,7 @@ import type {
   MatrixResolveRoomAliasResult,
   MatrixRoomInfo,
   MatrixRoomMembersResult,
+  MatrixRoomPowerLevels,
   MatrixRoomStateEvent,
   MatrixSendEphemeralEventOptions,
   MatrixSendMediaMessageOptions,
@@ -75,6 +86,7 @@ import type {
   MatrixSetOwnAvatarURLOptions,
   MatrixSetOwnDisplayNameOptions,
   MatrixSetRoomAccountDataOptions,
+  MatrixStartBeeperAIRunStreamOptions,
   MatrixStartBeeperStreamMessageOptions,
   MatrixStartBeeperStreamMessageResult,
   MatrixSyncOnceOptions,
@@ -100,6 +112,7 @@ export interface MatrixCoreOperations {
   initAppservice(options: MatrixAppserviceInitOptions): Promise<MatrixAppserviceInfo>;
   appserviceEnsureRegistered(options: MatrixAppserviceUserOptions): Promise<void>;
   appserviceEnsureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void>;
+  appserviceSetProfile(options: MatrixAppserviceSetProfileOptions): Promise<void>;
   appserviceCreateRoom(options: MatrixAppserviceCreateRoomOptions): Promise<MatrixCreateRoomResult>;
   appserviceCreatePortalRoom(options: MatrixAppserviceCreatePortalRoomOptions): Promise<MatrixCreateRoomResult>;
   appserviceCreateManagementRoom(options: MatrixAppserviceCreateManagementRoomOptions): Promise<MatrixCreateRoomResult>;
@@ -123,6 +136,16 @@ export interface MatrixCoreOperations {
   startBeeperStreamMessage(options: MatrixStartBeeperStreamMessageOptions): Promise<MatrixStartBeeperStreamMessageResult>;
   publishBeeperStreamMessagePart(options: MatrixPublishBeeperStreamMessagePartOptions): Promise<void>;
   finalizeBeeperStreamMessage(options: MatrixFinalizeBeeperStreamMessageOptions): Promise<MatrixFinalizeBeeperStreamMessageResult>;
+  beginBeeperAIRun(options: MatrixBeginBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+  appendBeeperAIRunEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunSnapshot>;
+  finishBeeperAIRun(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+  errorBeeperAIRun(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot>;
+  deleteBeeperAIRun(options: MatrixDeleteBeeperAIRunOptions): Promise<void>;
+  startBeeperAIRunStream(options: MatrixStartBeeperAIRunStreamOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  appendBeeperAIRunStreamEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  appendBeeperAIRunStreamPart(options: MatrixAppendBeeperAIRunPartOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  finishBeeperAIRunStream(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
+  errorBeeperAIRunStream(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult>;
   setTyping(options: MatrixTypingOptions): Promise<void>;
   fetchMessage(options: MatrixFetchMessageOptions): Promise<MatrixFetchMessageResult>;
   fetchMessages(options: MatrixFetchMessagesOptions): Promise<MatrixFetchMessagesResult>;
@@ -134,6 +157,7 @@ export interface MatrixCoreOperations {
   downloadEncryptedMedia(options: MatrixDownloadEncryptedMediaOptions): Promise<MatrixDownloadMediaResult>;
   createRoom(options: MatrixCreateRoomOptions): Promise<MatrixCreateRoomResult>;
   fetchRoom(options: MatrixFetchRoomOptions): Promise<MatrixRoomInfo>;
+  fetchRoomPowerLevels(options: MatrixFetchRoomPowerLevelsOptions): Promise<MatrixRoomPowerLevels>;
   fetchRoomState(options: MatrixFetchRoomStateOptions): Promise<MatrixFetchRoomStateResult>;
   fetchRoomStateEvent(options: MatrixFetchRoomStateEventOptions): Promise<MatrixRoomStateEvent>;
   sendRoomStateEvent(options: MatrixSendRoomStateEventOptions): Promise<MatrixRawMessage>;
@@ -202,6 +226,10 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   appserviceEnsureJoined(options: MatrixAppserviceRoomUserOptions): Promise<void> {
     return this.call<void>("appservice_ensure_joined", options);
+  }
+
+  appserviceSetProfile(options: MatrixAppserviceSetProfileOptions): Promise<void> {
+    return this.call<void>("appservice_set_profile", options);
   }
 
   appserviceCreateRoom(options: MatrixAppserviceCreateRoomOptions): Promise<MatrixCreateRoomResult> {
@@ -296,6 +324,46 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
     return this.call<MatrixFinalizeBeeperStreamMessageResult>("finalize_beeper_stream_message", options);
   }
 
+  beginBeeperAIRun(options: MatrixBeginBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot> {
+    return this.call<MatrixBeeperAIRunSnapshot>("begin_beeper_ai_run", options);
+  }
+
+  appendBeeperAIRunEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunSnapshot> {
+    return this.call<MatrixBeeperAIRunSnapshot>("append_beeper_ai_run_event", options);
+  }
+
+  finishBeeperAIRun(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot> {
+    return this.call<MatrixBeeperAIRunSnapshot>("finish_beeper_ai_run", options);
+  }
+
+  errorBeeperAIRun(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunSnapshot> {
+    return this.call<MatrixBeeperAIRunSnapshot>("error_beeper_ai_run", options);
+  }
+
+  deleteBeeperAIRun(options: MatrixDeleteBeeperAIRunOptions): Promise<void> {
+    return this.call<void>("delete_beeper_ai_run", options);
+  }
+
+  startBeeperAIRunStream(options: MatrixStartBeeperAIRunStreamOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("start_beeper_ai_run_stream", options);
+  }
+
+  appendBeeperAIRunStreamEvent(options: MatrixAppendBeeperAIRunEventOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("append_beeper_ai_run_stream_event", options);
+  }
+
+  appendBeeperAIRunStreamPart(options: MatrixAppendBeeperAIRunPartOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("append_beeper_ai_run_stream_part", options);
+  }
+
+  finishBeeperAIRunStream(options: MatrixFinishBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("finish_beeper_ai_run_stream", options);
+  }
+
+  errorBeeperAIRunStream(options: MatrixErrorBeeperAIRunOptions): Promise<MatrixBeeperAIRunStreamResult> {
+    return this.call<MatrixBeeperAIRunStreamResult>("error_beeper_ai_run_stream", options);
+  }
+
   setTyping(options: MatrixTypingOptions): Promise<void> {
     return this.call<void>("set_typing", options);
   }
@@ -338,6 +406,10 @@ export abstract class MatrixCoreOperationCaller implements MatrixCoreOperations 
 
   fetchRoom(options: MatrixFetchRoomOptions): Promise<MatrixRoomInfo> {
     return this.call<MatrixRoomInfo>("fetch_room", options);
+  }
+
+  fetchRoomPowerLevels(options: MatrixFetchRoomPowerLevelsOptions): Promise<MatrixRoomPowerLevels> {
+    return this.call<MatrixRoomPowerLevels>("fetch_room_power_levels", options);
   }
 
   fetchRoomState(options: MatrixFetchRoomStateOptions): Promise<MatrixFetchRoomStateResult> {

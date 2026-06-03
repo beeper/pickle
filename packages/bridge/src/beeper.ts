@@ -1,4 +1,9 @@
 import type { MatrixAppserviceInitOptions, MatrixAppserviceNamespace, MatrixAppserviceRegistration } from "@beeper/pickle";
+export { loginWithMatrixPassword } from "@beeper/pickle/auth";
+export type { MatrixPasswordAuthOptions } from "@beeper/pickle/auth";
+export { createBeeperLogin } from "@beeper/pickle/beeper/auth";
+export type { BeeperAuthOptions, BeeperEnvironment } from "@beeper/pickle/beeper/auth";
+export type { MatrixAppserviceInitOptions, MatrixAppserviceRegistration, MatrixAppserviceSetProfileOptions } from "@beeper/pickle";
 
 export interface BeeperClientOptions {
   baseDomain?: string;
@@ -112,6 +117,9 @@ export class BeeperBridgeManagerClient {
       self_hosted: options.selfHosted ?? true,
     }));
     if (options.postState !== false) {
+      if (!registration.asToken) {
+        throw new Error(`Beeper appservice registration for ${options.bridge} did not include an appservice token`);
+      }
       const stateOptions: PostBridgeStateOptions = {
         bridge: options.bridge,
         isSelfHosted: options.selfHosted ?? true,
@@ -119,12 +127,12 @@ export class BeeperBridgeManagerClient {
         stateEvent: bridgeStateEvent(options),
       };
       if (options.bridgeType !== undefined) stateOptions.bridgeType = options.bridgeType;
-      await this.postBridgeState(stateOptions);
+      await this.postBridgeState(stateOptions, registration.asToken);
     }
     return registration;
   }
 
-  async postBridgeState(options: PostBridgeStateOptions): Promise<void> {
+  async postBridgeState(options: PostBridgeStateOptions, token?: string): Promise<void> {
     const whoami = await this.whoami();
     const username = this.#username ?? whoami.userInfo.username;
     await this.#request("api", "POST", `/bridgebox/${encodeURIComponent(username)}/bridge/${encodeURIComponent(options.bridge)}/bridge_state`, {
@@ -133,7 +141,7 @@ export class BeeperBridgeManagerClient {
       isSelfHosted: options.isSelfHosted ?? true,
       reason: options.reason,
       stateEvent: options.stateEvent,
-    });
+    }, undefined, token);
   }
 
   async createAppService(options: CreateAppServiceOptions): Promise<RegisteredAppService> {

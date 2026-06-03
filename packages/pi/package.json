@@ -71,6 +71,7 @@
   "scripts": {
     "build": "tsdown",
     "clean": "rm -rf dist",
+    "prepublishOnly": "node ../../scripts/guard-pnpm-publish.mjs",
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },

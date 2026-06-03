@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { RuntimeBridge } from "@beeper/pickle-bridge";
+import { RuntimeBridge } from "@beeper/pickle-bridge/bridge";
 import type { MatrixClient, MatrixClientEvent, MatrixStore } from "@beeper/pickle";
 import type { BridgeConnector, BridgeMatrixConfig, MatrixAppserviceInitOptions } from "@beeper/pickle-bridge/types";
 import { DummyConnector, LOGIN_ID, PORTAL_ID } from "../src/connector";

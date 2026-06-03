@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
 	agui "github.com/beeper/ai-bridge/pkg/ag-ui"
+	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
 	"maunium.net/go/mautrix"
 	mautrixbeeperstream "maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
@@ -117,8 +117,10 @@ type MatrixFinalizeBeeperStreamMessageResult struct {
 
 type beeperStreamMessage struct {
 	descriptor *event.BeeperStreamInfo
+	direct     bool
 	nextSeq    int
 	roomID     id.RoomID
+	userID     string
 }
 
 func (c *Core) handleStartBeeperStreamMessage(ctx context.Context, payload []byte) ([]byte, error) {
@@ -146,7 +148,13 @@ func (c *Core) handleStartBeeperStreamMessage(ctx context.Context, payload []byt
 	if content["msgtype"] == nil {
 		content["msgtype"] = "m.text"
 	}
-	content["com.beeper.stream"] = descriptor
+	if len(req.Subscribers) > 0 {
+		content["com.beeper.stream"] = descriptor
+	} else {
+		content["com.beeper.stream"] = map[string]any{
+			"type": req.StreamType,
+		}
+	}
 	resp, err := c.sendBeeperStreamMessageEvent(ctx, req.RoomID, req.ThreadRootEventID, req.UserID, content)
 	if err != nil {
 		return nil, err
@@ -157,8 +165,10 @@ func (c *Core) handleStartBeeperStreamMessage(ctx context.Context, payload []byt
 	}
 	c.beeperStreamMessages[eventID] = &beeperStreamMessage{
 		descriptor: descriptor.Clone(),
+		direct:     len(req.Subscribers) > 0,
 		nextSeq:    1,
 		roomID:     id.RoomID(req.RoomID),
+		userID:     req.UserID,
 	}
 	c.addBeeperStreamSubscribers(ctx, id.RoomID(req.RoomID), eventID, req.Subscribers)
 	c.client.Log.Debug().
@@ -226,18 +236,54 @@ func (c *Core) handlePublishBeeperStreamMessagePart(ctx context.Context, payload
 		streamType = "com.beeper.llm"
 	}
 	seq := stream.nextSeq
-	content, err := c.beeperStreamCarrierContent(streamType, req, seq)
+	contents, nextSeq, err := c.beeperStreamCarrierContents(streamType, req, seq)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.beeperStream.Publish(ctx, stream.roomID, id.EventID(req.EventID), content); err != nil {
+	if err := c.publishBeeperStreamCarrierContents(ctx, id.EventID(req.EventID), stream, contents); err != nil {
 		return nil, err
 	}
-	stream.nextSeq = seq + 1
+	stream.nextSeq = nextSeq
 	return c.empty()
 }
 
+func (c *Core) publishBeeperStreamCarrierContents(ctx context.Context, eventID id.EventID, stream *beeperStreamMessage, contents []map[string]any) error {
+	if stream == nil {
+		return fmt.Errorf("beeper stream message %s is not registered", eventID)
+	}
+	for _, content := range contents {
+		if stream.direct {
+			if err := c.beeperStream.Publish(ctx, stream.roomID, eventID, content); err != nil {
+				return err
+			}
+		} else {
+			content["body"] = ""
+			content["msgtype"] = "m.text"
+			content["m.relates_to"] = map[string]any{
+				"rel_type": "m.reference",
+				"event_id": eventID.String(),
+			}
+			if _, err := c.sendBeeperStreamMessageEvent(ctx, stream.roomID.String(), "", stream.userID, content); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (c *Core) beeperStreamCarrierContent(streamType string, req MatrixPublishBeeperStreamMessagePartOptions, seq int) (map[string]any, error) {
+	contents, _, err := c.beeperStreamCarrierContents(streamType, req, seq)
+	if err != nil {
+		return nil, err
+	}
+	if len(contents) == 0 {
+		return aistream.CarrierContent(aistream.Run{}, nil), nil
+	}
+	return contents[0], nil
+}
+
+func (c *Core) beeperStreamCarrierContents(streamType string, req MatrixPublishBeeperStreamMessagePartOptions, seq int) ([]map[string]any, int, error) {
+	_ = streamType
 	run := aistream.Run{
 		ThreadID:  firstString(req.Part["threadId"], req.TurnID),
 		RunID:     firstString(req.Part["runId"], req.TurnID),
@@ -245,22 +291,20 @@ func (c *Core) beeperStreamCarrierContent(streamType string, req MatrixPublishBe
 		AgentID:   firstNonEmpty(req.AgentID, "ai"),
 		Model:     firstString(req.Part["model"], aistream.DefaultModel),
 	}
-	part := agui.Event(copyOutboundEvent(req.Part))
-	if part["timestamp"] == nil {
-		part["timestamp"] = time.Now().UnixMilli()
+	part := agui.NewEvent(map[string]any(copyOutboundEvent(req.Part)))
+	if !part.Has("timestamp") {
+		part.Set("timestamp", time.Now().UnixMilli())
 	}
-	envelope, err := aistream.BuildEnvelope(run, seq, part, req.EventID)
+	run.Events = []agui.Event{part}
+	carriers, err := aistream.PackRunFromSeq(run, seq)
 	if err != nil {
-		return nil, err
+		return nil, seq, err
 	}
-	content := aistream.CarrierContent([]aistream.Envelope{envelope})
-	if streamType != aistream.BeeperAIStreamKey {
-		if deltas, ok := content[aistream.BeeperAIStreamDeltas]; ok {
-			delete(content, aistream.BeeperAIStreamDeltas)
-			content[streamType+".deltas"] = deltas
-		}
+	contents := make([]map[string]any, 0, len(carriers))
+	for _, carrier := range carriers {
+		contents = append(contents, aistream.CarrierContent(run, carrier.Envelopes))
 	}
-	return content, nil
+	return contents, aistream.NextSeq(carriers), nil
 }
 
 func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []byte) ([]byte, error) {
@@ -268,8 +312,16 @@ func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []
 	if err := json.Unmarshal(payload, &req); err != nil {
 		return nil, err
 	}
+	result, err := c.finalizeBeeperStreamMessage(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
+func (c *Core) finalizeBeeperStreamMessage(ctx context.Context, req MatrixFinalizeBeeperStreamMessageOptions) (MatrixFinalizeBeeperStreamMessageResult, error) {
 	if req.RoomID == "" || req.EventID == "" {
-		return nil, errors.New("missing beeper stream finalize fields")
+		return MatrixFinalizeBeeperStreamMessageResult{}, errors.New("missing beeper stream finalize fields")
 	}
 	content := copyOutboundEvent(req.Content)
 	if content["body"] == nil {
@@ -278,12 +330,11 @@ func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []
 	if content["msgtype"] == nil {
 		content["msgtype"] = "m.text"
 	}
-	content["com.beeper.stream"] = nil
-	topLevel := copyOutboundEvent(req.TopLevelContent)
-	topLevel["com.beeper.stream"] = nil
+	content = beeperStreamFinalEditExtra(content)
+	topLevel := mergeOutboundEvent(req.TopLevelContent, beeperStreamFinalEditTopLevelExtra())
 	replacement, err := c.sendBeeperStreamReplacementEvent(ctx, req.RoomID, req.EventID, req.UserID, content, topLevel)
 	if err != nil {
-		return nil, err
+		return MatrixFinalizeBeeperStreamMessageResult{}, err
 	}
 	targetEventID := id.EventID(req.EventID)
 	if c.beeperStream != nil {
@@ -291,17 +342,33 @@ func (c *Core) handleFinalizeBeeperStreamMessage(ctx context.Context, payload []
 		c.beeperStream.Unsubscribe(id.RoomID(req.RoomID), targetEventID)
 	}
 	delete(c.beeperStreamMessages, targetEventID)
-	return json.Marshal(MatrixFinalizeBeeperStreamMessageResult{
+	return MatrixFinalizeBeeperStreamMessageResult{
 		EventID:            req.EventID,
 		ReplacementEventID: replacement.EventID.String(),
 		RoomID:             req.RoomID,
 		Raw:                replacement,
-	})
+	}, nil
+}
+
+func beeperStreamFinalEditExtra(extra OutboundEvent) OutboundEvent {
+	out := make(OutboundEvent, len(extra)+1)
+	for key, value := range extra {
+		out[key] = value
+	}
+	out["com.beeper.stream"] = nil
+	return out
+}
+
+func beeperStreamFinalEditTopLevelExtra() OutboundEvent {
+	return OutboundEvent{
+		"com.beeper.dont_render_edited": true,
+		"com.beeper.stream":             nil,
+	}
 }
 
 func (c *Core) sendBeeperStreamReplacementEvent(ctx context.Context, roomID, eventID, userID string, newContent, topLevel OutboundEvent) (*mautrix.RespSendEvent, error) {
 	content := copyOutboundEvent(topLevel)
-	content["body"] = ""
+	content["body"] = firstString(newContent["body"], "")
 	content["msgtype"] = firstString(newContent["msgtype"], "m.text")
 	content["m.new_content"] = newContent
 	content["m.relates_to"] = map[string]any{
@@ -817,6 +884,14 @@ func (c *Core) handleFetchThreadMessages(ctx context.Context, cli *mautrix.Clien
 		nextCursor = resp.PrevBatch
 	}
 	return json.Marshal(OutboundEvent{"messages": messages, "nextCursor": nextCursor})
+}
+
+func mergeOutboundEvent(base, extra OutboundEvent) OutboundEvent {
+	out := copyOutboundEvent(base)
+	for key, value := range extra {
+		out[key] = value
+	}
+	return out
 }
 
 func (c *Core) applyLatestReplacement(ctx context.Context, cli *mautrix.Client, roomID id.RoomID, msg *MatrixMessageEvent) *MatrixMessageEvent {

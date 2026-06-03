@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	aistream "github.com/beeper/ai-bridge/pkg/ai-stream"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/beeperstream"
 	"maunium.net/go/mautrix/event"
@@ -28,7 +29,10 @@ func TestMakePortalCreateRoomRequestBuildsBridgeV2Room(t *testing.T) {
 			DisplayName:      "Test",
 			NetworkID:        "test",
 		},
-		BridgeName:     "test",
+		BridgeName: "test",
+		CreationContent: map[string]any{
+			"m.federate": false,
+		},
 		InitialMembers: []string{"@alice:example"},
 		Invite:         []string{"@alice:example"},
 		Name:           "Remote room",
@@ -36,11 +40,14 @@ func TestMakePortalCreateRoomRequestBuildsBridgeV2Room(t *testing.T) {
 	}
 	createReq := appservice.makePortalCreateRoomRequest(req, id.UserID("@test_bob:example"))
 
-	if createReq.BeeperLocalRoomID != id.RoomID("!remote-room.login:a:example") {
-		t.Fatalf("unexpected local room ID: %s", createReq.BeeperLocalRoomID)
+	if createReq.BeeperLocalRoomID != "" {
+		t.Fatalf("expected homeserver-assigned room ID, got local room ID: %s", createReq.BeeperLocalRoomID)
 	}
-	if createReq.MeowRoomID != createReq.BeeperLocalRoomID {
-		t.Fatalf("expected fi.mau room ID to match local room ID, got %s", createReq.MeowRoomID)
+	if createReq.MeowRoomID != "" {
+		t.Fatalf("expected no fi.mau room ID override, got %s", createReq.MeowRoomID)
+	}
+	if createReq.BeeperBridgeName != "" || createReq.BeeperBridgeAccountID != "" {
+		t.Fatalf("expected bridge details to stay in bridge state events for homeserver-assigned rooms, got name=%q account=%q", createReq.BeeperBridgeName, createReq.BeeperBridgeAccountID)
 	}
 	assertHasUserID(t, createReq.Invite, "@alice:example")
 	assertHasUserID(t, createReq.BeeperInitialMembers, "@alice:example")
@@ -49,6 +56,9 @@ func TestMakePortalCreateRoomRequestBuildsBridgeV2Room(t *testing.T) {
 	}
 	if createReq.PowerLevelOverride.Events[event.StateBridge.Type] != 100 {
 		t.Fatalf("expected m.bridge power level override, got %#v", createReq.PowerLevelOverride.Events)
+	}
+	if createReq.CreationContent["m.federate"] != false {
+		t.Fatalf("expected portal creation content to preserve m.federate=false, got %#v", createReq.CreationContent)
 	}
 	assertHasBridgeState(t, createReq, event.StateBridge.Type)
 	assertHasBridgeState(t, createReq, event.StateHalfShotBridge.Type)
@@ -94,6 +104,123 @@ func TestAppserviceTransactionParsesBeeperStreamSubscribe(t *testing.T) {
 	if got.RoomID != id.RoomID("!room:example") || got.EventID != id.EventID("$event") || got.DeviceID != id.DeviceID("DESKTOP") {
 		t.Fatalf("unexpected parsed subscribe content: %#v", got)
 	}
+}
+
+func TestAppserviceTransactionEmitsMautrixClassifiedEvents(t *testing.T) {
+	var emitted []OutboundEvent
+	core := New(func(evt OutboundEvent) {
+		emitted = append(emitted, evt)
+	})
+	core.appserviceProcessor = newBeeperStreamEventProcessor()
+
+	rawTxn := map[string]any{
+		"events": []any{
+			map[string]any{
+				"content":   map[string]any{"name": "Project room"},
+				"event_id":  "$name",
+				"room_id":   "!room:example",
+				"sender":    "@alice:example",
+				"state_key": "",
+				"type":      "m.room.name",
+			},
+			map[string]any{
+				"content":   map[string]any{"membership": "invite"},
+				"event_id":  "$member",
+				"room_id":   "!room:example",
+				"sender":    "@alice:example",
+				"state_key": "@bob:example",
+				"type":      "m.room.member",
+			},
+		},
+		"ephemeral": []any{
+			map[string]any{
+				"content": map[string]any{
+					"$message": map[string]any{
+						"m.read": map[string]any{
+							"@alice:example": map[string]any{"ts": 1},
+						},
+					},
+				},
+				"room_id": "!room:example",
+				"type":    "m.receipt",
+			},
+		},
+		"room_account_data": []any{
+			map[string]any{
+				"content": map[string]any{"unread": true},
+				"room_id": "!room:example",
+				"type":    "m.marked_unread",
+			},
+		},
+	}
+	payload, err := json.Marshal(MatrixAppserviceTransactionOptions{Transaction: mustJSON(t, rawTxn)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := core.handleAppserviceApplyTransaction(context.Background(), payload); err != nil {
+		t.Fatal(err)
+	}
+
+	assertEmittedSyncEvent(t, emitted, "room_state", "m.room.name", "!room:example")
+	assertEmittedSyncEvent(t, emitted, "membership", "m.room.member", "!room:example")
+	assertEmittedSyncEvent(t, emitted, "receipt", "m.receipt", "!room:example")
+	assertEmittedSyncEvent(t, emitted, "account_data", "m.marked_unread", "!room:example")
+}
+
+func TestAppserviceSetProfileUpdatesGhostProfile(t *testing.T) {
+	requests := make(chan recordedRequest, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.Method + " " + r.URL.RequestURI()}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	initPayload, err := json.Marshal(MatrixAppserviceInitOptions{
+		Homeserver:       server.URL,
+		HomeserverDomain: "example",
+		Registration: MatrixAppserviceRegistration{
+			AppToken:        "as-token",
+			ID:              "test",
+			SenderLocalpart: "testbot",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleInitAppservice(context.Background(), initPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := json.Marshal(MatrixAppserviceSetProfileOptions{
+		AvatarURL:    ptr("mxc://example/avatar"),
+		DisplayName:  ptr("Agent Main"),
+		Identifiers:  []string{"openclaw:agent:main"},
+		IsBridgeBot:  ptr(false),
+		IsNetworkBot: ptr(true),
+		Network:      "openclaw",
+		RemoteID:     "agent_main",
+		Service:      "openclaw",
+		UserID:       "@test_agent_main:example",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleAppserviceSetProfile(context.Background(), payload); err != nil {
+		t.Fatal(err)
+	}
+
+	expectRecordedRequest(t, requests, "POST", "/register", `"username":"test_agent_main"`)
+	expectRecordedRequest(t, requests, "PUT", "/displayname", `"displayname":"Agent Main"`)
+	expectRecordedRequest(t, requests, "PUT", "/avatar_url", `"avatar_url":"mxc://example/avatar"`)
+	waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.HasPrefix(req.path, "PATCH ") &&
+			strings.Contains(req.path, "/profile/") &&
+			strings.Contains(req.body, `"com.beeper.bridge.remote_id":"agent_main"`) &&
+			strings.Contains(req.body, `"com.beeper.bridge.identifiers":["openclaw:agent:main"]`)
+	})
 }
 
 func TestBeeperStreamClientUsesAppserviceBotDevice(t *testing.T) {
@@ -201,6 +328,326 @@ func TestCreateBeeperStreamUsesMautrixEncryptionDecision(t *testing.T) {
 	}
 }
 
+func TestBeeperStreamCarrierContentUsesAIBridgeEnvelopeShape(t *testing.T) {
+	core := New(nil)
+
+	content, err := core.beeperStreamCarrierContent("com.beeper.llm", MatrixPublishBeeperStreamMessagePartOptions{
+		AgentID: "codex",
+		EventID: "$stream",
+		Part: OutboundEvent{
+			"delta":     "hello",
+			"messageId": "msg-1",
+			"model":     "openclaw/codex",
+			"runId":     "run-1",
+			"threadId":  "thread-1",
+			"type":      "TEXT_MESSAGE_CONTENT",
+		},
+		TurnID: "run-1",
+	}, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, ok := content[aistream.BeeperAIKey].(aistream.BeeperAI)
+	if !ok || len(payload.Events) != 1 {
+		t.Fatalf("expected ai-bridge stream payload, got %#v", content)
+	}
+	envelope := payload.Events[0]
+	if envelope.Seq != 7 || payload.Agent.ID != "codex" {
+		t.Fatalf("unexpected ai-bridge envelope routing fields: payload=%#v envelope=%#v", payload, envelope)
+	}
+	if payload.ThreadID != "thread-1" || payload.RunID != "run-1" || payload.MessageID != "msg-1" {
+		t.Fatalf("unexpected ai-bridge run identity: %#v", payload)
+	}
+	if envelope.Event.Type() != "TEXT_MESSAGE_CONTENT" || envelope.Event.Get("delta") != "hello" {
+		t.Fatalf("unexpected ai-bridge event payload: %#v", envelope.Event.Map())
+	}
+	if !envelope.Event.Has("timestamp") {
+		t.Fatalf("expected native bridge to add timestamp before ai-bridge validation: %#v", envelope.Event.Map())
+	}
+
+	custom, err := core.beeperStreamCarrierContent("com.example.custom", MatrixPublishBeeperStreamMessagePartOptions{
+		EventID: "$stream",
+		Part: OutboundEvent{
+			"delta":     "custom",
+			"messageId": "turn-1",
+			"type":      "TEXT_MESSAGE_CONTENT",
+		},
+		TurnID: "turn-1",
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := custom[aistream.BeeperAIKey].(aistream.BeeperAI); !ok {
+		t.Fatalf("expected custom stream type to use ai-bridge payload, got %#v", custom)
+	}
+}
+
+func TestBeeperStreamPublishWithoutSubscribersSendsRoomCarrierEvent(t *testing.T) {
+	requests := make(chan recordedRequest, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.URL.Path}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"event_id":"$event"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@testbot:example"), "device-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.DeviceID = id.DeviceID("PICKLE")
+	cli.StateStore = mautrix.NewMemoryStateStore()
+	core.client = cli
+	core.beeperStream, err = beeperstream.New(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startReq, err := json.Marshal(MatrixStartBeeperStreamMessageOptions{
+		RoomID:     "!room:example",
+		StreamType: "com.beeper.llm",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleStartBeeperStreamMessage(context.Background(), startReq); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case req := <-requests:
+		if !strings.Contains(req.body, `"com.beeper.stream":{"type":"com.beeper.llm"}`) {
+			t.Fatalf("expected room-carrier anchor descriptor, got %s", req.body)
+		}
+	default:
+		t.Fatal("expected stream anchor request")
+	}
+
+	publishReq, err := json.Marshal(MatrixPublishBeeperStreamMessagePartOptions{
+		EventID: "$event",
+		Part: OutboundEvent{
+			"delta":     "hello",
+			"messageId": "turn-test",
+			"type":      "TEXT_MESSAGE_CONTENT",
+		},
+		RoomID: "!room:example",
+		TurnID: "turn-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handlePublishBeeperStreamMessagePart(context.Background(), publishReq); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case req := <-requests:
+			if !strings.Contains(req.path, "/rooms/!room:example/send/m.room.message/") {
+				continue
+			}
+			if !strings.Contains(req.body, `"com.beeper.ai"`) {
+				continue
+			}
+			if !strings.Contains(req.body, `"body":""`) || !strings.Contains(req.body, `"msgtype":"m.text"`) {
+				t.Fatalf("expected hidden m.text carrier event, got %s", req.body)
+			}
+			if !strings.Contains(req.body, `"rel_type":"m.reference"`) || !strings.Contains(req.body, `"event_id":"$event"`) {
+				t.Fatalf("expected carrier event to reference stream root, got %s", req.body)
+			}
+			if !strings.Contains(req.body, `"delta":"hello"`) {
+				t.Fatalf("expected ai-bridge stream payload in carrier body, got %s", req.body)
+			}
+			return
+		case <-deadline:
+			t.Fatal("timed out waiting for room carrier stream event")
+		}
+	}
+}
+
+func TestBeeperAIRunStreamUsesCanonicalAIBridgeRun(t *testing.T) {
+	requests := make(chan recordedRequest, 16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.URL.Path}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"event_id":"$event"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@testbot:example"), "device-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.DeviceID = id.DeviceID("PICKLE")
+	cli.StateStore = mautrix.NewMemoryStateStore()
+	core.client = cli
+	core.beeperStream, err = beeperstream.New(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startReq, err := json.Marshal(MatrixStartBeeperAIRunStreamOptions{
+		MatrixBeginBeeperAIRunOptions: MatrixBeginBeeperAIRunOptions{
+			AgentID:   "codex",
+			AgentName: "Codex",
+			Data:      OutboundEvent{"session_key": "session-1"},
+			Model:     "openclaw/plugin",
+			RunID:     "run-1",
+			ThreadID:  "thread-1",
+		},
+		RoomID: "!room:example",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawStart, err := core.handleStartBeeperAIRunStream(context.Background(), startReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var startResult MatrixBeeperAIRunStreamResult
+	if err = json.Unmarshal(rawStart, &startResult); err != nil {
+		t.Fatal(err)
+	}
+	if startResult.EventID != "$event" || startResult.MessageID != "msg-run-1" {
+		t.Fatalf("unexpected start result: %#v", startResult)
+	}
+	anchorBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"com.beeper.ai"`) && strings.Contains(req.body, `"com.beeper.stream"`)
+	})
+	if strings.Contains(anchorBody, "Working...") || !strings.Contains(anchorBody, `"body":""`) {
+		t.Fatalf("empty stream anchor should not expose working fallback, got %s", anchorBody)
+	}
+
+	appendReq, err := json.Marshal(MatrixAppendBeeperAIRunEventOptions{
+		Event: OutboundEvent{
+			"delta":     "hello",
+			"messageId": "provider-msg",
+			"type":      "TEXT_MESSAGE_CONTENT",
+		},
+		RunID: "run-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = core.handleAppendBeeperAIRunStreamEvent(context.Background(), appendReq); err != nil {
+		t.Fatal(err)
+	}
+	carrierBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"delta":"hello"`)
+	})
+	if !strings.Contains(carrierBody, `"messageId":"msg-run-1"`) {
+		t.Fatalf("expected canonical envelope message id, got %s", carrierBody)
+	}
+	if strings.Contains(carrierBody, `"messageId":"provider-msg"`) {
+		t.Fatalf("expected provider message id to be canonicalized by native stream, got %s", carrierBody)
+	}
+
+	finishReq, err := json.Marshal(MatrixFinishBeeperAIRunOptions{
+		FinishReason: "stop",
+		RunID:        "run-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawFinish, err := core.handleFinishBeeperAIRunStream(context.Background(), finishReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finishResult MatrixBeeperAIRunStreamResult
+	if err = json.Unmarshal(rawFinish, &finishResult); err != nil {
+		t.Fatal(err)
+	}
+	if finishResult.ReplacementEventID == "" || finishResult.Body != "hello" {
+		t.Fatalf("unexpected finish result: %#v", finishResult)
+	}
+	if _, ok := core.beeperAIRuns["run-1"]; ok {
+		t.Fatal("expected finalized stream run to be deleted")
+	}
+	replacementBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"m.new_content"`)
+	})
+	if !strings.Contains(replacementBody, `"com.beeper.ai"`) || !strings.Contains(replacementBody, `"hello"`) {
+		t.Fatalf("expected final replacement to use ai-bridge final content, got %s", replacementBody)
+	}
+	var replacementContent map[string]any
+	if err = json.Unmarshal([]byte(replacementBody), &replacementContent); err != nil {
+		t.Fatal(err)
+	}
+	if replacementContent["body"] != "hello" {
+		t.Fatalf("expected final replacement top-level body to preserve rendered text, got %#v", replacementContent["body"])
+	}
+}
+
+func TestBeeperAIRunStreamStartUsesInitialTextPartForAnchorPreview(t *testing.T) {
+	requests := make(chan recordedRequest, 16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- recordedRequest{body: string(body), path: r.URL.Path}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"event_id":"$event"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	core := New(nil)
+	cli, err := mautrix.NewClient(server.URL, id.UserID("@testbot:example"), "device-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.DeviceID = id.DeviceID("PICKLE")
+	cli.StateStore = mautrix.NewMemoryStateStore()
+	core.client = cli
+	core.beeperStream, err = beeperstream.New(cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startReq, err := json.Marshal(MatrixStartBeeperAIRunStreamOptions{
+		MatrixBeginBeeperAIRunOptions: MatrixBeginBeeperAIRunOptions{
+			AgentID:   "codex",
+			AgentName: "Codex",
+			Model:     "openclaw/plugin",
+			RunID:     "run-preview",
+			ThreadID:  "thread-preview",
+		},
+		InitialParts: []MatrixBeeperAIRunPartOptions{{
+			Kind: "text",
+			Text: "hello",
+		}},
+		RoomID: "!room:example",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawStart, err := core.handleStartBeeperAIRunStream(context.Background(), startReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var startResult MatrixBeeperAIRunStreamResult
+	if err = json.Unmarshal(rawStart, &startResult); err != nil {
+		t.Fatal(err)
+	}
+	if startResult.Body != "hello" {
+		t.Fatalf("expected start snapshot body to use initial text, got %#v", startResult)
+	}
+	anchorBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"com.beeper.ai"`) && strings.Contains(req.body, `"com.beeper.stream"`)
+	})
+	if !strings.Contains(anchorBody, `"body":"hello"`) || strings.Contains(anchorBody, "Working...") {
+		t.Fatalf("expected anchor preview to use initial text, got %s", anchorBody)
+	}
+	carrierBody := waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.Contains(req.body, `"TEXT_MESSAGE_CONTENT"`) && strings.Contains(req.body, `"delta":"hello"`)
+	})
+	if !strings.Contains(carrierBody, `"seq":`) {
+		t.Fatalf("expected initial text part to be published as a stream carrier, got %s", carrierBody)
+	}
+}
+
 func TestRegisterBeeperStreamInjectsDirectSubscribers(t *testing.T) {
 	requests := make(chan recordedRequest, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -286,6 +733,34 @@ type recordedRequest struct {
 	path string
 }
 
+func waitForRecordedRequest(t *testing.T, requests <-chan recordedRequest, matches func(recordedRequest) bool) string {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case req := <-requests:
+			if matches(req) {
+				return req.body
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for recorded request")
+		}
+	}
+}
+
+func expectRecordedRequest(t *testing.T, requests <-chan recordedRequest, method string, pathFragment string, bodyFragment string) {
+	t.Helper()
+	waitForRecordedRequest(t, requests, func(req recordedRequest) bool {
+		return strings.HasPrefix(req.path, method+" ") &&
+			strings.Contains(req.path, pathFragment) &&
+			strings.Contains(req.body, bodyFragment)
+	})
+}
+
+func ptr[T any](value T) *T {
+	return &value
+}
+
 func mustJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(value)
@@ -323,4 +798,21 @@ func assertHasBridgeState(t *testing.T, req *mautrix.ReqCreateRoom, eventType st
 		}
 	}
 	t.Fatalf("missing %s initial state", eventType)
+}
+
+func assertEmittedSyncEvent(t *testing.T, events []OutboundEvent, eventType string, matrixType string, roomID string) {
+	t.Helper()
+	for _, outbound := range events {
+		if outbound["type"] != eventType {
+			continue
+		}
+		rawEvent, ok := outbound["event"].(MatrixSyncEvent)
+		if !ok {
+			t.Fatalf("expected MatrixSyncEvent for %s, got %#v", eventType, outbound["event"])
+		}
+		if rawEvent.Type == matrixType && stringValue(rawEvent.RoomID) == roomID {
+			return
+		}
+	}
+	t.Fatalf("missing emitted %s event for %s in %v", eventType, matrixType, events)
 }

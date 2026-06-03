@@ -1,6 +1,7 @@
 {
   "name": "@beeper/pickle-cloudflare",
   "version": "0.1.0",
+  "private": true,
   "description": "Cloudflare Workers and Durable Objects helpers for Pickle",
   "type": "module",
   "homepage": "https://github.com/beeper/pickle#readme",

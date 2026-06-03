@@ -50,7 +50,7 @@ describe("Beeper bridge manager helpers", () => {
       }
       expect(String(url)).toBe("https://api.example/bridgebox/alice/bridge/sh-dummy/bridge_state");
       expect(init?.method).toBe("POST");
-      expect(init?.headers).toMatchObject({ authorization: "Bearer token" });
+      expect(init?.headers).toMatchObject({ authorization: "Bearer as" });
       expect(JSON.parse(String(init?.body))).toEqual({
         info: {},
         isSelfHosted: true,
@@ -109,6 +109,31 @@ describe("Beeper bridge manager helpers", () => {
       asToken: "as",
       id: "sh-dummy",
     });
+  });
+
+  it("refuses to post bridge state without an appservice token", async () => {
+    const fetch = vi.fn(async (url: URL) => {
+      if (String(url) === "https://api.example/whoami") {
+        return jsonResponse({
+          user: { bridges: {} },
+          userInfo: { username: "alice" },
+        });
+      }
+      return jsonResponse({
+        hs_token: "hs",
+        id: "sh-dummy",
+        namespaces: { user_ids: [{ exclusive: true, regex: "@dummy_.*:beeper.local" }] },
+        sender_localpart: "dummybot",
+        url: "websocket",
+      });
+    });
+
+    await expect(createBeeperAppServiceInit({
+      baseDomain: "example",
+      bridge: "sh-dummy",
+      fetch: fetch as never,
+      token: "token",
+    })).rejects.toThrow("missing as_token");
   });
 });
 

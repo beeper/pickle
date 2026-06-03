@@ -1,4 +1,4 @@
-import { createRemoteMessage } from "@beeper/pickle-bridge";
+import { createRemoteMessage } from "@beeper/pickle-bridge/events";
 import type {
   BridgeConfigPart,
   BridgeContext,
@@ -154,10 +154,10 @@ export class DummyConnector implements CommandHandlingBridgeConnector {
         return reply(ctx.bridge.ghostUserId(localId));
       }
       case "kick-me":
-        await ctx.client.raw.request({
-          body: { reason: "DummyBridge kick-me command", user_id: command.sender.userId },
-          method: "POST",
-          path: `/_matrix/client/v3/rooms/${encodeURIComponent(command.room.mxid)}/kick`,
+        await ctx.client.rooms.kick({
+          reason: "DummyBridge kick-me command",
+          roomId: command.room.mxid,
+          userId: command.sender.userId,
         });
         return { handled: true };
       case "file":

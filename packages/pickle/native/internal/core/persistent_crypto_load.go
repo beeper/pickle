@@ -107,7 +107,6 @@ func (store *persistentCryptoStore) applySnapshot(snapshot persistedCryptoSnapsh
 	store.messageIndices = make(map[storedMessageIndexKey]storedMessageIndexValue, len(snapshot.MessageIndices))
 	for _, item := range snapshot.MessageIndices {
 		store.messageIndices[storedMessageIndexKey{
-			SenderKey: item.SenderKey,
 			SessionID: item.SessionID,
 			Index:     item.Index,
 		}] = storedMessageIndexValue{EventID: item.EventID, Timestamp: item.Timestamp}

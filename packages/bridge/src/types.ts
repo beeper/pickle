@@ -10,6 +10,7 @@ import type {
   MatrixEventSender,
   MatrixMessageEvent,
   MatrixReactionEvent,
+  RoomStateEvent,
   MatrixStore,
   SendMediaMessageOptions,
   SentEvent,
@@ -18,6 +19,9 @@ import type {
   UserInfo as MatrixUserInfo,
 } from "@beeper/pickle";
 import type { BridgeDataStore } from "./store";
+import type { BeeperTurnStream, CreateBeeperTurnStreamOptions } from "./beeper-stream";
+
+export type { MatrixClient, MatrixClientEvent, MatrixMessageEvent, MatrixSubscription } from "@beeper/pickle";
 
 export type BridgeID = string;
 export type UserID = string;
@@ -160,6 +164,14 @@ export interface IdentifierResolvingNetworkAPI extends NetworkAPI {
   resolveIdentifier(ctx: BridgeRequestContext, identifier: ResolveIdentifierParams): Promise<ResolveIdentifierResponse>;
 }
 
+export interface ContactListingNetworkAPI extends NetworkAPI {
+  listContacts(ctx: BridgeRequestContext, params: ListContactsParams): Promise<ListContactsResponse>;
+}
+
+export interface UserSearchingNetworkAPI extends NetworkAPI {
+  searchUsers(ctx: BridgeRequestContext, params: SearchUsersParams): Promise<SearchUsersResponse>;
+}
+
 export interface MessageRequestHandlingNetworkAPI extends NetworkAPI {
   handleMessageRequest(ctx: BridgeRequestContext, request: MessageRequest): Promise<MessageRequest>;
 }
@@ -204,7 +216,7 @@ export interface PollHandlingNetworkAPI extends NetworkAPI {
 }
 
 export interface DisappearTimerChangingNetworkAPI extends NetworkAPI {
-  handleMatrixDisappearTimer(ctx: BridgeRequestContext, msg: MatrixDisappearTimer): Promise<void>;
+  handleMatrixDisappearTimer(ctx: BridgeRequestContext, msg: MatrixDisappearTimer): Promise<boolean> | boolean;
 }
 
 export interface MembershipHandlingNetworkAPI extends NetworkAPI {
@@ -212,15 +224,15 @@ export interface MembershipHandlingNetworkAPI extends NetworkAPI {
 }
 
 export interface RoomNameHandlingNetworkAPI extends NetworkAPI {
-  handleMatrixRoomName(ctx: BridgeRequestContext, msg: MatrixRoomName): Promise<void>;
+  handleMatrixRoomName(ctx: BridgeRequestContext, msg: MatrixRoomName): Promise<boolean> | boolean;
 }
 
 export interface RoomTopicHandlingNetworkAPI extends NetworkAPI {
-  handleMatrixRoomTopic(ctx: BridgeRequestContext, msg: MatrixRoomTopic): Promise<void>;
+  handleMatrixRoomTopic(ctx: BridgeRequestContext, msg: MatrixRoomTopic): Promise<boolean> | boolean;
 }
 
 export interface RoomAvatarHandlingNetworkAPI extends NetworkAPI {
-  handleMatrixRoomAvatar(ctx: BridgeRequestContext, msg: MatrixRoomAvatar): Promise<void>;
+  handleMatrixRoomAvatar(ctx: BridgeRequestContext, msg: MatrixRoomAvatar): Promise<boolean> | boolean;
 }
 
 export interface MuteHandlingNetworkAPI extends NetworkAPI {
@@ -406,7 +418,7 @@ export interface RemotePostHandler extends RemoteEvent {
 }
 
 export interface RemoteChatInfoChange extends RemoteEvent {
-  getChatInfoChange(ctx: BridgeRequestContext): Promise<ChatInfoChange>;
+  getChatInfoChange(ctx: BridgeRequestContext): Promise<ChatInfoChange> | ChatInfoChange;
 }
 
 export interface RemoteChatResync extends RemoteEvent {}
@@ -507,9 +519,11 @@ export interface PickleBridge {
   readonly client: MatrixClient | null;
   readonly connector: BridgeConnector;
   readonly context: BridgeContext | null;
+  readonly roomState: BridgeRoomStateAPI;
   acceptMessageRequest(portalKey: PortalKey): Promise<MessageRequest>;
   createLogin(user: BridgeUser, flowId: string): Promise<LoginProcess>;
   createManagementRoom(options: BridgeCreateManagementRoomOptions): Promise<ManagementRoom>;
+  createBeeperTurnStream(options: Omit<CreateBeeperTurnStreamOptions, "client">): BeeperTurnStream;
   backfill(options: BridgeBackfillOptions): Promise<MatrixAppserviceBatchSendResult>;
   backfillMessages(login: UserLogin, params: FetchMessagesParams): Promise<MatrixAppserviceBatchSendResult>;
   backfillPortal(login: UserLogin, portal: PortalReference, params?: Omit<FetchMessagesParams, "portal">): Promise<MatrixAppserviceBatchSendResult>;
@@ -531,7 +545,7 @@ export interface PickleBridge {
   loadUserLogin(login: UserLogin): Promise<NetworkAPI>;
   queue(login: UserLogin): RemoteEventQueue;
   queueRemoteEvent(login: UserLogin, event: RemoteEvent): QueueRemoteEventResult;
-  registerGhost(ghost: Ghost): void;
+  registerGhost(ghost: Ghost): Promise<void>;
   registerManagementRoom(room: ManagementRoom): void;
   registerPortal(portal: Portal): void;
   resolveIdentifier(login: UserLogin, identifier: ResolveIdentifierParams): Promise<ResolveIdentifierResponse>;
@@ -545,6 +559,25 @@ export interface PickleBridge {
   start(): Promise<void>;
   stop(): Promise<void>;
   uploadMedia(options: UploadMediaOptions): Promise<UploadMediaResult>;
+}
+
+export interface BridgeRoomStateAPI {
+  get(options: BridgeRoomStateGetOptions): Promise<RoomStateEvent>;
+  set(options: BridgeRoomStateSetOptions): Promise<SentEvent>;
+}
+
+export interface BridgeRoomStateGetOptions {
+  eventType: string;
+  roomId: RoomID;
+  stateKey?: string;
+}
+
+export interface BridgeRoomStateSetOptions {
+  content: Record<string, unknown>;
+  eventType: string;
+  portal?: Portal;
+  roomId?: RoomID;
+  stateKey?: string;
 }
 
 export interface CreateBridgeOptions {
@@ -563,7 +596,7 @@ export interface BridgeBeeperOptions {
 }
 
 export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "appservice" | "matrix"> {
-  account: MatrixAccount;
+  account?: MatrixAccount;
   address?: string;
   baseDomain?: string;
   bridge: string;
@@ -573,6 +606,7 @@ export interface CreateBeeperBridgeOptions extends Omit<CreateBridgeOptions, "ap
   getOnly?: boolean;
   homeserverDomain?: string;
   matrix?: Partial<Omit<BridgeMatrixConfig, "account">>;
+  ownerUserId?: UserID;
   store?: MatrixStore;
 }
 
@@ -648,6 +682,7 @@ export interface BridgeRemoteBackfillMessageOptions<T = unknown> extends Omit<Br
 
 export interface BridgeCreatePortalRoomOptions {
   avatarUrl?: string;
+  creationContent?: Record<string, unknown>;
   info?: ChatInfo;
   initialState?: { content: Record<string, unknown>; stateKey: string; type: string }[];
   invite?: UserID[];
@@ -700,6 +735,7 @@ export interface MatrixCommandResponse {
 export type {
   MatrixAppserviceInitOptions,
   MatrixAppserviceSendMessageOptions,
+  SentEvent,
 };
 
 export interface MatrixDispatchResult {
@@ -729,10 +765,13 @@ export interface ProvisioningCapabilities {
 }
 
 export interface ResolveIdentifierCapabilities {
+  anyPhone?: boolean;
   contactList?: boolean;
   createDM?: boolean;
+  lookupEmail?: boolean;
   lookupPhone?: boolean;
   lookupUsername?: boolean;
+  search?: boolean;
 }
 
 export interface GroupTypeCapabilities {
@@ -803,20 +842,26 @@ export interface UserLogin {
 }
 
 export interface Portal {
+  avatar?: Avatar;
   id: PortalID;
   metadata?: unknown;
   mxid?: string;
+  name?: string;
   portalKey: PortalKey;
   receiver?: UserLoginID;
   roomType?: "dm" | "group" | "space" | string;
+  topic?: string;
 }
 
 export interface Ghost {
   avatar?: Avatar;
   displayName?: string;
   id: GhostID;
+  identifiers?: string[];
+  isBot?: boolean;
   metadata?: unknown;
   mxid?: string;
+  profile?: Record<string, unknown>;
 }
 
 export type BridgeState = "starting" | "running" | "stopping" | "stopped" | "degraded" | "error";
@@ -886,6 +931,24 @@ export interface ResolveIdentifierResponse {
   userId?: UserID;
 }
 
+export interface ListContactsParams {
+  limit?: number;
+  query?: string;
+}
+
+export interface ListContactsResponse {
+  contacts: ResolveIdentifierResponse[];
+  nextBatch?: string;
+}
+
+export interface SearchUsersParams {
+  query: string;
+}
+
+export interface SearchUsersResponse {
+  results: ResolveIdentifierResponse[];
+}
+
 export interface UserProfile {
   avatarUrl?: string;
   displayName?: string;
@@ -932,7 +995,19 @@ export interface ConvertedMessagePart {
 }
 
 export interface ConvertedEdit {
-  modifiedParts: ConvertedMessagePart[];
+  addedParts?: ConvertedMessage;
+  deletedParts?: Message[];
+  modifiedParts: ConvertedEditPart[];
+}
+
+export interface ConvertedEditPart {
+  content: Record<string, unknown>;
+  dontBridge?: boolean;
+  extra?: Record<string, unknown>;
+  id?: PartID;
+  part?: Message;
+  topLevelExtra?: Record<string, unknown>;
+  type: string;
 }
 
 export interface UpsertResult {
@@ -956,6 +1031,14 @@ export interface CreateRemoteMessageOptions<T = unknown> {
   timestamp?: Date;
   transactionId?: TransactionID;
   type?: "message" | "message_upsert";
+}
+
+export interface CreateRemoteChatInfoChangeOptions {
+  chatInfoChange: ChatInfoChange;
+  portalKey: PortalKey;
+  sender: EventSender;
+  streamOrder?: number;
+  timestamp?: Date;
 }
 
 export interface BridgeRemoteEventOptions {
@@ -1026,7 +1109,9 @@ export interface MatrixRedaction {
 
 export interface MatrixReadReceipt {
   portal: Portal;
+  receiptType?: string;
   targetMessage: Message;
+  userId?: string;
 }
 
 export interface MatrixTyping {
@@ -1082,6 +1167,7 @@ export interface MatrixTag {
 export interface MatrixMarkedUnread {
   portal: Portal;
   unread: boolean;
+  userId?: string;
 }
 
 export interface MatrixDeleteChat {
@@ -1129,17 +1215,28 @@ export interface MessageCheckpoints {
 
 export interface ChatInfo {
   avatar?: Avatar;
+  canBackfill?: boolean;
+  extraUpdates?: Record<string, unknown>;
+  members?: ChatMemberList;
   name?: string;
   participants?: UserID[];
+  roomType?: "dm" | "group" | "space" | string;
   topic?: string;
 }
 
 export interface ChatInfoChange {
-  avatar?: Avatar;
-  name?: string;
-  participantsAdded?: UserID[];
-  participantsRemoved?: UserID[];
-  topic?: string;
+  chatInfo?: ChatInfo;
+  memberChanges?: ChatMemberList;
+}
+
+export interface ChatMember {
+  membership?: "join" | "invite" | "leave" | "ban" | "knock" | string;
+  userId: UserID;
+}
+
+export interface ChatMemberList {
+  isFull?: boolean;
+  members: ChatMember[];
 }
 
 export interface Avatar {
