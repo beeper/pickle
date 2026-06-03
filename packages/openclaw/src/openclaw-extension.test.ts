@@ -18,38 +18,28 @@ describe("OpenClaw plugin package metadata", () => {
     });
     expect(extension.id).toBe("beeper");
     expect(extension.kind).toBe("bundled-channel-entry");
-    expect(extension.loadChannelPlugin()).toMatchObject({ id: "beeper" });
+    const loadedPlugin = extension.loadChannelPlugin();
+    expect(loadedPlugin.id).toBe("beeper");
     expect(extension.loadChannelSecrets()).toMatchObject({
       secretTargetRegistryEntries: expect.arrayContaining([
         expect.objectContaining({ pathPattern: "channels.beeper.accounts.*.asToken" }),
         expect.objectContaining({ pathPattern: "channels.beeper.accounts.*.hsToken" }),
       ]),
     });
-    expect(resolveBundledRuntimeChannelRegistration(extension)).toMatchObject({
-      id: "beeper",
-      plugin: expect.objectContaining({
-        id: "beeper",
-        setupWizard: expect.any(Object),
-      }),
-    });
-    expect(registered).toEqual([
-      expect.objectContaining({
-        capabilities: expect.objectContaining({
-          reactions: true,
-          threads: true,
-        }),
-        id: "beeper",
-        message: expect.objectContaining({
-          live: expect.objectContaining({
-            capabilities: expect.objectContaining({ nativeStreaming: true }),
-          }),
-        }),
-        messaging: expect.any(Object),
-        setup: expect.any(Object),
-        setupWizard: expect.any(Object),
-        threading: expect.any(Object),
-      }),
-    ]);
+    const runtimeRegistration = resolveBundledRuntimeChannelRegistration(extension);
+    expect(runtimeRegistration.id).toBe("beeper");
+    expect(runtimeRegistration.plugin.id).toBe("beeper");
+    expect(runtimeRegistration.plugin.setupWizard).toEqual(expect.any(Object));
+    expect(registered).toHaveLength(1);
+    const [registeredPlugin] = registered as Array<typeof loadedPlugin>;
+    expect(registeredPlugin.id).toBe("beeper");
+    expect(registeredPlugin.capabilities.reactions).toBe(true);
+    expect(registeredPlugin.capabilities.threads).toBe(true);
+    expect(registeredPlugin.message?.live?.capabilities.nativeStreaming).toBe(true);
+    expect(registeredPlugin.messaging).toEqual(expect.any(Object));
+    expect(registeredPlugin.setup).toEqual(expect.any(Object));
+    expect(registeredPlugin.setupWizard).toEqual(expect.any(Object));
+    expect(registeredPlugin.threading).toEqual(expect.any(Object));
   }, 15_000);
 
   it("honors SDK channel registration modes", () => {

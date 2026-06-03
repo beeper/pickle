@@ -192,35 +192,27 @@ describe("OpenClaw Beeper setup surface", () => {
   });
 
   it("exposes a channel plugin through the setup entry shape OpenClaw loads", () => {
-    expect(extension.loadChannelPlugin()).toMatchObject({ id: "beeper" });
-    expect(beeperChannelPlugin).toMatchObject({
-      id: "beeper",
-      meta: {
-        id: "beeper",
-        label: "Beeper",
-      },
-      capabilities: {
-        media: true,
-        nativeCommands: true,
-        reactions: true,
-        threads: true,
-      },
-      threading: expect.any(Object),
-      reload: {
-        configPrefixes: ["channels.beeper"],
-      },
-      gateway: {
-        startAccount: expect.any(Function),
-        stopAccount: expect.any(Function),
-      },
-      uiHints: expect.objectContaining({
-        "accounts.*.asToken": expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
-        "accounts.*.hsToken": expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
-        "accounts.*.serverEnv": expect.objectContaining({
-          help: expect.stringContaining("Choose before Beeper login"),
-        }),
-      }),
-    });
+    expect(extension.loadChannelPlugin().id).toBe("beeper");
+    expect(beeperChannelPlugin.id).toBe("beeper");
+    expect(beeperChannelPlugin.meta.id).toBe("beeper");
+    expect(beeperChannelPlugin.meta.label).toBe("Beeper");
+    expect(beeperChannelPlugin.capabilities.media).toBe(true);
+    expect(beeperChannelPlugin.capabilities.nativeCommands).toBe(true);
+    expect(beeperChannelPlugin.capabilities.reactions).toBe(true);
+    expect(beeperChannelPlugin.capabilities.threads).toBe(true);
+    expect(beeperChannelPlugin.threading).toEqual(expect.any(Object));
+    expect(beeperChannelPlugin.reload?.configPrefixes).toEqual(["channels.beeper"]);
+    expect(beeperChannelPlugin.gateway?.startAccount).toEqual(expect.any(Function));
+    expect(beeperChannelPlugin.gateway?.stopAccount).toEqual(expect.any(Function));
+    expect(beeperChannelPlugin.uiHints["accounts.*.asToken"]).toEqual(
+      expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
+    );
+    expect(beeperChannelPlugin.uiHints["accounts.*.hsToken"]).toEqual(
+      expect.objectContaining({ sensitive: true, tags: ["hidden"] }),
+    );
+    expect(beeperChannelPlugin.uiHints["accounts.*.serverEnv"]).toEqual(expect.objectContaining({
+      help: expect.stringContaining("Choose before Beeper login"),
+    }));
     expect(beeperChannelPlugin.setup).toBe(beeperSetupAdapter);
     expect(beeperChannelPlugin.setupWizard).toBe(beeperSetupWizard);
   });
