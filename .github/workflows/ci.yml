@@ -37,14 +37,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Build
+        run: pnpm build
+
       - name: Test
         run: pnpm test
 
       - name: Go test
         run: pnpm test:go
-
-      - name: Build
-        run: pnpm build
 
       - name: Pack packages
         run: pnpm pack:packages
